@@ -41,6 +41,10 @@ Thumbs.db
 # Testing
 coverage/
 
+# Replit
+.replit
+attached_assets/
+
 # Misc
 .cache/
 tmp/
