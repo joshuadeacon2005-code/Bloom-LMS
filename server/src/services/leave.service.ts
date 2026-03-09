@@ -18,6 +18,7 @@ import {
   addPending,
   releasePending,
 } from './balance.service'
+import { deleteLeaveEvent } from './calendar.service'
 import { createNotification } from './notification.service'
 import { ValidationError, NotFoundError, ForbiddenError, AppError } from '../utils/errors'
 
@@ -501,10 +502,19 @@ export async function cancelLeaveRequest(
     }
   }
 
-  await db
-    .update(leaveRequests)
-    .set({ status: 'cancelled' })
-    .where(eq(leaveRequests.id, requestId))
+  // Delete Google Calendar event if one exists (non-fatal)
+  if (request.googleEventId) {
+    await deleteLeaveEvent(request.googleEventId)
+    await db
+      .update(leaveRequests)
+      .set({ status: 'cancelled', googleEventId: null })
+      .where(eq(leaveRequests.id, requestId))
+  } else {
+    await db
+      .update(leaveRequests)
+      .set({ status: 'cancelled' })
+      .where(eq(leaveRequests.id, requestId))
+  }
 
   // Cancel all pending approvals
   await db

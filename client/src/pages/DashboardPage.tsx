@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import { format, addDays } from 'date-fns'
-import { CalendarDays, Clock, CheckCircle, Plus, ArrowRight } from 'lucide-react'
+import { CalendarDays, Clock, CheckCircle, Plus, ArrowRight, Timer } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { Badge } from '@/components/ui/badge'
 import { LeaveStatusBadge } from '@/components/leave/LeaveStatusBadge'
 import { RequestLeaveSheet } from '@/components/leave/RequestLeaveSheet'
 import { EmptyState } from '@/components/shared/EmptyState'
@@ -14,6 +15,7 @@ import { useAuthStore } from '@/stores/authStore'
 import { useBalances } from '@/hooks/useBalances'
 import { useLeaveRequests } from '@/hooks/useLeaveRequests'
 import { useTeamCalendar } from '@/hooks/useLeaveRequests'
+import { useOvertimeBalance } from '@/hooks/useOvertime'
 
 export function DashboardPage() {
   const { user } = useAuthStore()
@@ -33,6 +35,8 @@ export function DashboardPage() {
     endDate: nextWeek,
     regionId: user?.regionId,
   })
+
+  const { data: otBalance } = useOvertimeBalance()
 
   const pendingCount = myRequests?.data.filter((r) => r.status === 'pending').length ?? 0
   const paidBalances = balances?.filter((b) => b.leaveType?.isPaid && b.available > 0) ?? []
@@ -137,6 +141,24 @@ export function DashboardPage() {
             </CardContent>
           </Card>
         ) : null}
+
+        {/* Pending overtime compensation */}
+        {otBalance && otBalance.pendingCount > 0 && (
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">
+                Overtime Pending
+              </CardTitle>
+              <Timer className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold text-foreground">{otBalance.pendingCount}</div>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {otBalance.pendingDays}d awaiting approval
+              </p>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       {/* Leave balances */}

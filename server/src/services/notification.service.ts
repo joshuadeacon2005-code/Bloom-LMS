@@ -10,6 +10,9 @@ type NotificationType =
   | 'approval_reminder'
   | 'team_digest'
   | 'balance_low'
+  | 'overtime_submitted'
+  | 'overtime_approved'
+  | 'overtime_rejected'
 
 export async function createNotification(data: {
   userId: number

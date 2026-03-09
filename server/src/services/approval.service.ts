@@ -3,6 +3,7 @@ import { db } from '../db/index'
 import { approvalWorkflows, leaveRequests, users, leaveTypes } from '../db/schema'
 import { movePendingToUsed, releasePending } from './balance.service'
 import { createNotification } from './notification.service'
+import { createLeaveEvent, deleteLeaveEvent } from './calendar.service'
 import { parseDecimal } from '../utils/workingDays'
 import { NotFoundError, ForbiddenError, ValidationError } from '../utils/errors'
 
@@ -134,7 +135,7 @@ async function finaliseApproval(requestId: number, _approverId: number) {
 
   // Move pending → used in balance
   const [lt] = await db
-    .select({ isPaid: leaveTypes.isPaid })
+    .select({ isPaid: leaveTypes.isPaid, name: leaveTypes.name })
     .from(leaveTypes)
     .where(eq(leaveTypes.id, request.leaveTypeId))
     .limit(1)
@@ -145,18 +146,36 @@ async function finaliseApproval(requestId: number, _approverId: number) {
     await movePendingToUsed(request.userId, request.leaveTypeId, year, days)
   }
 
-  // Notify employee
-  const [lt2] = await db
-    .select({ name: leaveTypes.name })
-    .from(leaveTypes)
-    .where(eq(leaveTypes.id, request.leaveTypeId))
+  // Google Calendar sync — create event
+  const [employee] = await db
+    .select({ name: users.name })
+    .from(users)
+    .where(eq(users.id, request.userId))
     .limit(1)
 
+  if (employee && lt) {
+    const googleEventId = await createLeaveEvent({
+      employeeName: employee.name,
+      leaveTypeName: lt.name,
+      startDate: request.startDate,
+      endDate: request.endDate,
+      totalDays: parseDecimal(request.totalDays),
+      reason: request.reason,
+    })
+    if (googleEventId) {
+      await db
+        .update(leaveRequests)
+        .set({ googleEventId })
+        .where(eq(leaveRequests.id, requestId))
+    }
+  }
+
+  // Notify employee
   await createNotification({
     userId: request.userId,
     type: 'leave_approved',
     title: 'Leave Request Approved',
-    message: `Your ${lt2?.name ?? 'leave'} request from ${request.startDate} to ${request.endDate} has been approved.`,
+    message: `Your ${lt?.name ?? 'leave'} request from ${request.startDate} to ${request.endDate} has been approved.`,
     metadata: { leaveRequestId: requestId },
   })
 
@@ -220,11 +239,19 @@ export async function rejectRequest(
       )
     )
 
-  // Mark request rejected
-  await db
-    .update(leaveRequests)
-    .set({ status: 'rejected' })
-    .where(eq(leaveRequests.id, requestId))
+  // Mark request rejected + delete calendar event if one exists
+  if (request.googleEventId) {
+    await deleteLeaveEvent(request.googleEventId)
+    await db
+      .update(leaveRequests)
+      .set({ status: 'rejected', googleEventId: null })
+      .where(eq(leaveRequests.id, requestId))
+  } else {
+    await db
+      .update(leaveRequests)
+      .set({ status: 'rejected' })
+      .where(eq(leaveRequests.id, requestId))
+  }
 
   // Release pending balance
   const [lt] = await db

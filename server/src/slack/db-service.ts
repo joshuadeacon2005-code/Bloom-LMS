@@ -48,6 +48,10 @@ export async function getUserBySlackId(slackUserId: string): Promise<DbUser | nu
   return selectUser(eq(users.slackUserId, slackUserId))
 }
 
+export async function getUserById(userId: number): Promise<DbUser | null> {
+  return selectUser(eq(users.id, userId))
+}
+
 export async function getUserByEmail(email: string): Promise<DbUser | null> {
   return selectUser(eq(users.email, email))
 }

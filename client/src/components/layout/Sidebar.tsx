@@ -62,15 +62,22 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        'relative flex h-screen flex-col border-r border-border bg-card transition-all duration-300',
+        'relative flex h-screen flex-col transition-all duration-300',
         sidebarCollapsed ? 'w-16' : 'w-60'
       )}
+      style={{ backgroundColor: 'var(--color-secondary)' }}
     >
       {/* Logo */}
-      <div className="flex h-20 items-center border-b border-border px-3">
+      <div
+        className={cn(
+          'flex h-16 items-center border-b px-3',
+          sidebarCollapsed ? 'justify-center' : 'gap-2'
+        )}
+        style={{ borderColor: 'rgba(255,255,255,0.1)' }}
+      >
         {sidebarCollapsed ? (
           <div
-            className="flex h-9 w-9 items-center justify-center rounded-lg"
+            className="flex h-8 w-8 items-center justify-center rounded-lg"
             style={{ backgroundColor: 'var(--color-primary)' }}
           >
             <span className="text-sm font-bold text-white">B</span>
@@ -79,23 +86,28 @@ export function Sidebar() {
           <img
             src={LOGO_URL}
             alt="Bloom & Grow"
-            className="h-16 w-auto object-contain"
+            className="h-10 w-auto max-w-[140px] object-contain brightness-0 invert"
             onError={(e) => {
-              ;(e.target as HTMLImageElement).style.display = 'none'
-              ;(e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden')
+              const img = e.target as HTMLImageElement
+              img.style.display = 'none'
+              const fallback = img.nextElementSibling as HTMLElement | null
+              if (fallback) fallback.style.display = 'flex'
             }}
           />
         )}
         {!sidebarCollapsed && (
-          <span className="ml-2 hidden text-sm font-semibold text-foreground">
-            Bloom & Grow
+          <span
+            className="hidden text-sm font-semibold text-white"
+            style={{ display: 'none' }}
+          >
+            Bloom &amp; Grow
           </span>
         )}
       </div>
 
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto p-2">
-        <ul className="space-y-1">
+        <ul className="space-y-0.5">
           {visibleItems.map((item) => (
             <li key={item.to}>
               {sidebarCollapsed ? (
@@ -107,9 +119,12 @@ export function Sidebar() {
                         cn(
                           'flex h-9 w-9 items-center justify-center rounded-md transition-colors',
                           isActive
-                            ? 'bg-primary text-primary-foreground'
-                            : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                            ? 'text-white'
+                            : 'text-white/60 hover:bg-white/10 hover:text-white'
                         )
+                      }
+                      style={({ isActive }) =>
+                        isActive ? { backgroundColor: 'var(--color-primary)' } : {}
                       }
                     >
                       <item.icon className="h-4 w-4" />
@@ -124,9 +139,12 @@ export function Sidebar() {
                     cn(
                       'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
                       isActive
-                        ? 'bg-primary text-primary-foreground'
-                        : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+                        ? 'text-white'
+                        : 'text-white/60 hover:bg-white/10 hover:text-white'
                     )
+                  }
+                  style={({ isActive }) =>
+                    isActive ? { backgroundColor: 'var(--color-primary)' } : {}
                   }
                 >
                   <item.icon className="h-4 w-4 shrink-0" />
@@ -139,17 +157,23 @@ export function Sidebar() {
       </nav>
 
       {/* User section */}
-      <div className="border-t border-border p-2">
+      <div
+        className="border-t p-2"
+        style={{ borderColor: 'rgba(255,255,255,0.1)' }}
+      >
         {sidebarCollapsed ? (
           <Tooltip>
             <TooltipTrigger asChild>
               <button
                 onClick={() => navigate('/settings')}
-                className="flex h-9 w-9 items-center justify-center rounded-md hover:bg-accent"
+                className="flex h-9 w-9 items-center justify-center rounded-md hover:bg-white/10"
               >
                 <Avatar className="h-7 w-7">
                   <AvatarImage src={user?.avatarUrl ?? undefined} />
-                  <AvatarFallback className="text-xs" style={{ backgroundColor: 'var(--color-primary)', color: 'white' }}>
+                  <AvatarFallback
+                    className="text-xs text-white"
+                    style={{ backgroundColor: 'var(--color-primary)' }}
+                  >
                     {initials}
                   </AvatarFallback>
                 </Avatar>
@@ -161,20 +185,23 @@ export function Sidebar() {
           <div className="flex items-center gap-2 rounded-md px-2 py-1.5">
             <Avatar className="h-7 w-7 shrink-0">
               <AvatarImage src={user?.avatarUrl ?? undefined} />
-              <AvatarFallback className="text-xs" style={{ backgroundColor: 'var(--color-primary)', color: 'white' }}>
+              <AvatarFallback
+                className="text-xs text-white"
+                style={{ backgroundColor: 'var(--color-primary)' }}
+              >
                 {initials}
               </AvatarFallback>
             </Avatar>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-xs font-medium text-foreground">{user?.name}</p>
-              <p className="truncate text-xs text-muted-foreground capitalize">
+              <p className="truncate text-xs font-medium text-white">{user?.name}</p>
+              <p className="truncate text-xs capitalize text-white/50">
                 {user?.role.replace('_', ' ')}
               </p>
             </div>
             <Button
               variant="ghost"
               size="icon"
-              className="h-7 w-7 shrink-0"
+              className="h-7 w-7 shrink-0 text-white/50 hover:bg-white/10 hover:text-white"
               onClick={() => logout.mutate()}
             >
               <LogOut className="h-3.5 w-3.5" />
@@ -186,13 +213,16 @@ export function Sidebar() {
       {/* Collapse toggle */}
       <button
         onClick={toggleSidebar}
-        className="absolute -right-3 top-20 flex h-6 w-6 items-center justify-center rounded-full border border-border bg-card shadow-sm hover:bg-accent"
-        style={{ position: 'absolute' }}
+        className="absolute -right-3 top-[4.5rem] flex h-6 w-6 items-center justify-center rounded-full border shadow-sm"
+        style={{
+          backgroundColor: 'var(--color-secondary)',
+          borderColor: 'rgba(255,255,255,0.15)',
+        }}
       >
         {sidebarCollapsed ? (
-          <ChevronRight className="h-3 w-3 text-muted-foreground" />
+          <ChevronRight className="h-3 w-3 text-white/60" />
         ) : (
-          <ChevronLeft className="h-3 w-3 text-muted-foreground" />
+          <ChevronLeft className="h-3 w-3 text-white/60" />
         )}
       </button>
     </aside>

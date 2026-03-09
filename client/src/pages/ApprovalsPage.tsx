@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { format } from 'date-fns'
-import { CheckCircle, XCircle, Clock, History, CheckSquare } from 'lucide-react'
+import { CheckCircle, XCircle, Clock, History, CheckSquare, Timer } from 'lucide-react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -27,6 +27,11 @@ import {
   useRejectRequest,
   type PendingApproval,
 } from '@/hooks/useApprovals'
+import {
+  usePendingOvertime,
+  useApproveOvertime,
+  useRejectOvertime,
+} from '@/hooks/useOvertime'
 import { toast } from 'sonner'
 import { useQueryClient } from '@tanstack/react-query'
 import api from '@/lib/api'
@@ -201,11 +206,21 @@ export function ApprovalsPage() {
   const [comments, setComments] = useState('')
   const [bulkBusy, setBulkBusy] = useState(false)
 
+  // Overtime approval state
+  const [otActionId, setOTActionId] = useState<number | null>(null)
+  const [otRejectId, setOTRejectId] = useState<number | null>(null)
+  const [otRejectReason, setOTRejectReason] = useState('')
+
   const qc = useQueryClient()
   const { data: pending, isLoading: loadingPending } = usePendingApprovals()
   const { data: history, isLoading: loadingHistory } = useApprovalHistory()
   const approve = useApproveRequest()
   const reject = useRejectRequest()
+
+  // Overtime hooks
+  const { data: pendingOT, isLoading: loadingOT } = usePendingOvertime()
+  const approveOT = useApproveOvertime()
+  const rejectOT = useRejectOvertime()
 
   const pendingList = pending?.data ?? []
 
@@ -295,6 +310,13 @@ export function ApprovalsPage() {
           <TabsTrigger value="history" className="gap-1.5">
             <History className="h-3.5 w-3.5" />
             History
+          </TabsTrigger>
+          <TabsTrigger value="overtime" className="gap-1.5">
+            <Timer className="h-3.5 w-3.5" />
+            Overtime
+            {pendingOT && pendingOT.length > 0 && (
+              <Badge className="ml-1 h-5 px-1.5 text-xs">{pendingOT.length}</Badge>
+            )}
           </TabsTrigger>
         </TabsList>
 
@@ -393,7 +415,153 @@ export function ApprovalsPage() {
             </div>
           )}
         </TabsContent>
+
+        {/* ── OVERTIME TAB ── */}
+        <TabsContent value="overtime" className="mt-4 space-y-4">
+          {loadingOT ? (
+            <div className="space-y-4">
+              {[1, 2].map((i) => <Skeleton key={i} className="h-32 w-full" />)}
+            </div>
+          ) : !pendingOT?.length ? (
+            <EmptyState
+              icon={CheckCircle}
+              title="No pending overtime entries"
+              description="Your team has no overtime awaiting approval."
+              className="py-16"
+            />
+          ) : (
+            <div className="space-y-4">
+              {pendingOT.map((entry) => (
+                <Card key={entry.id} className="hover:shadow-md transition-all">
+                  <CardContent className="p-5">
+                    <div className="flex items-start gap-3">
+                      <Avatar className="h-10 w-10 shrink-0">
+                        <AvatarFallback style={{ backgroundColor: 'var(--color-primary)', color: 'white' }}>
+                          {entry.user.name.split(' ').map((n: string) => n[0]).join('').slice(0, 2)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <p className="font-semibold">{entry.user.name}</p>
+                            <p className="text-xs text-muted-foreground">{entry.user.email}</p>
+                          </div>
+                          <Badge variant="outline" className="shrink-0 text-xs">
+                            {entry.hoursWorked}h overtime · {entry.daysRequested}d comp
+                          </Badge>
+                        </div>
+                        <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-sm sm:grid-cols-4">
+                          <div>
+                            <span className="text-xs text-muted-foreground block">Date</span>
+                            <span className="font-medium">{format(new Date(entry.date), 'd MMM yyyy')}</span>
+                          </div>
+                          <div>
+                            <span className="text-xs text-muted-foreground block">Hours Worked</span>
+                            <span className="font-medium">{entry.hoursWorked}h</span>
+                          </div>
+                          <div>
+                            <span className="text-xs text-muted-foreground block">Days Requested</span>
+                            <span className="font-medium text-primary">{entry.daysRequested}d</span>
+                          </div>
+                          <div>
+                            <span className="text-xs text-muted-foreground block">Submitted</span>
+                            <span className="font-medium">{format(new Date(entry.createdAt), 'd MMM')}</span>
+                          </div>
+                        </div>
+                        {entry.reason && (
+                          <p className="mt-2 text-sm text-muted-foreground italic line-clamp-2">
+                            &ldquo;{entry.reason}&rdquo;
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="mt-4 flex justify-end gap-2 border-t pt-4">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
+                        onClick={() => setOTRejectId(entry.id)}
+                      >
+                        <XCircle className="mr-1.5 h-4 w-4" />
+                        Decline
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="bg-green-600 hover:bg-green-700"
+                        onClick={() => setOTActionId(entry.id)}
+                      >
+                        <CheckCircle className="mr-1.5 h-4 w-4" />
+                        Approve
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </TabsContent>
       </Tabs>
+
+      {/* Overtime approve confirmation */}
+      <Dialog open={otActionId !== null} onOpenChange={() => setOTActionId(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Approve overtime entry?</DialogTitle>
+            <DialogDescription>
+              The requested days will be added to the employee's annual leave balance automatically.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOTActionId(null)}>Cancel</Button>
+            <Button
+              className="bg-green-600 hover:bg-green-700"
+              disabled={approveOT.isPending}
+              onClick={() => {
+                if (otActionId) approveOT.mutate(otActionId, { onSuccess: () => setOTActionId(null) })
+              }}
+            >
+              {approveOT.isPending ? 'Approving…' : 'Approve'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Overtime reject dialog */}
+      <Dialog open={otRejectId !== null} onOpenChange={() => { setOTRejectId(null); setOTRejectReason('') }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Decline overtime entry?</DialogTitle>
+            <DialogDescription>The employee will be notified with your reason.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-1.5">
+            <Label>Reason <span className="text-muted-foreground text-xs">(required)</span></Label>
+            <Textarea
+              value={otRejectReason}
+              onChange={(e) => setOTRejectReason(e.target.value)}
+              placeholder="Briefly explain why this overtime cannot be approved..."
+              rows={3}
+              className="resize-none"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setOTRejectId(null); setOTRejectReason('') }}>Cancel</Button>
+            <Button
+              className="bg-destructive hover:bg-destructive/90"
+              disabled={rejectOT.isPending || !otRejectReason.trim()}
+              onClick={() => {
+                if (otRejectId && otRejectReason.trim()) {
+                  rejectOT.mutate(
+                    { id: otRejectId, reason: otRejectReason },
+                    { onSuccess: () => { setOTRejectId(null); setOTRejectReason('') } }
+                  )
+                }
+              }}
+            >
+              {rejectOT.isPending ? 'Declining…' : 'Decline'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Single action dialog */}
       <Dialog

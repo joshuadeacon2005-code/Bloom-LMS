@@ -38,7 +38,7 @@ export function Header({ title }: HeaderProps) {
     .slice(0, 2)
 
   return (
-    <header className="flex h-20 shrink-0 items-center justify-between border-b border-border bg-card px-6">
+    <header className="flex h-16 shrink-0 items-center justify-between border-b border-border bg-card px-6">
       <h1 className="text-lg font-semibold text-foreground">{title}</h1>
 
       <div className="flex items-center gap-2">

@@ -22,8 +22,11 @@ export function useLogin() {
       navigate('/dashboard')
       toast.success(`Welcome back, ${data.user.name.split(' ')[0]}!`)
     },
-    onError: () => {
-      toast.error('Invalid email or password')
+    onError: (err: unknown) => {
+      const message =
+        (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
+        'Invalid email or password'
+      toast.error(message)
     },
   })
 }

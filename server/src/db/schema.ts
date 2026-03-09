@@ -48,6 +48,17 @@ export const notificationTypeEnum = pgEnum('notification_type', [
   'approval_reminder',
   'team_digest',
   'balance_low',
+  'overtime_submitted',
+  'overtime_approved',
+  'overtime_rejected',
+])
+
+export const overtimeStatusEnum = pgEnum('overtime_status', [
+  'pending',
+  'approved',
+  'rejected',
+  'converted',
+  'cancelled',
 ])
 
 // =============================================================================
@@ -204,6 +215,7 @@ export const leaveRequests = pgTable(
     reason: text('reason'),
     status: leaveStatusEnum('status').notNull().default('pending'),
     attachmentUrl: text('attachment_url'),
+    googleEventId: text('google_event_id'),
     ...timestamps,
   },
   (table) => [
@@ -313,16 +325,70 @@ export const refreshTokens = pgTable(
   ]
 )
 
+export const overtimeEntries = pgTable(
+  'overtime_entries',
+  {
+    id: integer('id').generatedAlwaysAsIdentity().primaryKey(),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id),
+    date: date('date').notNull(),
+    hoursWorked: numeric('hours_worked', { precision: 5, scale: 2 }).notNull(),
+    daysRequested: numeric('days_requested', { precision: 4, scale: 2 }).notNull().default('1.0'),
+    reason: text('reason').notNull(),
+    status: overtimeStatusEnum('status').notNull().default('pending'),
+    approvedById: integer('approved_by_id').references(() => users.id),
+    approvedAt: timestamp('approved_at', { withTimezone: true }),
+    rejectionReason: text('rejection_reason'),
+    compLeaveRequestId: integer('comp_leave_request_id').references(() => leaveRequests.id),
+    regionId: integer('region_id')
+      .notNull()
+      .references(() => regions.id),
+    ...timestamps,
+  },
+  (table) => [
+    index('overtime_entries_user_id_idx').on(table.userId),
+    index('overtime_entries_date_idx').on(table.date),
+    index('overtime_entries_status_idx').on(table.status),
+    index('overtime_entries_region_id_idx').on(table.regionId),
+  ]
+)
+
+export const compLeaveRules = pgTable('comp_leave_rules', {
+  id: integer('id').generatedAlwaysAsIdentity().primaryKey(),
+  regionId: integer('region_id')
+    .notNull()
+    .unique()
+    .references(() => regions.id),
+  hoursPerDay: numeric('hours_per_day', { precision: 5, scale: 2 }).notNull().default('8'),
+  maxAccumulationDays: numeric('max_accumulation_days', { precision: 5, scale: 1 })
+    .notNull()
+    .default('5'),
+  expiryDays: integer('expiry_days'),
+  requiresApproval: boolean('requires_approval').notNull().default(true),
+  minHoursPerEntry: numeric('min_hours_per_entry', { precision: 5, scale: 2 })
+    .notNull()
+    .default('1'),
+  maxHoursPerEntry: numeric('max_hours_per_entry', { precision: 5, scale: 2 })
+    .notNull()
+    .default('12'),
+  ...timestamps,
+})
+
 // =============================================================================
 // Relations
 // =============================================================================
 
-export const regionsRelations = relations(regions, ({ many }) => ({
+export const regionsRelations = relations(regions, ({ many, one }) => ({
   departments: many(departments),
   users: many(users),
   leaveTypes: many(leaveTypes),
   leavePolicies: many(leavePolicies),
   publicHolidays: many(publicHolidays),
+  compLeaveRules: one(compLeaveRules, {
+    fields: [regions.id],
+    references: [compLeaveRules.regionId],
+  }),
 }))
 
 export const departmentsRelations = relations(departments, ({ one, many }) => ({
@@ -344,6 +410,7 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   approvals: many(approvalWorkflows),
   notifications: many(notifications),
   refreshTokens: many(refreshTokens),
+  overtimeEntries: many(overtimeEntries),
 }))
 
 export const leaveTypesRelations = relations(leaveTypes, ({ one, many }) => ({
@@ -396,4 +463,22 @@ export const notificationsRelations = relations(notifications, ({ one }) => ({
 
 export const refreshTokensRelations = relations(refreshTokens, ({ one }) => ({
   user: one(users, { fields: [refreshTokens.userId], references: [users.id] }),
+}))
+
+export const overtimeEntriesRelations = relations(overtimeEntries, ({ one }) => ({
+  user: one(users, { fields: [overtimeEntries.userId], references: [users.id] }),
+  approvedBy: one(users, {
+    fields: [overtimeEntries.approvedById],
+    references: [users.id],
+    relationName: 'overtimeApprovals',
+  }),
+  region: one(regions, { fields: [overtimeEntries.regionId], references: [regions.id] }),
+  compLeaveRequest: one(leaveRequests, {
+    fields: [overtimeEntries.compLeaveRequestId],
+    references: [leaveRequests.id],
+  }),
+}))
+
+export const compLeaveRulesRelations = relations(compLeaveRules, ({ one }) => ({
+  region: one(regions, { fields: [compLeaveRules.regionId], references: [regions.id] }),
 }))

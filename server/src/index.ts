@@ -15,7 +15,6 @@ const app = express()
 // Allow all origins for Slack webhook endpoint (server-to-server, no CORS restrictions needed)
 app.use('/slack/events', cors())
 
-// In production the React app is served from the same origin — allow that + configured CLIENT_URL
 app.use(
   cors({
     origin: (origin, callback) => {
