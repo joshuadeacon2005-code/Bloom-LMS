@@ -1,9 +1,3 @@
-import 'dotenv/config'
-import { config } from 'dotenv'
-import { resolve } from 'path'
-
-config({ path: resolve(process.cwd(), '../.env') })
-
 import { db } from './index'
 import {
   regions,

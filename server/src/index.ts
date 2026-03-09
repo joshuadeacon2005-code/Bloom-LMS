@@ -1,4 +1,3 @@
-import 'dotenv/config'
 import express, { type Request, type Response, type NextFunction } from 'express'
 import cors from 'cors'
 import path from 'path'
@@ -20,9 +19,9 @@ app.use('/slack/events', cors())
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Same-origin requests (React served by Express) have no origin header
       if (!origin) return callback(null, true)
       if (origin === env.CLIENT_URL) return callback(null, true)
+      if (origin.endsWith('.replit.dev') || origin.endsWith('.repl.co')) return callback(null, true)
       callback(new Error(`CORS: origin ${origin} not allowed`))
     },
     credentials: true,
