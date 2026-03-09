@@ -37,10 +37,11 @@ export function useLogout() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: () =>
-      refreshToken
-        ? api.post('/auth/logout', { refreshToken }).catch(() => null)
-        : Promise.resolve(),
+    mutationFn: async () => {
+      if (refreshToken) {
+        await api.post('/auth/logout', { refreshToken }).catch(() => null)
+      }
+    },
     onSettled: () => {
       clearAuth()
       queryClient.clear()
