@@ -1,0 +1,399 @@
+import {
+  pgTable,
+  pgEnum,
+  integer,
+  varchar,
+  text,
+  boolean,
+  timestamp,
+  date,
+  numeric,
+  jsonb,
+  index,
+  unique,
+  type AnyPgColumn,
+} from 'drizzle-orm/pg-core'
+import { relations } from 'drizzle-orm'
+
+// =============================================================================
+// Enums
+// =============================================================================
+
+export const userRoleEnum = pgEnum('user_role', [
+  'employee',
+  'manager',
+  'hr_admin',
+  'super_admin',
+])
+
+export const leaveStatusEnum = pgEnum('leave_status', [
+  'pending',
+  'approved',
+  'rejected',
+  'cancelled',
+])
+
+export const approvalStatusEnum = pgEnum('approval_status', [
+  'pending',
+  'approved',
+  'rejected',
+  'delegated',
+])
+
+export const notificationTypeEnum = pgEnum('notification_type', [
+  'leave_submitted',
+  'leave_approved',
+  'leave_rejected',
+  'leave_cancelled',
+  'approval_reminder',
+  'team_digest',
+  'balance_low',
+])
+
+// =============================================================================
+// Reusable column patterns
+// =============================================================================
+
+const timestamps = {
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true })
+    .defaultNow()
+    .notNull()
+    .$onUpdate(() => new Date()),
+}
+
+const softDelete = {
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+}
+
+// =============================================================================
+// Tables
+// =============================================================================
+
+export const regions = pgTable('regions', {
+  id: integer('id').generatedAlwaysAsIdentity().primaryKey(),
+  name: varchar('name', { length: 100 }).notNull(),
+  code: varchar('code', { length: 5 }).notNull().unique(),
+  timezone: varchar('timezone', { length: 50 }).notNull(),
+  currency: varchar('currency', { length: 3 }).notNull(),
+})
+
+export const departments = pgTable(
+  'departments',
+  {
+    id: integer('id').generatedAlwaysAsIdentity().primaryKey(),
+    name: varchar('name', { length: 100 }).notNull(),
+    regionId: integer('region_id')
+      .notNull()
+      .references(() => regions.id),
+  },
+  (table) => [index('departments_region_id_idx').on(table.regionId)]
+)
+
+export const users = pgTable(
+  'users',
+  {
+    id: integer('id').generatedAlwaysAsIdentity().primaryKey(),
+    email: varchar('email', { length: 255 }).notNull().unique(),
+    passwordHash: text('password_hash').notNull(),
+    name: varchar('name', { length: 100 }).notNull(),
+    slackUserId: varchar('slack_user_id', { length: 50 }),
+    role: userRoleEnum('role').notNull().default('employee'),
+    regionId: integer('region_id')
+      .notNull()
+      .references(() => regions.id),
+    departmentId: integer('department_id').references(() => departments.id),
+    managerId: integer('manager_id').references((): AnyPgColumn => users.id),
+    isActive: boolean('is_active').notNull().default(true),
+    avatarUrl: text('avatar_url'),
+    ...timestamps,
+    ...softDelete,
+  },
+  (table) => [
+    index('users_email_idx').on(table.email),
+    index('users_region_id_idx').on(table.regionId),
+    index('users_manager_id_idx').on(table.managerId),
+    index('users_department_id_idx').on(table.departmentId),
+    index('users_is_active_idx').on(table.isActive),
+  ]
+)
+
+export const leaveTypes = pgTable(
+  'leave_types',
+  {
+    id: integer('id').generatedAlwaysAsIdentity().primaryKey(),
+    name: varchar('name', { length: 100 }).notNull(),
+    code: varchar('code', { length: 20 }).notNull(),
+    description: text('description'),
+    isPaid: boolean('is_paid').notNull().default(true),
+    requiresAttachment: boolean('requires_attachment').notNull().default(false),
+    maxDaysPerYear: integer('max_days_per_year'),
+    // null = applies to all regions; set to regionId for region-specific types
+    regionId: integer('region_id').references(() => regions.id),
+  },
+  (table) => [
+    index('leave_types_region_id_idx').on(table.regionId),
+    unique('leave_types_code_region_unique').on(table.code, table.regionId),
+  ]
+)
+
+export const leavePolicies = pgTable(
+  'leave_policies',
+  {
+    id: integer('id').generatedAlwaysAsIdentity().primaryKey(),
+    leaveTypeId: integer('leave_type_id')
+      .notNull()
+      .references(() => leaveTypes.id),
+    regionId: integer('region_id')
+      .notNull()
+      .references(() => regions.id),
+    entitlementDays: numeric('entitlement_days', { precision: 5, scale: 1 }).notNull(),
+    carryOverMax: numeric('carry_over_max', { precision: 5, scale: 1 }).notNull().default('0'),
+    accrualRate: numeric('accrual_rate', { precision: 5, scale: 4 }), // days accrued per month
+    probationMonths: integer('probation_months').notNull().default(0),
+    ...timestamps,
+  },
+  (table) => [
+    index('leave_policies_leave_type_region_idx').on(table.leaveTypeId, table.regionId),
+    unique('leave_policies_type_region_unique').on(table.leaveTypeId, table.regionId),
+  ]
+)
+
+export const leaveBalances = pgTable(
+  'leave_balances',
+  {
+    id: integer('id').generatedAlwaysAsIdentity().primaryKey(),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    leaveTypeId: integer('leave_type_id')
+      .notNull()
+      .references(() => leaveTypes.id),
+    year: integer('year').notNull(),
+    entitled: numeric('entitled', { precision: 5, scale: 1 }).notNull().default('0'),
+    used: numeric('used', { precision: 5, scale: 1 }).notNull().default('0'),
+    pending: numeric('pending', { precision: 5, scale: 1 }).notNull().default('0'),
+    carried: numeric('carried', { precision: 5, scale: 1 }).notNull().default('0'),
+    adjustments: numeric('adjustments', { precision: 5, scale: 1 }).notNull().default('0'),
+    ...timestamps,
+  },
+  (table) => [
+    index('leave_balances_user_id_idx').on(table.userId),
+    index('leave_balances_year_idx').on(table.year),
+    unique('leave_balances_user_type_year_unique').on(
+      table.userId,
+      table.leaveTypeId,
+      table.year
+    ),
+  ]
+)
+
+export const leaveRequests = pgTable(
+  'leave_requests',
+  {
+    id: integer('id').generatedAlwaysAsIdentity().primaryKey(),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id),
+    leaveTypeId: integer('leave_type_id')
+      .notNull()
+      .references(() => leaveTypes.id),
+    startDate: date('start_date').notNull(),
+    endDate: date('end_date').notNull(),
+    totalDays: numeric('total_days', { precision: 5, scale: 1 }).notNull(),
+    reason: text('reason'),
+    status: leaveStatusEnum('status').notNull().default('pending'),
+    attachmentUrl: text('attachment_url'),
+    ...timestamps,
+  },
+  (table) => [
+    index('leave_requests_user_id_idx').on(table.userId),
+    index('leave_requests_status_idx').on(table.status),
+    index('leave_requests_date_range_idx').on(table.startDate, table.endDate),
+  ]
+)
+
+export const approvalWorkflows = pgTable(
+  'approval_workflows',
+  {
+    id: integer('id').generatedAlwaysAsIdentity().primaryKey(),
+    leaveRequestId: integer('leave_request_id')
+      .notNull()
+      .references(() => leaveRequests.id, { onDelete: 'cascade' }),
+    approverId: integer('approver_id')
+      .notNull()
+      .references(() => users.id),
+    level: integer('level').notNull().default(1),
+    status: approvalStatusEnum('status').notNull().default('pending'),
+    comments: text('comments'),
+    actionDate: timestamp('action_date', { withTimezone: true }),
+    ...timestamps,
+  },
+  (table) => [
+    index('approval_workflows_request_id_idx').on(table.leaveRequestId),
+    index('approval_workflows_approver_id_idx').on(table.approverId),
+    index('approval_workflows_status_idx').on(table.status),
+  ]
+)
+
+export const publicHolidays = pgTable(
+  'public_holidays',
+  {
+    id: integer('id').generatedAlwaysAsIdentity().primaryKey(),
+    name: varchar('name', { length: 200 }).notNull(),
+    date: date('date').notNull(),
+    regionId: integer('region_id')
+      .notNull()
+      .references(() => regions.id),
+    isRecurring: boolean('is_recurring').notNull().default(false),
+  },
+  (table) => [
+    index('public_holidays_region_id_idx').on(table.regionId),
+    index('public_holidays_date_idx').on(table.date),
+    unique('public_holidays_region_date_unique').on(table.regionId, table.date),
+  ]
+)
+
+export const notifications = pgTable(
+  'notifications',
+  {
+    id: integer('id').generatedAlwaysAsIdentity().primaryKey(),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    type: notificationTypeEnum('type').notNull(),
+    title: varchar('title', { length: 200 }).notNull(),
+    message: text('message').notNull(),
+    isRead: boolean('is_read').notNull().default(false),
+    metadata: jsonb('metadata').$type<Record<string, unknown>>(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('notifications_user_id_idx').on(table.userId),
+    index('notifications_is_read_idx').on(table.isRead),
+    index('notifications_created_at_idx').on(table.createdAt),
+  ]
+)
+
+export const auditLog = pgTable(
+  'audit_log',
+  {
+    id: integer('id').generatedAlwaysAsIdentity().primaryKey(),
+    action: varchar('action', { length: 100 }).notNull(),
+    entityType: varchar('entity_type', { length: 50 }).notNull(),
+    entityId: integer('entity_id').notNull(),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id),
+    changes: jsonb('changes').$type<Record<string, unknown>>(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('audit_log_entity_idx').on(table.entityType, table.entityId),
+    index('audit_log_user_id_idx').on(table.userId),
+    index('audit_log_created_at_idx').on(table.createdAt),
+  ]
+)
+
+export const refreshTokens = pgTable(
+  'refresh_tokens',
+  {
+    id: integer('id').generatedAlwaysAsIdentity().primaryKey(),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    tokenHash: text('token_hash').notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    isRevoked: boolean('is_revoked').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('refresh_tokens_user_id_idx').on(table.userId),
+    index('refresh_tokens_token_hash_idx').on(table.tokenHash),
+  ]
+)
+
+// =============================================================================
+// Relations
+// =============================================================================
+
+export const regionsRelations = relations(regions, ({ many }) => ({
+  departments: many(departments),
+  users: many(users),
+  leaveTypes: many(leaveTypes),
+  leavePolicies: many(leavePolicies),
+  publicHolidays: many(publicHolidays),
+}))
+
+export const departmentsRelations = relations(departments, ({ one, many }) => ({
+  region: one(regions, { fields: [departments.regionId], references: [regions.id] }),
+  users: many(users),
+}))
+
+export const usersRelations = relations(users, ({ one, many }) => ({
+  region: one(regions, { fields: [users.regionId], references: [regions.id] }),
+  department: one(departments, { fields: [users.departmentId], references: [departments.id] }),
+  manager: one(users, {
+    fields: [users.managerId],
+    references: [users.id],
+    relationName: 'managerReports',
+  }),
+  reports: many(users, { relationName: 'managerReports' }),
+  leaveRequests: many(leaveRequests),
+  leaveBalances: many(leaveBalances),
+  approvals: many(approvalWorkflows),
+  notifications: many(notifications),
+  refreshTokens: many(refreshTokens),
+}))
+
+export const leaveTypesRelations = relations(leaveTypes, ({ one, many }) => ({
+  region: one(regions, { fields: [leaveTypes.regionId], references: [regions.id] }),
+  leavePolicies: many(leavePolicies),
+  leaveBalances: many(leaveBalances),
+  leaveRequests: many(leaveRequests),
+}))
+
+export const leavePoliciesRelations = relations(leavePolicies, ({ one }) => ({
+  leaveType: one(leaveTypes, {
+    fields: [leavePolicies.leaveTypeId],
+    references: [leaveTypes.id],
+  }),
+  region: one(regions, { fields: [leavePolicies.regionId], references: [regions.id] }),
+}))
+
+export const leaveBalancesRelations = relations(leaveBalances, ({ one }) => ({
+  user: one(users, { fields: [leaveBalances.userId], references: [users.id] }),
+  leaveType: one(leaveTypes, {
+    fields: [leaveBalances.leaveTypeId],
+    references: [leaveTypes.id],
+  }),
+}))
+
+export const leaveRequestsRelations = relations(leaveRequests, ({ one, many }) => ({
+  user: one(users, { fields: [leaveRequests.userId], references: [users.id] }),
+  leaveType: one(leaveTypes, {
+    fields: [leaveRequests.leaveTypeId],
+    references: [leaveTypes.id],
+  }),
+  approvals: many(approvalWorkflows),
+}))
+
+export const approvalWorkflowsRelations = relations(approvalWorkflows, ({ one }) => ({
+  leaveRequest: one(leaveRequests, {
+    fields: [approvalWorkflows.leaveRequestId],
+    references: [leaveRequests.id],
+  }),
+  approver: one(users, { fields: [approvalWorkflows.approverId], references: [users.id] }),
+}))
+
+export const publicHolidaysRelations = relations(publicHolidays, ({ one }) => ({
+  region: one(regions, { fields: [publicHolidays.regionId], references: [regions.id] }),
+}))
+
+export const notificationsRelations = relations(notifications, ({ one }) => ({
+  user: one(users, { fields: [notifications.userId], references: [users.id] }),
+}))
+
+export const refreshTokensRelations = relations(refreshTokens, ({ one }) => ({
+  user: one(users, { fields: [refreshTokens.userId], references: [users.id] }),
+}))

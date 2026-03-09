@@ -1,0 +1,200 @@
+import { eq, and, ilike, isNull, sql, count } from 'drizzle-orm'
+import { db } from '../db/index'
+import { users, regions, departments } from '../db/schema'
+import { hashPassword } from '../utils/password'
+import { NotFoundError, ConflictError, AppError } from '../utils/errors'
+
+const safeUserFields = {
+  id: users.id,
+  email: users.email,
+  name: users.name,
+  slackUserId: users.slackUserId,
+  role: users.role,
+  regionId: users.regionId,
+  departmentId: users.departmentId,
+  managerId: users.managerId,
+  isActive: users.isActive,
+  avatarUrl: users.avatarUrl,
+  createdAt: users.createdAt,
+  updatedAt: users.updatedAt,
+}
+
+export async function getUsers(filters: {
+  search?: string
+  regionId?: number
+  isActive?: boolean
+  role?: string
+  page: number
+  pageSize: number
+}) {
+  const { search, regionId, isActive, role, page, pageSize } = filters
+  const offset = (page - 1) * pageSize
+
+  const conditions = [isNull(users.deletedAt)]
+  if (search) conditions.push(ilike(users.name, `%${search}%`))
+  if (regionId !== undefined) conditions.push(eq(users.regionId, regionId))
+  if (isActive !== undefined) conditions.push(eq(users.isActive, isActive))
+  if (role) conditions.push(eq(users.role, role as 'employee' | 'manager' | 'hr_admin' | 'super_admin'))
+
+  const where = and(...conditions)
+
+  const [{ total }] = await db
+    .select({ total: count() })
+    .from(users)
+    .where(where)
+
+  const rows = await db
+    .select(safeUserFields)
+    .from(users)
+    .where(where)
+    .orderBy(users.name)
+    .limit(pageSize)
+    .offset(offset)
+
+  return { users: rows, total: total ?? 0 }
+}
+
+export async function getUserById(id: number) {
+  const [user] = await db
+    .select({
+      ...safeUserFields,
+      region: {
+        id: regions.id,
+        name: regions.name,
+        code: regions.code,
+        timezone: regions.timezone,
+        currency: regions.currency,
+      },
+      department: {
+        id: departments.id,
+        name: departments.name,
+      },
+    })
+    .from(users)
+    .leftJoin(regions, eq(users.regionId, regions.id))
+    .leftJoin(departments, eq(users.departmentId, departments.id))
+    .where(and(eq(users.id, id), isNull(users.deletedAt)))
+    .limit(1)
+
+  if (!user) throw new NotFoundError('User')
+  return user
+}
+
+export async function createUser(data: {
+  email: string
+  password: string
+  name: string
+  role?: 'employee' | 'manager' | 'hr_admin' | 'super_admin'
+  regionId: number
+  departmentId?: number
+  managerId?: number
+}) {
+  const [existing] = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.email, data.email.toLowerCase()))
+    .limit(1)
+
+  if (existing) throw new ConflictError('An account with this email already exists')
+
+  const passwordHash = await hashPassword(data.password)
+  const [user] = await db
+    .insert(users)
+    .values({
+      email: data.email.toLowerCase(),
+      passwordHash,
+      name: data.name,
+      role: data.role ?? 'employee',
+      regionId: data.regionId,
+      departmentId: data.departmentId,
+      managerId: data.managerId,
+    })
+    .returning(safeUserFields)
+
+  if (!user) throw new AppError(500, 'Failed to create user')
+  return user
+}
+
+export async function updateUser(
+  id: number,
+  data: {
+    name?: string
+    email?: string
+    role?: 'employee' | 'manager' | 'hr_admin' | 'super_admin'
+    regionId?: number
+    departmentId?: number | null
+    managerId?: number | null
+    isActive?: boolean
+    slackUserId?: string | null
+    avatarUrl?: string | null
+  }
+) {
+  if (data.email) {
+    const [existing] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(and(eq(users.email, data.email.toLowerCase()), isNull(users.deletedAt)))
+      .limit(1)
+
+    if (existing && existing.id !== id) {
+      throw new ConflictError('Email is already in use')
+    }
+    data.email = data.email.toLowerCase()
+  }
+
+  const [user] = await db
+    .update(users)
+    .set({ ...data, updatedAt: new Date() })
+    .where(and(eq(users.id, id), isNull(users.deletedAt)))
+    .returning(safeUserFields)
+
+  if (!user) throw new NotFoundError('User')
+  return user
+}
+
+export async function deleteUser(id: number) {
+  const [user] = await db
+    .update(users)
+    .set({ deletedAt: new Date(), isActive: false })
+    .where(and(eq(users.id, id), isNull(users.deletedAt)))
+    .returning({ id: users.id })
+
+  if (!user) throw new NotFoundError('User')
+}
+
+export async function getUsersForSelect(regionId?: number) {
+  const conditions = [isNull(users.deletedAt), eq(users.isActive, true)]
+  if (regionId !== undefined) conditions.push(eq(users.regionId, regionId))
+
+  return db
+    .select({
+      id: users.id,
+      name: users.name,
+      email: users.email,
+      role: users.role,
+      regionId: users.regionId,
+    })
+    .from(users)
+    .where(and(...conditions))
+    .orderBy(users.name)
+}
+
+export async function getManagers(regionId?: number) {
+  const conditions = [
+    isNull(users.deletedAt),
+    eq(users.isActive, true),
+    sql`${users.role} IN ('manager', 'hr_admin', 'super_admin')`,
+  ]
+  if (regionId !== undefined) conditions.push(eq(users.regionId, regionId))
+
+  return db
+    .select({
+      id: users.id,
+      name: users.name,
+      email: users.email,
+      role: users.role,
+    })
+    .from(users)
+    .where(and(...conditions))
+    .orderBy(users.name)
+}
