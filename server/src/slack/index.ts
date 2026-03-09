@@ -22,18 +22,31 @@ export async function initSlack(_expressApp: Application): Promise<void> {
     return
   }
 
-  const boltApp = new App({
-    token: env.SLACK_BOT_TOKEN,
-    signingSecret: env.SLACK_SIGNING_SECRET,
-    socketMode: true,
-    appToken: env.SLACK_APP_TOKEN,
-  })
+  let boltApp: App
+
+  const uncaughtHandler = (err: Error) => {
+    const slackErrors = ['invalid_auth', 'account_inactive', 'socket hang up', 'slack_webapi']
+    if (slackErrors.some((s) => err.message?.includes(s) || (err as any).code?.includes(s))) {
+      console.error('[slack] Slack connection error (non-fatal):', err.message)
+    } else {
+      console.error('[uncaught]', err)
+      process.exit(1)
+    }
+  }
+  process.on('uncaughtException', uncaughtHandler)
 
   try {
+    boltApp = new App({
+      token: env.SLACK_BOT_TOKEN,
+      signingSecret: env.SLACK_SIGNING_SECRET,
+      socketMode: true,
+      appToken: env.SLACK_APP_TOKEN,
+    })
     await boltApp.start()
     console.log('[slack] Socket Mode connected')
   } catch (e) {
-    console.error('[slack] Failed to start Slack bot:', e)
+    console.error('[slack] Failed to start Slack bot:', e instanceof Error ? e.message : e)
+    console.log('[slack] Continuing without Slack integration')
     return
   }
 
