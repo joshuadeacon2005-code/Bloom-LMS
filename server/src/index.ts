@@ -8,6 +8,7 @@ import { initSlack } from './slack/index'
 import { initJobs } from './jobs/index'
 import { seedEmployees } from './db/seed-employees'
 import { seedEntitlements } from './db/seed-entitlements'
+import { seedRequests } from './db/seed-requests'
 import type { ApiResponse } from './routes/types'
 
 const env = validateEnv()
@@ -60,6 +61,7 @@ if (env.NODE_ENV === 'production') {
 async function main() {
   await seedEmployees()
   await seedEntitlements()
+  await seedRequests()
 
   // Initialize Slack bot (registers routes in production HTTP mode)
   await initSlack(app)

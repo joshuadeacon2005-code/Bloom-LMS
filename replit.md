@@ -32,6 +32,8 @@ bloom-lms/
 - Default admin account is seeded on first run (see seed.ts for details)
 - 95 employees from Calamari export are seeded via `server/src/db/seed-employees.ts` (runs on server startup, skips if ≥90 employees already exist)
 - Default password for imported employees: `Welcome2026!`
+- 876 leave balance records (2026 entitlements) seeded via `server/src/db/seed-entitlements.ts` — includes 15 additional leave types from Calamari
+- 529 historical leave requests + 458 approval workflows seeded via `server/src/db/seed-requests.ts` — imported from Calamari requests export
 
 ## Environment Variables
 - `DATABASE_URL` — managed by Replit
