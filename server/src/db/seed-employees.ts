@@ -105,12 +105,17 @@ import pg from 'pg'
   ]
 
   const EXPECTED_EMAILS = new Set(employeeData.map(e => e.email))
-  const DEFAULT_PASSWORD_HASH = '$2a$12$6Rusoo21F1I/LKjExoRfzO8MM6quAb242ckgnJvVOmgyOqttG2P.e'
+  const DEFAULT_PASSWORD_HASH = process.env.DEFAULT_EMPLOYEE_PASSWORD_HASH
 
   export async function seedEmployees(): Promise<void> {
     const dbUrl = process.env.DATABASE_URL
     if (!dbUrl) {
       console.error('[seed-employees] DATABASE_URL not set, skipping')
+      return
+    }
+
+    if (!DEFAULT_PASSWORD_HASH) {
+      console.error('[seed-employees] DEFAULT_EMPLOYEE_PASSWORD_HASH not set, skipping')
       return
     }
 
