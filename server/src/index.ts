@@ -9,6 +9,7 @@ import { initJobs } from './jobs/index'
 import { seedEmployees } from './db/seed-employees'
 import { seedEntitlements } from './db/seed-entitlements'
 import { seedRequests } from './db/seed-requests'
+import { seedAdminUser } from './db/seed-admin'
 import type { ApiResponse } from './routes/types'
 
 const env = validateEnv()
@@ -60,6 +61,7 @@ if (env.NODE_ENV === 'production') {
 }
 
 async function main() {
+  await seedAdminUser()
   await seedEmployees()
   await seedEntitlements()
   await seedRequests()
