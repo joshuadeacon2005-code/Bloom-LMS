@@ -30,7 +30,7 @@ import pg from 'pg'
   { name: "Helen Christie", email: "helen.christie@bloomandgrowgroup.com", role: "employee", regionCode: "HK", managerEmail: "alex@bloomandgrowgroup.com" },
   { name: "Elaine Chung", email: "elaine@bloomandgrowgroup.com", role: "hr_admin", regionCode: "HK", managerEmail: "alex@bloomandgrowgroup.com" },
   { name: "Kim Clarke", email: "kim@bloomandgrowgroup.com", role: "employee", regionCode: "AU", managerEmail: "jamie@bloomandgrowgroup.com" },
-  { name: "Joshua Deacon", email: "josh@bloomandgrowgroup.com", role: "employee", regionCode: "AU", managerEmail: "naveen@bloomandgrowgroup.com" },
+  { name: "Joshua Deacon", email: "josh@bloomandgrowgroup.com", role: "super_admin", regionCode: "AU", managerEmail: "naveen@bloomandgrowgroup.com" },
   { name: "Riana Destiana", email: "riana.destiana@bloomandgrowgroup.com", role: "employee", regionCode: "ID", managerEmail: "anggraini.hapsari@bloomandgrowgroup.com" },
   { name: "Alexandra Dickson Leach", email: "alex@bloomandgrowgroup.com", role: "manager", regionCode: "HK", managerEmail: "ellen@bloomandgrowgroup.com" },
   { name: "Leyden Du", email: "leyden@bloomandgrowgroup.com", role: "hr_admin", regionCode: "HK", managerEmail: "ellen@bloomandgrowgroup.com" },

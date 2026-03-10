@@ -92,8 +92,8 @@ app.listen(env.PORT, () => {
 
   async function bootstrap() {
     await seedBaseData()
-    await seedAdminUser()
     await seedEmployees()
+    await seedAdminUser()
     await seedEntitlements()
     await seedRequests()
     await initSlack(app)

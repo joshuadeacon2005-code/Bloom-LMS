@@ -17,7 +17,17 @@ export async function seedAdminUser(): Promise<void> {
     )
 
     if (existing.rows.length > 0) {
-      console.log('[seed-admin] Admin user already exists, skipping')
+      const roleCheck = await client.query(
+        "SELECT role FROM users WHERE email = 'josh@bloomandgrowgroup.com'"
+      )
+      if (roleCheck.rows[0]?.role !== 'super_admin') {
+        await client.query(
+          "UPDATE users SET role = 'super_admin' WHERE email = 'josh@bloomandgrowgroup.com'"
+        )
+        console.log('[seed-admin] Updated josh to super_admin')
+      } else {
+        console.log('[seed-admin] Admin user already exists, skipping')
+      }
       return
     }
 
