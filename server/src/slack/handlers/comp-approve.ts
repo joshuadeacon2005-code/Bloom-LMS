@@ -1,5 +1,5 @@
 import type { App, BlockAction } from '@slack/bolt'
-import { getRequestById, updateRequestValues, updateRequestStatus, upsertEmployeeBalancesInSheet, logBalanceAdjustment } from '../google-sheets'
+import { getRequestById, updateRequestValues, upsertEmployeeBalancesInSheet, logBalanceAdjustment } from '../google-sheets'
 import * as dbService from '../db-service'
 import {
   formatCompType,
@@ -176,7 +176,7 @@ export function registerCompApproveHandlers(app: App) {
   })
 
   // Supervisor approval confirmation modal submission
-  app.view('supervisor_confirm_approval', async ({ ack, body, view, client }) => {
+  app.view('supervisor_confirm_approval', async ({ ack, view, client }) => {
     try {
       await ack()
 
@@ -476,7 +476,7 @@ export function registerCompApproveHandlers(app: App) {
   })
 
   // Supervisor rejection modal submission
-  app.view('supervisor_confirm_rejection', async ({ ack, body, view, client }) => {
+  app.view('supervisor_confirm_rejection', async ({ ack, view, client }) => {
     try {
       await ack()
 

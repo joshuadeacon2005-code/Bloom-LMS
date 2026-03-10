@@ -329,7 +329,7 @@ export function registerLeaveApplyHandlers(app: App) {
           leaveTypeName: ltDetails.name,
           startDate: reqDetails.startDate,
           endDate: reqDetails.endDate,
-          workingDays: reqDetails.totalDays,
+          workingDays: Number(reqDetails.totalDays),
           action: actionLabel as any,
           approverName: approverDbUser.name,
         }).catch((e) => console.error('[leave-apply] Approval log error:', e))
@@ -345,7 +345,7 @@ export function registerLeaveApplyHandlers(app: App) {
             regionCode: empRegion.code,
             leaveTypeName: ltDetails.name,
             adjustmentType: 'Leave Used',
-            days: reqDetails?.totalDays ?? 0,
+            days: Number(reqDetails?.totalDays ?? 0),
             referenceId: requestId,
           }).catch((e) => console.error('[leave-apply] Balance adjustment log error:', e))
         }
@@ -459,7 +459,7 @@ export function registerLeaveApplyHandlers(app: App) {
             leaveTypeName: rejLt.name,
             startDate: rejReq.startDate,
             endDate: rejReq.endDate,
-            workingDays: rejReq.totalDays,
+            workingDays: Number(rejReq.totalDays),
             action: 'Rejected',
             approverName: approverDbUser.name,
             comments: reason,

@@ -1,4 +1,4 @@
-import type { App, BlockAction } from '@slack/bolt'
+import type { App } from '@slack/bolt'
 import { randomUUID } from 'crypto'
 import { addRequestToSheet } from '../google-sheets'
 import * as dbService from '../db-service'

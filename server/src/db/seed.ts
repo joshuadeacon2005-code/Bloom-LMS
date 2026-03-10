@@ -7,7 +7,6 @@ import {
   publicHolidays,
   users,
 } from './schema'
-import { eq } from 'drizzle-orm'
 import { hashPassword } from '../utils/password'
 
 async function seed() {
