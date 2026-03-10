@@ -21,17 +21,24 @@ export async function seedAdminUser(): Promise<void> {
       return
     }
 
+    let regionId: number
+
     const regionResult = await client.query(
       "SELECT id FROM regions WHERE code = 'HK' LIMIT 1"
     )
 
-    let regionId = 1
     if (regionResult.rows.length > 0) {
       regionId = regionResult.rows[0].id
     } else {
       const anyRegion = await client.query('SELECT id FROM regions LIMIT 1')
       if (anyRegion.rows.length > 0) {
         regionId = anyRegion.rows[0].id
+      } else {
+        const insertRegion = await client.query(
+          "INSERT INTO regions (name, code, timezone, currency) VALUES ('Hong Kong', 'HK', 'Asia/Hong_Kong', 'HKD') RETURNING id"
+        )
+        regionId = insertRegion.rows[0].id
+        console.log('[seed-admin] Created HK region with id:', regionId)
       }
     }
 
