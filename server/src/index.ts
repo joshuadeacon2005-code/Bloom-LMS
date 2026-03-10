@@ -60,45 +60,41 @@ if (env.NODE_ENV === 'production') {
   })
 }
 
-async function main() {
-  await seedAdminUser()
-  await seedEmployees()
-  await seedEntitlements()
-  await seedRequests()
+// 404 handler
+app.use((_req, res) => {
+  res.status(404).json({ success: false, error: 'Route not found' } satisfies ApiResponse)
+})
 
-  // Initialize Slack bot (registers routes in production HTTP mode)
-  await initSlack(app)
+// Global error handler
+app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+  if (err instanceof AppError) {
+    const response: ApiResponse = { success: false, error: err.message }
+    return res.status(err.statusCode).json(response)
+  }
 
-  // Start scheduled jobs
-  initJobs(env.SLACK_BOT_TOKEN)
+  console.error('[UnhandledError]', err)
+  const message = env.NODE_ENV === 'development' && err instanceof Error ? err.message : 'Internal server error'
+  res.status(500).json({ success: false, error: message } satisfies ApiResponse)
+})
 
-  // 404 handler
-  app.use((_req, res) => {
-    res.status(404).json({ success: false, error: 'Route not found' } satisfies ApiResponse)
+app.listen(env.PORT, () => {
+  console.log(`[server] Bloom & Grow LMS running on port ${env.PORT}`)
+  console.log(`[server] Environment: ${env.NODE_ENV}`)
+  console.log(`[server] Client URL: ${env.CLIENT_URL}`)
+
+  async function bootstrap() {
+    await seedAdminUser()
+    await seedEmployees()
+    await seedEntitlements()
+    await seedRequests()
+    await initSlack(app)
+    initJobs(env.SLACK_BOT_TOKEN)
+    console.log('[server] Bootstrap complete')
+  }
+
+  bootstrap().catch((err) => {
+    console.error('[server] Bootstrap error:', err)
   })
-
-  // Global error handler
-  app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
-    if (err instanceof AppError) {
-      const response: ApiResponse = { success: false, error: err.message }
-      return res.status(err.statusCode).json(response)
-    }
-
-    console.error('[UnhandledError]', err)
-    const message = env.NODE_ENV === 'development' && err instanceof Error ? err.message : 'Internal server error'
-    res.status(500).json({ success: false, error: message } satisfies ApiResponse)
-  })
-
-  app.listen(env.PORT, () => {
-    console.log(`[server] Bloom & Grow LMS running on port ${env.PORT}`)
-    console.log(`[server] Environment: ${env.NODE_ENV}`)
-    console.log(`[server] Client URL: ${env.CLIENT_URL}`)
-  })
-}
-
-main().catch((err) => {
-  console.error('[server] Startup error:', err)
-  process.exit(1)
 })
 
 export default app
