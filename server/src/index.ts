@@ -26,7 +26,7 @@ app.use(
       if (origin === env.CLIENT_URL) return callback(null, true)
       if (origin.endsWith('.replit.dev') || origin.endsWith('.repl.co') || origin.endsWith('.replit.app')) return callback(null, true)
       if (origin === 'https://bloomleave.com' || origin === 'https://www.bloomleave.com') return callback(null, true)
-      callback(new Error(`CORS: origin ${origin} not allowed`))
+      callback(null, false)
     },
     credentials: true,
   })
@@ -53,10 +53,17 @@ app.get('/api/health', (_req, res) => {
 // Serve React static files in production (must come after all /api routes)
 if (env.NODE_ENV === 'production') {
   const clientDist = path.join(__dirname, '../../client/dist')
+  console.log('[server] Serving static files from:', clientDist)
   app.use(express.static(clientDist))
   // SPA fallback
   app.get('*', (_req, res) => {
-    res.sendFile(path.join(clientDist, 'index.html'))
+    const indexPath = path.join(clientDist, 'index.html')
+    res.sendFile(indexPath, (err) => {
+      if (err) {
+        console.error('[server] Error serving index.html:', err)
+        res.status(500).send('Application loading error — please try again')
+      }
+    })
   })
 }
 
