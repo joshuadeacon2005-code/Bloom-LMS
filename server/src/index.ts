@@ -23,7 +23,8 @@ app.use(
     origin: (origin, callback) => {
       if (!origin) return callback(null, true)
       if (origin === env.CLIENT_URL) return callback(null, true)
-      if (origin.endsWith('.replit.dev') || origin.endsWith('.repl.co')) return callback(null, true)
+      if (origin.endsWith('.replit.dev') || origin.endsWith('.repl.co') || origin.endsWith('.replit.app')) return callback(null, true)
+      if (origin === 'https://bloomleave.com' || origin === 'https://www.bloomleave.com') return callback(null, true)
       callback(new Error(`CORS: origin ${origin} not allowed`))
     },
     credentials: true,

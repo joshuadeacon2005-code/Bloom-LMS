@@ -16,9 +16,6 @@ const schema = z.object({
 
 type FormData = z.infer<typeof schema>
 
-const LOGO_URL =
-  'https://bloomandgrowgroup.com/wp-content/uploads/2025/07/BloomGrow_Logo_2025-1110x740.png'
-
 export function LoginPage() {
   const { user } = useAuthStore()
   const login = useLogin()
@@ -37,17 +34,10 @@ export function LoginPage() {
         {/* Logo */}
         <div className="mb-8 flex flex-col items-center">
           <img
-            src={LOGO_URL}
+            src="/favicon.png"
             alt="Bloom & Grow"
-            className="mb-3 h-12 w-auto object-contain"
-            onError={(e) => ((e.target as HTMLImageElement).style.display = 'none')}
+            className="mb-3 h-16 w-16 object-contain"
           />
-          <div
-            className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl"
-            style={{ backgroundColor: 'var(--color-primary)' }}
-          >
-            <span className="text-xl font-bold text-white">B</span>
-          </div>
           <p className="text-xs text-muted-foreground">Leave Management System</p>
         </div>
 
