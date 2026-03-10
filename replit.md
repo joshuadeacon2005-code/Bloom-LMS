@@ -43,7 +43,14 @@ bloom-lms/
 - `CLIENT_URL` — Replit dev domain
 - Slack, Google, Cloudinary credentials — optional, for feature-specific functionality
 
+## Build & Deployment
+- Server build uses `esbuild` (via `server/build.mjs`) to bundle TypeScript into a single `dist/index.js` file
+- This avoids Node.js ESM extension resolution issues that occur with plain `tsc` output
+- Production deployment: `node server/dist/index.js` (autoscale target)
+- Build command: `npm run build` (builds client then server)
+
 ## Key Decisions
 - Switched from Neon serverless driver to standard `pg` pool for Replit's built-in PostgreSQL
 - Vite dev server runs on port 5000 (required for Replit webview)
 - CORS configured to accept Replit preview domains (*.replit.dev, *.repl.co)
+- Server build uses esbuild instead of tsc to avoid ESM module resolution issues in production
