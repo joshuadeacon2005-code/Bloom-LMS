@@ -30,6 +30,8 @@ bloom-lms/
 - Schema defined in `server/src/db/schema.ts` with identity columns
 - Seeded with: 7 regions (HK, SG, MY, ID, CN, AU, NZ), departments, leave types, leave policies, 2026 public holidays
 - Default admin account is seeded on first run (see seed.ts for details)
+- 95 employees from Calamari export are seeded via `server/src/db/seed-employees.ts` (runs on server startup, skips if ≥90 employees already exist)
+- Default password for imported employees: `Welcome2026!`
 
 ## Environment Variables
 - `DATABASE_URL` — managed by Replit
