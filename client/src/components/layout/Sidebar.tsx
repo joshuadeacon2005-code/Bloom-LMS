@@ -10,6 +10,7 @@ import {
   ChevronRight,
   LogOut,
   Palmtree,
+  BookOpen,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuthStore, isManagerOrAbove, isHrOrAbove } from '@/stores/authStore'
@@ -36,6 +37,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Team Calendar', to: '/calendar', icon: CalendarDays },
   { label: 'Reports', to: '/reports', icon: BarChart3, requireRole: 'hr_admin' },
   { label: 'Admin', to: '/admin', icon: Users, requireRole: 'hr_admin' },
+  { label: 'User Guide', to: '/guide', icon: BookOpen },
   { label: 'Settings', to: '/settings', icon: Settings },
 ]
 

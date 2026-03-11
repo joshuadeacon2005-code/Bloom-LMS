@@ -10,6 +10,11 @@ import {
   Search,
   ChevronLeft,
   ChevronRight,
+  Slack,
+  RefreshCw,
+  Send,
+  Wifi,
+  WifiOff,
 } from 'lucide-react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
@@ -59,6 +64,10 @@ import {
   useHolidays,
   useCreateHoliday,
   useDeleteHoliday,
+  useSlackStatus,
+  useSlackTestDm,
+  useSlackSync,
+  type SlackSyncResult,
   type AdminUser,
   type LeaveType,
   type LeavePolicy,
@@ -313,6 +322,7 @@ function UsersTab() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<AdminUser | null>(null)
   const [deactivating, setDeactivating] = useState<AdminUser | null>(null)
+  const [syncResult, setSyncResult] = useState<SlackSyncResult | null>(null)
 
   const { data: regions } = useRegions()
   const { data, isLoading } = useAdminUsers({
@@ -323,6 +333,9 @@ function UsersTab() {
     pageSize,
   })
   const deactivate = useDeactivateUser()
+  const slackSync = useSlackSync()
+  const slackTestDm = useSlackTestDm()
+  const { data: slackStatus, isLoading: slackStatusLoading } = useSlackStatus()
 
   const users = data?.data ?? []
   const total = data?.meta?.total ?? 0
@@ -371,10 +384,54 @@ function UsersTab() {
             </SelectContent>
           </Select>
         </div>
-        <Button onClick={openCreate} size="sm">
-          <Plus className="mr-1.5 h-4 w-4" /> New User
-        </Button>
+        <div className="flex items-center gap-2">
+          {/* Slack bot status pill */}
+          {!slackStatusLoading && (
+            slackStatus?.connected ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-green-50 px-2.5 py-1 text-xs font-medium text-green-700 border border-green-200">
+                <Wifi className="h-3 w-3" />
+                {slackStatus.teamName ?? 'Slack'} connected
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-red-50 px-2.5 py-1 text-xs font-medium text-red-600 border border-red-200">
+                <WifiOff className="h-3 w-3" />
+                Slack offline
+              </span>
+            )
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={slackSync.isPending}
+            onClick={() => slackSync.mutate(undefined, { onSuccess: (d) => setSyncResult(d) })}
+          >
+            <RefreshCw className={`mr-1.5 h-4 w-4 ${slackSync.isPending ? 'animate-spin' : ''}`} />
+            <Slack className="mr-1.5 h-4 w-4" />
+            Sync Slack IDs
+          </Button>
+          <Button onClick={openCreate} size="sm">
+            <Plus className="mr-1.5 h-4 w-4" /> New User
+          </Button>
+        </div>
       </div>
+
+      {/* Slack sync result */}
+      {syncResult && (
+        <div className="rounded-lg border bg-muted/40 px-4 py-3 text-sm space-y-1">
+          <div className="flex items-center justify-between">
+            <span className="font-medium">Slack sync complete</span>
+            <button className="text-muted-foreground hover:text-foreground text-xs" onClick={() => setSyncResult(null)}>Dismiss</button>
+          </div>
+          <p className="text-muted-foreground">
+            {syncResult.synced} linked
+            {syncResult.notFound.length > 0 && ` · ${syncResult.notFound.length} not found in Slack`}
+            {syncResult.errors.length > 0 && ` · ${syncResult.errors.length} error(s)`}
+          </p>
+          {syncResult.notFound.length > 0 && (
+            <p className="text-xs text-muted-foreground">Not found: {syncResult.notFound.join(', ')}</p>
+          )}
+        </div>
+      )}
 
       {/* Table */}
       <div className="rounded-lg border overflow-hidden">
@@ -386,6 +443,7 @@ function UsersTab() {
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Role</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Region</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Status</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Slack</th>
               <th className="px-4 py-3 text-right font-medium text-muted-foreground">Actions</th>
             </tr>
           </thead>
@@ -393,7 +451,7 @@ function UsersTab() {
             {isLoading
               ? [...Array(6)].map((_, i) => (
                   <tr key={i}>
-                    {[...Array(6)].map((_, j) => (
+                    {[...Array(7)].map((_, j) => (
                       <td key={j} className="px-4 py-3">
                         <Skeleton className="h-4 w-full" />
                       </td>
@@ -415,8 +473,29 @@ function UsersTab() {
                         {u.isActive ? 'Active' : 'Inactive'}
                       </Badge>
                     </td>
+                    <td className="px-4 py-3">
+                      {u.slackUserId ? (
+                        <span className="inline-flex items-center gap-1 text-xs text-green-700 bg-green-50 rounded-full px-2 py-0.5">
+                          <Slack className="h-3 w-3" /> Linked
+                        </span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">Not linked</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-1">
+                        {u.slackUserId && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7 text-muted-foreground"
+                            title="Send test DM"
+                            disabled={slackTestDm.isPending}
+                            onClick={() => slackTestDm.mutate(u.id)}
+                          >
+                            <Send className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
                         <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openEdit(u)}>
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
@@ -436,7 +515,7 @@ function UsersTab() {
                 ))}
             {!isLoading && users.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-10 text-center text-muted-foreground">
+                <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
                   No users found
                 </td>
               </tr>
@@ -501,6 +580,9 @@ const leaveTypeSchema = z.object({
   requiresAttachment: z.boolean(),
   maxDaysPerYear: z.string().optional(),
   regionId: z.string().optional(),
+  approvalFlow: z.enum(['standard', 'auto_approve', 'hr_required', 'multi_level']),
+  minNoticeDays: z.string().optional(),
+  maxConsecutiveDays: z.string().optional(),
 })
 type LeaveTypeFormData = z.infer<typeof leaveTypeSchema>
 
@@ -528,8 +610,11 @@ function LeaveTypeDialog({
           requiresAttachment: editing.requiresAttachment,
           maxDaysPerYear: editing.maxDaysPerYear ? String(editing.maxDaysPerYear) : '',
           regionId: editing.regionId ? String(editing.regionId) : '',
+          approvalFlow: editing.approvalFlow ?? 'standard',
+          minNoticeDays: editing.minNoticeDays !== undefined ? String(editing.minNoticeDays) : '0',
+          maxConsecutiveDays: editing.maxConsecutiveDays ? String(editing.maxConsecutiveDays) : '',
         }
-      : { isPaid: true, requiresAttachment: false },
+      : { isPaid: true, requiresAttachment: false, approvalFlow: 'standard', minNoticeDays: '0' },
   })
 
   async function onSubmit(data: LeaveTypeFormData) {
@@ -541,6 +626,9 @@ function LeaveTypeDialog({
       requiresAttachment: data.requiresAttachment,
       maxDaysPerYear: data.maxDaysPerYear ? Number(data.maxDaysPerYear) : null,
       regionId: data.regionId && data.regionId !== '__none__' ? Number(data.regionId) : null,
+      approvalFlow: data.approvalFlow,
+      minNoticeDays: data.minNoticeDays ? Number(data.minNoticeDays) : 0,
+      maxConsecutiveDays: data.maxConsecutiveDays ? Number(data.maxConsecutiveDays) : null,
     }
     if (editing) {
       await updateLT.mutateAsync({ id: editing.id, data: payload })
@@ -600,6 +688,36 @@ function LeaveTypeDialog({
                   </Select>
                 )}
               />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Approval Flow</Label>
+            <Controller
+              name="approvalFlow"
+              control={control}
+              render={({ field }) => (
+                <Select value={field.value || 'standard'} onValueChange={field.onChange}>
+                  <SelectTrigger><SelectValue placeholder="Select flow" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="standard">Standard (Manager approval)</SelectItem>
+                    <SelectItem value="auto_approve">Auto-Approve (no action needed)</SelectItem>
+                    <SelectItem value="hr_required">HR Required (Manager then HR)</SelectItem>
+                    <SelectItem value="multi_level">Multi-Level</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <Label>Minimum notice days</Label>
+              <Input {...register('minNoticeDays')} type="number" min="0" placeholder="0" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Max consecutive days <span className="text-muted-foreground text-xs">(optional)</span></Label>
+              <Input {...register('maxConsecutiveDays')} type="number" min="1" placeholder="Unlimited" />
             </div>
           </div>
 

@@ -2,6 +2,7 @@ import type { App } from '@slack/bolt'
 import { randomUUID } from 'crypto'
 import { addRequestToSheet } from '../google-sheets'
 import * as dbService from '../db-service'
+import * as overtimeService from '../../services/overtime.service'
 import { isAUNZRegion } from './utils'
 
 // Work session interface for per-date timing
@@ -429,6 +430,39 @@ export function registerCompLeaveHandlers(app: App) {
       }
 
       await addRequestToSheet(requestData)
+
+      // Write to LMS DB so request appears in the web UI
+      if (dbEmployee) {
+        try {
+          // Calculate total hours from session times
+          const totalHoursFromSessions = workSessions.reduce((sum, s) => {
+            if (!s.startTime || !s.endTime) return sum
+            const [sh, sm] = s.startTime.split(':').map(Number)
+            const [eh, em] = s.endTime.split(':').map(Number)
+            return sum + (eh * 60 + em - sh * 60 - sm) / 60
+          }, 0)
+          const hoursForDb = compensationType === 'TimeInLieu' ? hours : (totalHoursFromSessions || days * 8)
+          const daysForDb = compensationType === 'TimeInLieu' ? hoursForDb / 8 : days
+
+          // Create one DB entry per session date, or a single entry for the first date
+          for (const session of workSessions) {
+            const sessionHours = (() => {
+              if (!session.startTime || !session.endTime) return hoursForDb / workSessions.length
+              const [sh, sm] = session.startTime.split(':').map(Number)
+              const [eh, em] = session.endTime.split(':').map(Number)
+              return (eh * 60 + em - sh * 60 - sm) / 60
+            })()
+            await overtimeService.submitOvertimeRequest(dbEmployee.id, {
+              date: session.date,
+              hoursWorked: Math.max(0.1, sessionHours),
+              daysRequested: compensationType === 'TimeInLieu' ? Math.max(0.1, sessionHours / 8) : (daysForDb / workSessions.length),
+              reason: overtimeReason,
+            }).catch((err) => console.warn(`[comp-leave] DB entry skipped for ${session.date}: ${err.message}`))
+          }
+        } catch (err) {
+          console.error('[comp-leave] Warning: DB write failed (non-fatal):', err)
+        }
+      }
 
       // Send DM to supervisor
       if (supervisorEmail !== 'No supervisor assigned') {

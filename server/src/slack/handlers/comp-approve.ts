@@ -1,6 +1,10 @@
 import type { App, BlockAction } from '@slack/bolt'
 import { getRequestById, updateRequestValues, upsertEmployeeBalancesInSheet, logBalanceAdjustment } from '../google-sheets'
 import * as dbService from '../db-service'
+import * as overtimeService from '../../services/overtime.service'
+import { db } from '../../db/index'
+import { overtimeEntries, users } from '../../db/schema'
+import { eq, and } from 'drizzle-orm'
 import {
   formatCompType,
   getRegionDisplayName,
@@ -304,8 +308,35 @@ export function registerCompApproveHandlers(app: App) {
         const dbEmployee = await dbService.getUserByEmail(request.staffEmail)
         let credited = false
         if (dbEmployee) {
-          credited = await dbService.addTILAdjustment(dbEmployee.id, dbEmployee.regionId, approvedHours)
-          console.log(`[comp-approve] TIL DB credit for ${request.staffEmail}: ${approvedHours} hours — ${credited ? 'OK' : 'FAILED'}`)
+          // Try to find and approve the pending DB entry (written when request was submitted)
+          const [pendingEntry] = await db
+            .select({ id: overtimeEntries.id })
+            .from(overtimeEntries)
+            .where(and(
+              eq(overtimeEntries.userId, dbEmployee.id),
+              eq(overtimeEntries.date, request.dateOfWork),
+              eq(overtimeEntries.status, 'pending')
+            ))
+            .limit(1)
+
+          if (pendingEntry) {
+            // Use the service — it credits the balance and updates the entry status
+            try {
+              const [approverInfo] = await db.select({ id: users.id }).from(users)
+                .where(eq(users.email, request.supervisorEmail)).limit(1)
+              const approverDbId = approverInfo?.id ?? dbEmployee.id // fallback to employee if supervisor not found
+              await overtimeService.approveOvertimeRequest(pendingEntry.id, approverDbId, approvedHours / 8)
+              credited = true
+            } catch (err) {
+              console.error('[comp-approve] overtimeService.approveOvertimeRequest failed, falling back to direct credit:', err)
+              credited = await dbService.addTILAdjustment(dbEmployee.id, dbEmployee.regionId, approvedHours)
+            }
+          } else {
+            // No DB entry (old-style request) — credit balance directly
+            credited = await dbService.addTILAdjustment(dbEmployee.id, dbEmployee.regionId, approvedHours)
+          }
+
+          console.log(`[comp-approve] TIL credit for ${request.staffEmail}: ${approvedHours} hours — ${credited ? 'OK' : 'FAILED'}`)
           if (credited) {
             const year = new Date().getFullYear()
             const balances = await dbService.getUserBalances(dbEmployee.id, year)
@@ -391,8 +422,33 @@ export function registerCompApproveHandlers(app: App) {
         const dbEmployee = await dbService.getUserByEmail(request.staffEmail)
         let credited = false
         if (dbEmployee) {
-          credited = await dbService.addCompLeaveAdjustment(dbEmployee.id, dbEmployee.regionId, approvedDays)
-          console.log(`[comp-approve] COMP_LEAVE DB credit for ${request.staffEmail}: ${approvedDays} days — ${credited ? 'OK' : 'FAILED'}`)
+          // Try to find and approve the pending DB entry
+          const [pendingEntry] = await db
+            .select({ id: overtimeEntries.id })
+            .from(overtimeEntries)
+            .where(and(
+              eq(overtimeEntries.userId, dbEmployee.id),
+              eq(overtimeEntries.date, request.dateOfWork),
+              eq(overtimeEntries.status, 'pending')
+            ))
+            .limit(1)
+
+          if (pendingEntry) {
+            try {
+              const [approverInfo] = await db.select({ id: users.id }).from(users)
+                .where(eq(users.email, request.supervisorEmail)).limit(1)
+              const approverDbId = approverInfo?.id ?? dbEmployee.id
+              await overtimeService.approveOvertimeRequest(pendingEntry.id, approverDbId, approvedDays)
+              credited = true
+            } catch (err) {
+              console.error('[comp-approve] overtimeService.approveOvertimeRequest failed, falling back:', err)
+              credited = await dbService.addCompLeaveAdjustment(dbEmployee.id, dbEmployee.regionId, approvedDays)
+            }
+          } else {
+            credited = await dbService.addCompLeaveAdjustment(dbEmployee.id, dbEmployee.regionId, approvedDays)
+          }
+
+          console.log(`[comp-approve] COMP_LEAVE credit for ${request.staffEmail}: ${approvedDays} days — ${credited ? 'OK' : 'FAILED'}`)
           if (credited) {
             const year = new Date().getFullYear()
             const balances = await dbService.getUserBalances(dbEmployee.id, year)

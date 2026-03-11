@@ -1,12 +1,16 @@
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 
-type Status = 'pending' | 'approved' | 'rejected' | 'cancelled'
+type Status = 'pending' | 'approved' | 'rejected' | 'cancelled' | 'pending_hr'
 
 const STATUS_CONFIG: Record<Status, { label: string; className: string }> = {
   pending: {
-    label: 'Pending',
+    label: 'Pending (Manager)',
     className: 'bg-yellow-100 text-yellow-800 border-yellow-200 hover:bg-yellow-100',
+  },
+  pending_hr: {
+    label: 'Pending (HR)',
+    className: 'bg-orange-100 text-orange-800 border-orange-200 hover:bg-orange-100',
   },
   approved: {
     label: 'Approved',
@@ -23,12 +27,15 @@ const STATUS_CONFIG: Record<Status, { label: string; className: string }> = {
 }
 
 interface LeaveStatusBadgeProps {
-  status: Status
+  status: string
   className?: string
 }
 
 export function LeaveStatusBadge({ status, className }: LeaveStatusBadgeProps) {
-  const config = STATUS_CONFIG[status]
+  const config = STATUS_CONFIG[status as Status] ?? {
+    label: status,
+    className: 'bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-100',
+  }
   return (
     <Badge
       variant="outline"

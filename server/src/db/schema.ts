@@ -31,6 +31,7 @@ export const leaveStatusEnum = pgEnum('leave_status', [
   'approved',
   'rejected',
   'cancelled',
+  'pending_hr',
 ])
 
 export const approvalStatusEnum = pgEnum('approval_status', [
@@ -139,6 +140,10 @@ export const leaveTypes = pgTable(
     isPaid: boolean('is_paid').notNull().default(true),
     requiresAttachment: boolean('requires_attachment').notNull().default(false),
     maxDaysPerYear: integer('max_days_per_year'),
+    // Approval flow: standard | auto_approve | hr_required | multi_level
+    approvalFlow: varchar('approval_flow', { length: 30 }).notNull().default('standard'),
+    minNoticeDays: integer('min_notice_days').notNull().default(0),
+    maxConsecutiveDays: integer('max_consecutive_days'),
     // null = applies to all regions; set to regionId for region-specific types
     regionId: integer('region_id').references(() => regions.id),
   },
@@ -216,6 +221,8 @@ export const leaveRequests = pgTable(
     status: leaveStatusEnum('status').notNull().default('pending'),
     attachmentUrl: text('attachment_url'),
     googleEventId: text('google_event_id'),
+    approvalStep: integer('approval_step').notNull().default(1),
+    currentApproverId: integer('current_approver_id').references((): AnyPgColumn => users.id),
     ...timestamps,
   },
   (table) => [
@@ -340,6 +347,9 @@ export const overtimeEntries = pgTable(
     approvedById: integer('approved_by_id').references(() => users.id),
     approvedAt: timestamp('approved_at', { withTimezone: true }),
     rejectionReason: text('rejection_reason'),
+    evidenceUrl: text('evidence_url'),
+    approvedDays: numeric('approved_days', { precision: 4, scale: 2 }),
+    managerComment: text('manager_comment'),
     compLeaveRequestId: integer('comp_leave_request_id').references(() => leaveRequests.id),
     regionId: integer('region_id')
       .notNull()

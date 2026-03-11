@@ -4,6 +4,8 @@ import {
   overtimeEntries,
   leaveTypes,
   users,
+  regions,
+  compLeaveRules,
   publicHolidays,
 } from '../db/schema'
 import { addAdjustment } from './balance.service'
@@ -25,14 +27,14 @@ export interface OvertimeBalance {
 // Helpers
 // ============================================================
 
-async function getAnnualLeaveTypeId(_regionId: number): Promise<number | null> {
-  // AL is a global leave type (regionId IS NULL) per the seed
-  const [lt] = await db
-    .select({ id: leaveTypes.id })
-    .from(leaveTypes)
-    .where(and(eq(leaveTypes.code, 'AL'), isNull(leaveTypes.regionId)))
+async function getUserRegionCode(userId: number): Promise<string> {
+  const [u] = await db
+    .select({ code: regions.code })
+    .from(users)
+    .leftJoin(regions, eq(users.regionId, regions.id))
+    .where(eq(users.id, userId))
     .limit(1)
-  return lt?.id ?? null
+  return u?.code ?? ''
 }
 
 async function isPublicHoliday(regionId: number, dateStr: string): Promise<boolean> {
@@ -50,7 +52,7 @@ async function isPublicHoliday(regionId: number, dateStr: string): Promise<boole
 
 export async function submitOvertimeRequest(
   userId: number,
-  data: { date: string; hoursWorked: number; daysRequested: number; reason: string }
+  data: { date: string; hoursWorked: number; daysRequested: number; reason: string; evidenceUrl?: string }
 ) {
   const [user] = await db
     .select({ id: users.id, regionId: users.regionId, managerId: users.managerId, name: users.name })
@@ -62,16 +64,7 @@ export async function submitOvertimeRequest(
 
   // Validate date — not in future
   const today = formatDate(new Date())
-  if (data.date > today) throw new ValidationError('Overtime date cannot be in the future')
-
-  // Validate not weekend
-  const d = parseDate(data.date)
-  const dow = d.getUTCDay()
-  if (dow === 0 || dow === 6) throw new ValidationError('Overtime cannot be logged on weekends')
-
-  // Validate not public holiday
-  const isHoliday = await isPublicHoliday(user.regionId, data.date)
-  if (isHoliday) throw new ValidationError('Overtime cannot be logged on public holidays')
+  if (data.date > today) throw new ValidationError('The worked date cannot be in the future')
 
   // Validate hours
   if (data.hoursWorked <= 0 || data.hoursWorked > 24) {
@@ -79,8 +72,8 @@ export async function submitOvertimeRequest(
   }
 
   // Validate days requested
-  if (![0.5, 1.0].includes(data.daysRequested)) {
-    throw new ValidationError('Days requested must be 0.5 or 1')
+  if (data.daysRequested <= 0 || data.daysRequested > 5) {
+    throw new ValidationError('Days requested must be between 0.5 and 5')
   }
 
   // Duplicate check: same user + same date (not cancelled/rejected)
@@ -108,6 +101,7 @@ export async function submitOvertimeRequest(
       hoursWorked: data.hoursWorked.toFixed(2),
       daysRequested: data.daysRequested.toFixed(2),
       reason: data.reason,
+      evidenceUrl: data.evidenceUrl ?? null,
       status: 'pending',
       regionId: user.regionId,
     })
@@ -130,10 +124,15 @@ export async function submitOvertimeRequest(
 }
 
 // ============================================================
-// Approve Overtime — credits annual leave balance
+// Approve Overtime — credits COMP_LEAVE (non-AU/NZ) or TIL (AU/NZ)
 // ============================================================
 
-export async function approveOvertimeRequest(entryId: number, approverId: number) {
+export async function approveOvertimeRequest(
+  entryId: number,
+  approverId: number,
+  approvedDays?: number,
+  comment?: string
+) {
   const [entry] = await db
     .select({
       id: overtimeEntries.id,
@@ -155,18 +154,58 @@ export async function approveOvertimeRequest(entryId: number, approverId: number
 
   await assertCanManageOvertime(approverId, entry.userId)
 
+  const regionCode = await getUserRegionCode(entry.userId)
+  const isAUNZ = ['AU', 'NZ'].includes(regionCode)
+
+  // Get hours per day for TIL conversion
+  let hoursPerDay = 8
+  if (isAUNZ) {
+    const [rule] = await db
+      .select({ hoursPerDay: compLeaveRules.hoursPerDay })
+      .from(compLeaveRules)
+      .where(eq(compLeaveRules.regionId, entry.regionId))
+      .limit(1)
+    hoursPerDay = parseFloat(rule?.hoursPerDay ?? '8')
+  }
+
+  const requestedDays = parseDecimal(entry.daysRequested)
+  const hoursWorked = parseDecimal(entry.hoursWorked)
+  let daysToCredit: number
+
+  if (approvedDays !== undefined) {
+    daysToCredit = approvedDays
+  } else if (isAUNZ) {
+    // TIL: convert hours to days, rounding to nearest 0.5
+    daysToCredit = Math.round((hoursWorked / hoursPerDay) * 2) / 2
+  } else {
+    daysToCredit = requestedDays
+  }
+
+  // Look up the correct leave type to credit
+  const leaveTypeCode = isAUNZ ? 'TIL' : 'COMP_LEAVE'
+  const [lt] = await db
+    .select({ id: leaveTypes.id })
+    .from(leaveTypes)
+    .where(eq(leaveTypes.code, leaveTypeCode))
+    .limit(1)
+  const compLeaveTypeId = lt?.id ?? null
+
+  // Credit to correct leave type balance
+  if (compLeaveTypeId) {
+    const year = new Date().getFullYear()
+    await addAdjustment(entry.userId, compLeaveTypeId, year, entry.regionId, daysToCredit)
+  }
+
   await db
     .update(overtimeEntries)
-    .set({ status: 'approved', approvedById: approverId, approvedAt: new Date() })
+    .set({
+      status: 'approved',
+      approvedById: approverId,
+      approvedAt: new Date(),
+      approvedDays: daysToCredit.toFixed(2),
+      managerComment: comment ?? null,
+    })
     .where(eq(overtimeEntries.id, entryId))
-
-  // Credit approved days to annual leave balance
-  const days = parseDecimal(entry.daysRequested)
-  const annualLeaveTypeId = await getAnnualLeaveTypeId(entry.regionId)
-  if (annualLeaveTypeId) {
-    const year = new Date().getFullYear()
-    await addAdjustment(entry.userId, annualLeaveTypeId, year, entry.regionId, days)
-  }
 
   const [approver] = await db
     .select({ name: users.name })
@@ -174,11 +213,12 @@ export async function approveOvertimeRequest(entryId: number, approverId: number
     .where(eq(users.id, approverId))
     .limit(1)
 
+  const leaveLabel = isAUNZ ? 'Time In Lieu' : 'Compensatory Leave'
   await createNotification({
     userId: entry.userId,
     type: 'overtime_approved',
     title: 'Overtime Compensation Approved',
-    message: `Your overtime compensation for ${entry.date} has been approved by ${approver?.name ?? 'your manager'}. ${days} day(s) added to your annual leave balance.`,
+    message: `Your ${isAUNZ ? 'overtime' : 'comp leave'} request for ${entry.date} has been approved by ${approver?.name ?? 'your manager'}. ${daysToCredit} day(s) added to your ${leaveLabel} balance.`,
     metadata: { overtimeEntryId: entryId },
   })
 

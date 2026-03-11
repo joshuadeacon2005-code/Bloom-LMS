@@ -21,6 +21,7 @@ import {
 import { deleteLeaveEvent } from './calendar.service'
 import { createNotification } from './notification.service'
 import { ValidationError, NotFoundError, ForbiddenError, AppError } from '../utils/errors'
+import { processAutoApprove, initHrRequiredFlow } from './approvalFlow.service'
 
 // ============================================================
 // Helpers
@@ -193,6 +194,10 @@ export async function createLeaveRequest(
 
   if (!leaveType) throw new ValidationError('This leave type is not available in your region')
 
+  const approvalFlow = (leaveType.approvalFlow ?? 'standard') as string
+  const minNoticeDays = leaveType.minNoticeDays ?? 0
+  const maxConsecutiveDays = leaveType.maxConsecutiveDays ?? null
+
   // 3. Ensure startDate <= endDate
   if (data.startDate > data.endDate) {
     throw new ValidationError('End date must be on or after start date')
@@ -209,6 +214,20 @@ export async function createLeaveRequest(
     )
   }
 
+  // Notice period validation
+  if (minNoticeDays > 0) {
+    const today = getTodayString()
+    // Add minNoticeDays calendar days to today
+    const todayDate = new Date(today)
+    todayDate.setDate(todayDate.getDate() + minNoticeDays)
+    const earliestStart = todayDate.toISOString().split('T')[0]!
+    if (data.startDate < earliestStart) {
+      throw new ValidationError(
+        `${leaveType.name} requires at least ${minNoticeDays} day${minNoticeDays !== 1 ? 's' : ''} notice`
+      )
+    }
+  }
+
   // 6. Overlap detection
   await checkOverlap(userId, data.startDate, data.endDate)
 
@@ -219,7 +238,51 @@ export async function createLeaveRequest(
     )
   }
 
+  // Max consecutive days validation
+  if (maxConsecutiveDays !== null && totalDays > maxConsecutiveDays) {
+    throw new ValidationError(
+      `${leaveType.name} cannot exceed ${maxConsecutiveDays} consecutive day${maxConsecutiveDays !== 1 ? 's' : ''}`
+    )
+  }
+
   const currentYear = new Date().getFullYear()
+
+  // Auto-approve flow (e.g. WFH) — skip balance check, immediately approved
+  if (approvalFlow === 'auto_approve') {
+    const [request] = await db
+      .insert(leaveRequests)
+      .values({
+        userId,
+        leaveTypeId: data.leaveTypeId,
+        startDate: data.startDate,
+        endDate: data.endDate,
+        totalDays: totalDays.toFixed(1),
+        reason: data.reason,
+        status: 'approved',
+        attachmentUrl: data.attachmentUrl,
+        approvalStep: 1,
+      })
+      .returning()
+
+    if (!request) throw new AppError(500, 'Failed to create leave request')
+
+    const [requester] = await db
+      .select({ name: users.name, managerId: users.managerId })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1)
+
+    await processAutoApprove(
+      request.id,
+      requester?.managerId ?? null,
+      requester?.name ?? 'Employee',
+      leaveType.name,
+      data.startDate,
+      data.endDate
+    )
+
+    return { ...request, totalDays }
+  }
 
   // 8. Balance check (for paid leave only)
   if (leaveType.isPaid) {
@@ -236,7 +299,11 @@ export async function createLeaveRequest(
     )
   }
 
-  // 9. Create leave request
+  // 9. Build approval chain first to get level-1 approver
+  const approverChain = await buildApprovalChain(userId, user.regionId, totalDays)
+  const level1ApproverId = approverChain[0]?.approverId ?? null
+
+  // 10. Create leave request
   const [request] = await db
     .insert(leaveRequests)
     .values({
@@ -248,19 +315,19 @@ export async function createLeaveRequest(
       reason: data.reason,
       status: 'pending',
       attachmentUrl: data.attachmentUrl,
+      approvalStep: 1,
+      currentApproverId: level1ApproverId,
     })
     .returning()
 
   if (!request) throw new AppError(500, 'Failed to create leave request')
 
-  // 10. Update pending balance
+  // 11. Update pending balance
   if (leaveType.isPaid) {
     await addPending(userId, data.leaveTypeId, currentYear, totalDays)
   }
 
-  // 11. Build and insert approval chain
-  const approverChain = await buildApprovalChain(userId, user.regionId, totalDays)
-
+  // 12. Insert approval chain
   if (approverChain.length > 0) {
     await db.insert(approvalWorkflows).values(
       approverChain.map((a) => ({
@@ -271,7 +338,7 @@ export async function createLeaveRequest(
       }))
     )
 
-    // 12. Notify level-1 approver
+    // 13. Notify based on flow type
     const level1 = approverChain[0]!
     const [requester] = await db
       .select({ name: users.name })
@@ -279,13 +346,25 @@ export async function createLeaveRequest(
       .where(eq(users.id, userId))
       .limit(1)
 
-    await createNotification({
-      userId: level1.approverId,
-      type: 'leave_submitted',
-      title: 'New Leave Request Pending Approval',
-      message: `${requester?.name ?? 'An employee'} has submitted a ${leaveType.name} request from ${data.startDate} to ${data.endDate} (${totalDays} day${totalDays !== 1 ? 's' : ''}).`,
-      metadata: { leaveRequestId: request.id, requesterId: userId },
-    })
+    if (approvalFlow === 'hr_required') {
+      // Special notification for hr_required: mentions two-step process
+      await initHrRequiredFlow(
+        request.id,
+        level1.approverId,
+        requester?.name ?? 'Employee',
+        leaveType.name,
+        data.startDate,
+        data.endDate
+      )
+    } else {
+      await createNotification({
+        userId: level1.approverId,
+        type: 'leave_submitted',
+        title: 'New Leave Request Pending Approval',
+        message: `${requester?.name ?? 'An employee'} has submitted a ${leaveType.name} request from ${data.startDate} to ${data.endDate} (${totalDays} day${totalDays !== 1 ? 's' : ''}).`,
+        metadata: { leaveRequestId: request.id, requesterId: userId },
+      })
+    }
   }
 
   return { ...request, totalDays }

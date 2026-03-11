@@ -13,9 +13,11 @@ const HELP_TEXT = `*Bloom LMS — Leave Commands*
 • \`/leave cancel <id>\` — Cancel a pending or approved leave request
 
 *Overtime Compensation:*
-• \`/leave overtime\` — Request overtime compensation (adds days to annual leave when approved)
+• \`/comp-leave\` — Request comp leave or Time In Lieu (AU/NZ)
 • \`/leave overtime balance\` — View pending/approved overtime requests
-• \`/leave overtime status\` — View recent overtime requests`
+• \`/leave overtime status\` — View recent overtime requests
+
+_Need help? Visit the <https://bloom-lms.up.railway.app/guide|User Guide>_`
 
 export function registerLeaveCommandHandlers(app: App) {
   // ── Overtime: approve button ────────────────────────────────
@@ -35,7 +37,7 @@ export function registerLeaveCommandHandlers(app: App) {
           channel: (body as BlockAction).container.channel_id || '',
           ts: (body as BlockAction).container.message_ts || '',
           text: 'Overtime compensation approved.',
-          blocks: [{ type: 'section', text: { type: 'mrkdwn', text: `✅ You approved overtime compensation request #${entryId}. Days have been added to the employee's annual leave balance.` } }],
+          blocks: [{ type: 'section', text: { type: 'mrkdwn', text: `✅ You approved overtime compensation request #${entryId}. Days have been added to the employee's compensatory leave balance.` } }],
         })
       } catch (err: any) {
         await client.chat.postMessage({ channel: body.user.id, text: `Could not approve: ${err.message}` })
@@ -147,7 +149,7 @@ export function registerLeaveCommandHandlers(app: App) {
         text: 'Overtime compensation request submitted!',
         blocks: [
           { type: 'header', text: { type: 'plain_text', text: 'Overtime Compensation Submitted' } },
-          { type: 'section', text: { type: 'mrkdwn', text: 'Your request has been submitted. Your manager has been notified for approval. When approved, the days will be added to your annual leave balance.' } },
+          { type: 'section', text: { type: 'mrkdwn', text: 'Your request has been submitted. Your manager has been notified for approval. When approved, the days will be added to your Compensatory Leave (or Time In Lieu for AU/NZ) balance.' } },
           {
             type: 'section',
             fields: [
@@ -396,17 +398,18 @@ async function handleStatus(client: any, slackUserId: string) {
     return
   }
 
-  const statusEmoji: Record<string, string> = {
-    pending: 'Pending',
-    approved: 'Approved',
-    rejected: 'Rejected',
-    cancelled: 'Cancelled',
+  const statusLabel: Record<string, string> = {
+    pending: '⏳ Pending (Manager)',
+    pending_hr: '🔶 Pending (HR)',
+    approved: '✅ Approved',
+    rejected: '❌ Rejected',
+    cancelled: '🚫 Cancelled',
   }
 
   const rows = requests
     .map((r) => {
       const ltName = r.leaveType?.name ?? 'Leave'
-      const status = statusEmoji[r.status] ?? r.status
+      const status = statusLabel[r.status] ?? r.status
       return `• *#${r.id}* ${ltName}: ${r.startDate} to ${r.endDate} — ${status}`
     })
     .join('\n')
@@ -441,7 +444,7 @@ async function handleOvertimeLog(client: any, triggerId: string, slackUserId: st
       blocks: [
         {
           type: 'section',
-          text: { type: 'mrkdwn', text: 'Request compensation for overtime worked. When approved by your manager, the days will be added to your annual leave balance.' },
+          text: { type: 'mrkdwn', text: 'Request compensation for overtime worked. When approved, days will be added to your Compensatory Leave (or Time In Lieu for AU/NZ) balance.' },
         },
         {
           type: 'input',
@@ -509,7 +512,7 @@ async function handleOvertimeBalance(client: any, slackUserId: string) {
         {
           type: 'section',
           fields: [
-            { type: 'mrkdwn', text: `*Approved Days:*\n${balance.approvedDays.toFixed(1)}d (added to annual leave)` },
+            { type: 'mrkdwn', text: `*Approved Days:*\n${balance.approvedDays.toFixed(1)}d (added to compensatory leave)` },
             { type: 'mrkdwn', text: `*Pending Requests:*\n${balance.pendingCount} (${balance.pendingDays.toFixed(1)}d awaiting approval)` },
           ],
         },

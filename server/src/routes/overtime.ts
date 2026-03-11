@@ -13,10 +13,14 @@ router.use(authenticate)
 const submitSchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be YYYY-MM-DD'),
   hoursWorked: z.number().positive().max(24),
-  daysRequested: z.number().refine((v) => v === 0.5 || v === 1, {
-    message: 'Days requested must be 0.5 or 1',
-  }),
+  daysRequested: z.number().positive().max(5),
   reason: z.string().min(1).max(1000),
+  evidenceUrl: z.string().url().optional(),
+})
+
+const approveSchema = z.object({
+  approvedDays: z.number().positive().max(5).optional(),
+  comment: z.string().max(1000).optional(),
 })
 
 const rejectSchema = z.object({
@@ -87,11 +91,28 @@ router.get('/pending', async (req, res, next) => {
   }
 })
 
+// POST /api/overtime/my — alias for GET / (for hook compatibility)
+router.get('/my', validate(historySchema, 'query'), async (req, res, next) => {
+  try {
+    const query = req.query as unknown as z.infer<typeof historySchema>
+    const result = await overtimeService.getMyOvertimeRequests(req.user!.userId, query)
+    const response: ApiResponse<typeof result.data> = {
+      success: true,
+      data: result.data,
+      meta: { page: query.page, pageSize: query.pageSize, total: result.total },
+    }
+    res.json(response)
+  } catch (err) {
+    next(err)
+  }
+})
+
 // POST /api/overtime/:id/approve
-router.post('/:id/approve', async (req, res, next) => {
+router.post('/:id/approve', validate(approveSchema), async (req, res, next) => {
   try {
     const id = parseInt(req.params['id'] as string)
-    const result = await overtimeService.approveOvertimeRequest(id, req.user!.userId)
+    const { approvedDays, comment } = req.body as z.infer<typeof approveSchema>
+    const result = await overtimeService.approveOvertimeRequest(id, req.user!.userId, approvedDays, comment)
     const response: ApiResponse<typeof result> = { success: true, data: result }
     res.json(response)
   } catch (err) {

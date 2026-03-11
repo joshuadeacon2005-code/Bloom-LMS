@@ -1,3 +1,4 @@
+import { eq } from 'drizzle-orm'
 import { db } from './index'
 import {
   regions,
@@ -170,6 +171,14 @@ async function seed() {
         requiresAttachment: false,
         regionId: null,
       },
+      {
+        name: 'Work From Home',
+        code: 'WFH',
+        description: 'Work from home day — no balance deduction',
+        isPaid: true,
+        requiresAttachment: false,
+        regionId: null,
+      },
     ])
     .onConflictDoNothing()
     .returning()
@@ -180,6 +189,33 @@ async function seed() {
   }
   const ltMap = Object.fromEntries(allLeaveTypes.map((lt) => [lt.code, lt.id]))
   console.log('[seed] Leave types available:', Object.keys(ltMap))
+
+  // Set approval flows on leave types
+  console.log('[seed] Setting approval flows...')
+  const approvalFlowUpdates = [
+    { code: 'AL', approvalFlow: 'standard', minNoticeDays: 3 },
+    { code: 'SL', approvalFlow: 'standard', minNoticeDays: 0 },
+    { code: 'COMP_LEAVE', approvalFlow: 'standard', minNoticeDays: 0 },
+    { code: 'TIL', approvalFlow: 'standard', minNoticeDays: 0 },
+    { code: 'WFH', approvalFlow: 'auto_approve', minNoticeDays: 0 },
+    { code: 'ML', approvalFlow: 'hr_required', minNoticeDays: 0 },
+    { code: 'PL', approvalFlow: 'hr_required', minNoticeDays: 0 },
+    { code: 'CL', approvalFlow: 'standard', minNoticeDays: 0, maxConsecutiveDays: 5 },
+    { code: 'UL', approvalFlow: 'multi_level', minNoticeDays: 0 },
+    { code: 'MRL', approvalFlow: 'standard', minNoticeDays: 3 },
+    { code: 'CCL', approvalFlow: 'standard', minNoticeDays: 0 },
+    { code: 'STL', approvalFlow: 'standard', minNoticeDays: 3 },
+  ] as { code: string; approvalFlow: string; minNoticeDays: number; maxConsecutiveDays?: number }[]
+  for (const update of approvalFlowUpdates) {
+    const id = ltMap[update.code]
+    if (id) {
+      await db.update(leaveTypes).set({
+        approvalFlow: update.approvalFlow as any,
+        minNoticeDays: update.minNoticeDays ?? 0,
+        ...(update.maxConsecutiveDays !== undefined ? { maxConsecutiveDays: update.maxConsecutiveDays } : {}),
+      }).where(eq(leaveTypes.id, id))
+    }
+  }
 
   // ============================================================
   // Leave Policies per Region

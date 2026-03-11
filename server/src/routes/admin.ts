@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { z } from 'zod'
-import { eq, and } from 'drizzle-orm'
+import { eq, and, isNull } from 'drizzle-orm'
 import { db } from '../db/index'
 import {
   regions,
@@ -8,11 +8,13 @@ import {
   leaveTypes,
   leavePolicies,
   publicHolidays,
+  users,
 } from '../db/schema'
 import { authenticate } from '../middleware/auth'
 import { requireRole } from '../middleware/rbac'
 import { validate } from '../middleware/validate'
 import { NotFoundError } from '../utils/errors'
+import { getSlackWebClient } from '../slack/client'
 import type { ApiResponse } from './types'
 
 const router = Router()
@@ -63,6 +65,9 @@ const createLeaveTypeSchema = z.object({
   requiresAttachment: z.boolean().default(false),
   maxDaysPerYear: z.number().int().positive().optional(),
   regionId: z.number().int().positive().nullable().optional(),
+  approvalFlow: z.enum(['standard', 'auto_approve', 'hr_required', 'multi_level']).default('standard'),
+  minNoticeDays: z.number().int().min(0).default(0),
+  maxConsecutiveDays: z.number().int().positive().nullable().optional(),
 })
 
 router.get('/leave-types', async (req, res, next) => {
@@ -222,7 +227,123 @@ router.delete('/holidays/:id', requireRole('super_admin'), async (req, res, next
 })
 
 // ============================================================
-// Notifications (user facing — available to all authenticated)
+// Slack: bot connection status
 // ============================================================
+
+router.get('/slack/status', requireRole('hr_admin'), async (_req, res, next) => {
+  try {
+    const slack = getSlackWebClient()
+    if (!slack) {
+      res.json({ success: true, data: { connected: false, reason: 'not_configured' } })
+      return
+    }
+    const result = await slack.auth.test()
+    res.json({
+      success: true,
+      data: {
+        connected: true,
+        botName: result.bot_id ? result.user : result.user,
+        teamName: result.team,
+        botId: result.bot_id,
+      },
+    })
+  } catch (err: any) {
+    res.json({
+      success: true,
+      data: { connected: false, reason: err?.data?.error ?? 'auth_failed' },
+    })
+  }
+})
+
+// ============================================================
+// Slack: send test DM to a user
+// ============================================================
+
+router.post('/slack/test-dm/:userId', requireRole('hr_admin'), async (req, res, next) => {
+  try {
+    const slack = getSlackWebClient()
+    if (!slack) {
+      res.status(503).json({ success: false, error: 'Slack is not configured on this server' })
+      return
+    }
+
+    const userId = parseInt(req.params.userId, 10)
+    const [user] = await db
+      .select({ id: users.id, name: users.name, slackUserId: users.slackUserId })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1)
+
+    if (!user) {
+      res.status(404).json({ success: false, error: 'User not found' })
+      return
+    }
+    if (!user.slackUserId) {
+      res.status(400).json({ success: false, error: 'User has no Slack ID linked' })
+      return
+    }
+
+    await slack.chat.postMessage({
+      channel: user.slackUserId,
+      text: `👋 Hi ${user.name}! This is a test message from the Bloom & Grow Leave Management System. Your Slack connection is working correctly.`,
+    })
+
+    res.json({ success: true, data: { sent: true } })
+  } catch (err: any) {
+    next(err)
+  }
+})
+
+// ============================================================
+// Slack: sync user IDs by email
+// ============================================================
+
+router.post('/slack/sync', requireRole('hr_admin'), async (_req, res, next) => {
+  try {
+    const slack = getSlackWebClient()
+    if (!slack) {
+      res.status(503).json({ success: false, error: 'Slack is not configured on this server' })
+      return
+    }
+
+    // Fetch all active users that don't yet have a Slack ID
+    const unlinked = await db
+      .select({ id: users.id, email: users.email, name: users.name })
+      .from(users)
+      .where(and(isNull(users.slackUserId), isNull(users.deletedAt), eq(users.isActive, true)))
+
+    let synced = 0
+    const notFound: string[] = []
+    const errors: string[] = []
+
+    for (const user of unlinked) {
+      try {
+        const result = await slack.users.lookupByEmail({ email: user.email })
+        const slackId = result.user?.id
+        if (!slackId) {
+          notFound.push(user.email)
+          continue
+        }
+        await db.update(users).set({ slackUserId: slackId }).where(eq(users.id, user.id))
+        synced++
+      } catch (err: any) {
+        // users_not_found is Slack's error when email doesn't match anyone
+        if (err?.data?.error === 'users_not_found') {
+          notFound.push(user.email)
+        } else {
+          errors.push(`${user.email}: ${err?.message ?? 'unknown error'}`)
+        }
+      }
+    }
+
+    const response: ApiResponse<{ synced: number; notFound: string[]; errors: string[] }> = {
+      success: true,
+      data: { synced, notFound, errors },
+    }
+    res.json(response)
+  } catch (err) {
+    next(err)
+  }
+})
 
 export default router

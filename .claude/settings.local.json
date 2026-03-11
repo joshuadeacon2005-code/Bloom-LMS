@@ -10,7 +10,10 @@
       "Bash(npx drizzle-kit:*)",
       "Bash(curl:*)",
       "Bash(wc:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(cd \"/Users/josh.d/Library/Mobile Documents/com~apple~CloudDocs/JDCoreDev Code/Bloom-LMS/server\" && npx tsx -e \"require\\('./drizzle.config.ts'\\)\" 2>&1 | head -5 || ls node_modules | grep drizzle)",
+      "Bash(cd \"/Users/josh.d/Library/Mobile Documents/com~apple~CloudDocs/JDCoreDev Code/Bloom-LMS/server\" && npm install 2>&1 | tail -5)",
+      "Bash(cd \"/Users/josh.d/Library/Mobile Documents/com~apple~CloudDocs/JDCoreDev Code/Bloom-LMS/server\" && DATABASE_URL=\"postgresql://neondb_owner:npg_0GixPfXW3Bqo@ep-lucky-feather-akju1o4i.c-3.us-west-2.aws.neon.tech/neondb?sslmode=require\" npm run db:push 2>&1)"
     ]
   }
 }

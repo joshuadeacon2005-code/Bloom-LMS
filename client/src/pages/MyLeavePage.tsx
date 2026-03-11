@@ -425,7 +425,7 @@ export function MyLeavePage() {
                 </div>
               </div>
               <p className="mt-4 text-xs text-muted-foreground">
-                When a manager approves your overtime compensation request, the days are automatically added to your annual leave balance.
+                When a manager approves your compensation request, the days are credited to your Compensatory Leave (or Time In Lieu for AU/NZ) balance — not annual leave.
               </p>
             </CardContent>
           </Card>

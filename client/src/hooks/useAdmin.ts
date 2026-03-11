@@ -41,6 +41,9 @@ export interface LeaveType {
   requiresAttachment: boolean
   maxDaysPerYear: number | null
   regionId: number | null
+  approvalFlow: 'standard' | 'auto_approve' | 'hr_required' | 'multi_level'
+  minNoticeDays: number
+  maxConsecutiveDays: number | null
 }
 
 export interface LeavePolicy {
@@ -304,5 +307,65 @@ export function useDeleteHoliday() {
       toast.success('Holiday deleted')
     },
     onError: () => toast.error('Failed to delete holiday'),
+  })
+}
+
+// ─── Slack ────────────────────────────────────────────────────────────────────
+
+export interface SlackStatus {
+  connected: boolean
+  botName?: string
+  teamName?: string
+  botId?: string
+  reason?: string
+}
+
+export interface SlackSyncResult {
+  synced: number
+  notFound: string[]
+  errors: string[]
+}
+
+export function useSlackStatus() {
+  return useQuery({
+    queryKey: ['slack-status'],
+    queryFn: () =>
+      api.get<{ data: SlackStatus }>('/admin/slack/status').then((r) => r.data.data),
+    staleTime: 60_000,
+    retry: false,
+  })
+}
+
+export function useSlackTestDm() {
+  return useMutation({
+    mutationFn: (userId: number) =>
+      api.post<{ data: { sent: boolean } }>(`/admin/slack/test-dm/${userId}`).then((r) => r.data.data),
+    onSuccess: () => {
+      toast.success('Test DM sent')
+    },
+    onError: (e: { response?: { data?: { error?: string } } }) => {
+      toast.error(e.response?.data?.error ?? 'Failed to send test DM')
+    },
+  })
+}
+
+export function useSlackSync() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () =>
+      api
+        .post<{ data: SlackSyncResult }>('/admin/slack/sync')
+        .then((r) => r.data.data),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['admin-users'] })
+      if (data.synced > 0) {
+        toast.success(`${data.synced} user${data.synced === 1 ? '' : 's'} linked to Slack`)
+      } else {
+        toast.info('No new Slack connections found')
+      }
+    },
+    onError: (e: { response?: { data?: { error?: string } } }) => {
+      toast.error(e.response?.data?.error ?? 'Slack sync failed')
+    },
   })
 }

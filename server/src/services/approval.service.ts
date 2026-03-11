@@ -6,6 +6,7 @@ import { createNotification } from './notification.service'
 import { createLeaveEvent, deleteLeaveEvent } from './calendar.service'
 import { parseDecimal } from '../utils/workingDays'
 import { NotFoundError, ForbiddenError, ValidationError } from '../utils/errors'
+import { progressToHrStep } from './approvalFlow.service'
 
 // ============================================================
 // Approve a leave request
@@ -97,7 +98,47 @@ export async function approveRequest(
     return { status: 'awaiting_next_approval' }
   }
 
-  // 4. All levels approved — finalise the leave request
+  // 4. No more pending workflow steps — check if we need to escalate to HR
+  const [currentRequest] = await db
+    .select({
+      id: leaveRequests.id,
+      userId: leaveRequests.userId,
+      status: leaveRequests.status,
+      leaveTypeId: leaveRequests.leaveTypeId,
+      startDate: leaveRequests.startDate,
+      endDate: leaveRequests.endDate,
+    })
+    .from(leaveRequests)
+    .where(eq(leaveRequests.id, requestId))
+    .limit(1)
+
+  if (!currentRequest) throw new NotFoundError('Leave request')
+
+  const [lt] = await db
+    .select({ approvalFlow: leaveTypes.approvalFlow, name: leaveTypes.name })
+    .from(leaveTypes)
+    .where(eq(leaveTypes.id, currentRequest.leaveTypeId))
+    .limit(1)
+
+  if (lt?.approvalFlow === 'hr_required' && currentRequest.status === 'pending') {
+    // Manager approved step 1 — escalate to HR
+    const [employee] = await db
+      .select({ name: users.name, regionId: users.regionId })
+      .from(users)
+      .where(eq(users.id, currentRequest.userId))
+      .limit(1)
+    await progressToHrStep(
+      requestId,
+      employee?.regionId ?? 0,
+      employee?.name ?? 'Employee',
+      lt.name ?? 'Leave',
+      currentRequest.startDate,
+      currentRequest.endDate
+    )
+    return { status: 'pending_hr', message: 'Approved by manager — now pending HR sign-off' }
+  }
+
+  // All approvals done — finalise the leave request
   return finaliseApproval(requestId, approverId)
 }
 
@@ -124,7 +165,7 @@ async function finaliseApproval(requestId: number, _approverId: number) {
     .limit(1)
 
   if (!request) throw new NotFoundError('Leave request')
-  if (request.status !== 'pending') {
+  if (request.status !== 'pending' && request.status !== 'pending_hr') {
     throw new ValidationError(`Cannot approve a request that is already ${request.status}`)
   }
 
@@ -224,7 +265,7 @@ export async function rejectRequest(
     .limit(1)
 
   if (!request) throw new NotFoundError('Leave request')
-  if (request.status !== 'pending') {
+  if (request.status !== 'pending' && request.status !== 'pending_hr') {
     throw new ValidationError(`Cannot reject a request that is already ${request.status}`)
   }
 
@@ -297,13 +338,13 @@ export async function getPendingApprovals(
 
   const isHrOrAbove = ['hr_admin', 'super_admin'].includes(approver?.role ?? '')
 
-  // HR sees all pending; managers see only their assigned workflows
+  // HR sees all pending (including pending_hr); managers see only their assigned workflows
   const where = isHrOrAbove
-    ? eq(leaveRequests.status, 'pending')
+    ? or(eq(leaveRequests.status, 'pending'), eq(leaveRequests.status, 'pending_hr'))
     : and(
         eq(approvalWorkflows.approverId, approverId),
         eq(approvalWorkflows.status, 'pending'),
-        eq(leaveRequests.status, 'pending')
+        or(eq(leaveRequests.status, 'pending'), eq(leaveRequests.status, 'pending_hr'))
       )
 
   const [{ total }] = await db

@@ -103,7 +103,7 @@ export function useApproveOvertime() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: overtimeKeys.all })
       queryClient.invalidateQueries({ queryKey: ['balances'] })
-      toast.success('Overtime request approved. Annual leave balance updated.')
+      toast.success('Overtime request approved. Compensatory leave balance updated.')
     },
     onError: (err: unknown) => {
       const msg =

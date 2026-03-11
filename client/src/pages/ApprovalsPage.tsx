@@ -506,9 +506,9 @@ export function ApprovalsPage() {
       <Dialog open={otActionId !== null} onOpenChange={() => setOTActionId(null)}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>Approve overtime entry?</DialogTitle>
+            <DialogTitle>Approve compensation request?</DialogTitle>
             <DialogDescription>
-              The requested days will be added to the employee's annual leave balance automatically.
+              The days will be credited to the employee's Compensatory Leave (or Time In Lieu for AU/NZ) balance automatically.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
