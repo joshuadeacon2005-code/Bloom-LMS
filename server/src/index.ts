@@ -96,8 +96,12 @@ app.listen(env.PORT, () => {
     await seedAdminUser()
     await seedEntitlements()
     await seedRequests()
-    await initSlack(app)
-    initJobs(env.SLACK_BOT_TOKEN)
+    if (env.NODE_ENV === 'production') {
+      await initSlack(app)
+      initJobs(env.SLACK_BOT_TOKEN)
+    } else {
+      console.log('[server] Skipping Slack and cron jobs in development')
+    }
     console.log('[server] Bootstrap complete')
   }
 
