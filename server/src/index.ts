@@ -11,6 +11,7 @@ import { seedEntitlements } from './db/seed-entitlements'
 import { seedRequests } from './db/seed-requests'
 import { seedAdminUser } from './db/seed-admin'
 import { seedBaseData } from './db/seed-base'
+import { runMigrations } from './db/migrate'
 import type { ApiResponse } from './routes/types'
 
 const env = validateEnv()
@@ -91,6 +92,7 @@ app.listen(env.PORT, () => {
   console.log(`[server] Client URL: ${env.CLIENT_URL}`)
 
   async function bootstrap() {
+    await runMigrations()
     await seedBaseData()
     await seedEmployees()
     await seedAdminUser()
