@@ -1,6 +1,10 @@
-import { App, ExpressReceiver } from '@slack/bolt'
+import { createRequire } from 'module'
+const _require = createRequire(import.meta.url)
+const { App } = _require('@slack/bolt') as typeof import('@slack/bolt')
+
 import type { Application } from 'express'
 import { validateEnv } from '../utils/env'
+import { getOrCreateReceiver } from './receiver'
 import { initializeSheet, syncEmployeeDirectory } from './google-sheets'
 import { getAllActiveEmployees } from './db-service'
 import { registerCompLeaveHandlers } from './handlers/comp-leave'
@@ -9,7 +13,7 @@ import { registerCompHrHandlers } from './handlers/comp-hr'
 import { registerLeaveApplyHandlers } from './handlers/leave-apply'
 import { registerLeaveCommandHandlers } from './handlers/leave-commands'
 
-export async function initSlack(expressApp: Application): Promise<void> {
+export async function initSlack(_expressApp: Application): Promise<void> {
   const env = validateEnv()
 
   if (!env.SLACK_BOT_TOKEN || !env.SLACK_SIGNING_SECRET) {
@@ -17,21 +21,18 @@ export async function initSlack(expressApp: Application): Promise<void> {
     return
   }
 
-  // HTTP mode — Slack sends events to POST /slack/events
-  const receiver = new ExpressReceiver({
-    signingSecret: env.SLACK_SIGNING_SECRET,
-    endpoints: '/slack/events',
-  })
-
-  // Mount Bolt's receiver router onto the existing Express app
-  expressApp.use(receiver.router)
+  const receiver = getOrCreateReceiver()
+  if (!receiver) {
+    console.log('[slack] Could not create Slack receiver — bot skipped')
+    return
+  }
 
   const boltApp = new App({
     token: env.SLACK_BOT_TOKEN,
     receiver,
   })
 
-  // In HTTP mode we don't call boltApp.start() — Express handles incoming requests
+  // HTTP mode — no boltApp.start() needed; Express handles incoming requests
   console.log('[slack] HTTP mode — listening at POST /slack/events')
 
   await initializeSheet().catch(console.error)

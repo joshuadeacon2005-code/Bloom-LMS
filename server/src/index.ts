@@ -4,6 +4,7 @@ import path from 'path'
 import { validateEnv } from './utils/env'
 import { AppError } from './utils/errors'
 import apiRouter from './routes/index'
+import { getOrCreateReceiver } from './slack/receiver'
 import { initSlack } from './slack/index'
 import { initJobs } from './jobs/index'
 import { seedEmployees } from './db/seed-employees'
@@ -18,7 +19,7 @@ const env = validateEnv()
 
 const app = express()
 
-// Allow all origins for Slack webhook endpoint (server-to-server, no CORS restrictions needed)
+// Allow all origins for Slack webhook endpoint (server-to-server)
 app.use('/slack/events', cors())
 
 app.use(
@@ -34,7 +35,7 @@ app.use(
   })
 )
 
-// Skip body parsing for /slack/events — Bolt handles its own raw body parsing for signature verification
+// Skip body parsing for /slack/events — Bolt handles its own raw body for signature verification
 app.use((req, res, next) => {
   if (req.path === '/slack/events') return next()
   express.json()(req, res, next)
@@ -44,7 +45,7 @@ app.use((req, res, next) => {
   express.urlencoded({ extended: true })(req, res, next)
 })
 
-// Routes
+// API routes
 app.use('/api', apiRouter)
 
 // Health check
@@ -59,12 +60,20 @@ app.get('/api/health', (_req, res) => {
   } satisfies ApiResponse)
 })
 
-// Serve React static files in production (must come after all /api routes)
+// Mount the Slack receiver BEFORE the SPA catch-all and 404 handler so that
+// Slack's URL verification challenge POST reaches Bolt and returns the challenge.
+const slackReceiver = getOrCreateReceiver()
+if (slackReceiver) {
+  app.use(slackReceiver.router)
+  console.log('[server] Slack receiver mounted at /slack/events')
+}
+
+// Serve React static files in production (must come after all /api and /slack routes)
 if (env.NODE_ENV === 'production') {
   const clientDist = path.join(__dirname, '../../client/dist')
   console.log('[server] Serving static files from:', clientDist)
   app.use(express.static(clientDist))
-  // SPA fallback
+  // SPA fallback — must be last
   app.get('*', (_req, res) => {
     const indexPath = path.join(clientDist, 'index.html')
     res.sendFile(indexPath, (err) => {
