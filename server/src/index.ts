@@ -34,8 +34,15 @@ app.use(
   })
 )
 
-app.use(express.json())
-app.use(express.urlencoded({ extended: true }))
+// Skip body parsing for /slack/events — Bolt handles its own raw body parsing for signature verification
+app.use((req, res, next) => {
+  if (req.path === '/slack/events') return next()
+  express.json()(req, res, next)
+})
+app.use((req, res, next) => {
+  if (req.path === '/slack/events') return next()
+  express.urlencoded({ extended: true })(req, res, next)
+})
 
 // Routes
 app.use('/api', apiRouter)
