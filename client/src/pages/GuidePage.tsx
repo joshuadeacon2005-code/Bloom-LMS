@@ -1,14 +1,13 @@
 import { useState, useEffect, useRef } from 'react'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import {
   Accordion,
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion'
-import { Search, BookOpen, CheckCircle, Clock, AlertCircle, Users, Shield } from 'lucide-react'
+import { Search, BookOpen, CheckCircle, AlertCircle, Users, Shield } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
