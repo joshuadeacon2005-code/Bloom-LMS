@@ -145,15 +145,15 @@ function ApprovalFlowDiagram({ flow }: { flow: 'standard' | 'auto_approve' | 'hr
 // ─── Command Reference ────────────────────────────────────────────────────────
 
 const SLACK_COMMANDS = [
-  { command: '/leave request', desc: 'Open the leave request form', who: 'All' },
-  { command: '/leave balance', desc: 'View your current leave balances', who: 'All' },
+  { command: '/bloom-leave request', desc: 'Open the leave request form', who: 'All' },
+  { command: '/bloom-leave balance', desc: 'View your current leave balances', who: 'All' },
   { command: '/comp-leave', desc: 'Submit a compensation leave request (earn comp/TIL)', who: 'All' },
-  { command: '/leave status', desc: 'See recent requests and their current status', who: 'All' },
-  { command: '/leave cancel [id]', desc: 'Cancel a pending request', who: 'All' },
-  { command: '/leave team', desc: 'See who is in/out on your team today', who: 'All' },
-  { command: '/leave approve', desc: 'View and action pending approvals', who: 'Managers' },
-  { command: '/leave holidays', desc: 'View upcoming public holidays for your region', who: 'All' },
-  { command: '/leave help', desc: 'Show all available commands', who: 'All' },
+  { command: '/bloom-leave status', desc: 'See recent requests and their current status', who: 'All' },
+  { command: '/bloom-leave cancel [id]', desc: 'Cancel a pending request', who: 'All' },
+  { command: '/bloom-leave team', desc: 'See who is in/out on your team today', who: 'All' },
+  { command: '/bloom-leave approve', desc: 'View and action pending approvals', who: 'Managers' },
+  { command: '/bloom-leave holidays', desc: 'View upcoming public holidays for your region', who: 'All' },
+  { command: '/bloom-leave help', desc: 'Show all available commands', who: 'All' },
 ]
 
 // ─── Leave Types Reference ─────────────────────────────────────────────────────
@@ -168,7 +168,7 @@ const LEAVE_TYPES = [
     attachment: 'Not required',
     maxDays: null,
     desc: 'Paid annual leave entitlement. Available from your first day (subject to regional probation rules).',
-    slackCmd: '/leave request → select Annual Leave',
+    slackCmd: '/bloom-leave request → select Annual Leave',
   },
   {
     name: 'Sick Leave',
@@ -179,7 +179,7 @@ const LEAVE_TYPES = [
     attachment: 'Medical certificate required for 2+ consecutive days',
     maxDays: null,
     desc: 'For illness or injury. Submit as early as possible, ideally before your shift starts.',
-    slackCmd: '/leave request → select Sick Leave',
+    slackCmd: '/bloom-leave request → select Sick Leave',
   },
   {
     name: 'Compensatory Leave',
@@ -190,7 +190,7 @@ const LEAVE_TYPES = [
     attachment: 'Not required',
     maxDays: null,
     desc: 'Use comp leave earned from overtime/weekend/public holiday work. Non-AU/NZ only. See Section 4 for how to earn it.',
-    slackCmd: '/leave request → select Compensatory Leave',
+    slackCmd: '/bloom-leave request → select Compensatory Leave',
     auNote: 'AU/NZ employees use Time In Lieu (TIL) instead.',
   },
   {
@@ -202,7 +202,7 @@ const LEAVE_TYPES = [
     attachment: 'Not required',
     maxDays: null,
     desc: 'AU/NZ only. Time In Lieu earned from overtime or weekend/public holiday work. See Section 4 for how to earn TIL.',
-    slackCmd: '/leave request → select Time In Lieu',
+    slackCmd: '/bloom-leave request → select Time In Lieu',
     auOnly: true,
   },
   {
@@ -214,7 +214,7 @@ const LEAVE_TYPES = [
     attachment: 'Not required',
     maxDays: null,
     desc: 'Log a work-from-home day. Auto-approved instantly — no manager action required. Manager receives an FYI notification only. No balance is deducted.',
-    slackCmd: '/leave request → select Work From Home',
+    slackCmd: '/bloom-leave request → select Work From Home',
   },
   {
     name: 'Maternity Leave',
@@ -225,7 +225,7 @@ const LEAVE_TYPES = [
     attachment: 'Required (e.g. doctor letter, birth certificate)',
     maxDays: null,
     desc: 'Paid leave for the primary caregiver after birth or adoption. Entitlement varies by region (60–365 days). Requires both manager AND HR approval.',
-    slackCmd: '/leave request → select Maternity Leave',
+    slackCmd: '/bloom-leave request → select Maternity Leave',
   },
   {
     name: 'Paternity Leave',
@@ -236,7 +236,7 @@ const LEAVE_TYPES = [
     attachment: 'Supporting document recommended',
     maxDays: null,
     desc: 'Paid leave for the secondary caregiver after birth or adoption. Entitlement varies by region (2–14 days). Requires both manager AND HR approval.',
-    slackCmd: '/leave request → select Paternity Leave',
+    slackCmd: '/bloom-leave request → select Paternity Leave',
   },
   {
     name: 'Compassionate Leave',
@@ -247,7 +247,7 @@ const LEAVE_TYPES = [
     attachment: 'Not required (but may be requested)',
     maxDays: 5,
     desc: 'For bereavement or serious illness of an immediate family member. Maximum 5 consecutive days. Contact HR if you need more time.',
-    slackCmd: '/leave request → select Compassionate Leave',
+    slackCmd: '/bloom-leave request → select Compassionate Leave',
   },
   {
     name: 'Unpaid Leave',
@@ -258,7 +258,7 @@ const LEAVE_TYPES = [
     attachment: 'Not required',
     maxDays: null,
     desc: 'Leave without pay. Requires approval from your manager AND HR admin. Plan ahead — this goes through multi-level approval.',
-    slackCmd: '/leave request → select Unpaid Leave',
+    slackCmd: '/bloom-leave request → select Unpaid Leave',
   },
 ]
 
@@ -422,7 +422,7 @@ export function GuidePage() {
           <div className="space-y-3">
             <h3 className="font-medium">Linking Your Slack Account</h3>
             <p className="text-sm text-muted-foreground">
-              Your Slack account is linked to your LMS profile automatically by HR admin using your work email. Once linked, you can use all <code>/leave</code> and <code>/comp-leave</code> Slack commands, and receive DM notifications for approvals.
+              Your Slack account is linked to your LMS profile automatically by HR admin using your work email. Once linked, you can use all <code>/bloom-leave</code> and <code>/comp-leave</code> Slack commands, and receive DM notifications for approvals.
             </p>
             <p className="text-sm text-muted-foreground">
               If Slack commands aren't working, contact your HR admin — they can sync your Slack connection from the Admin panel.
@@ -755,35 +755,35 @@ export function GuidePage() {
                 <p className="font-mono text-sm font-medium">{cmd.command}</p>
                 <p className="text-sm text-muted-foreground">{cmd.desc}</p>
                 <div className="text-xs text-muted-foreground bg-muted rounded p-2 font-mono whitespace-pre-wrap">
-                  {cmd.command === '/leave balance' && `📊 Your Leave Balances (2026)
+                  {cmd.command === '/bloom-leave balance' && `📊 Your Leave Balances (2026)
 ────────────────────────────
 Annual Leave:    12.0 / 14.0 days remaining
 Sick Leave:       8.0 / 10.0 days remaining
 Comp Leave:       2.0 days available (earned)
 WFH:             No limit`}
-                  {cmd.command === '/leave request' && 'Opens an interactive modal in Slack to select leave type, dates, and submit your request.'}
+                  {cmd.command === '/bloom-leave request' && 'Opens an interactive modal in Slack to select leave type, dates, and submit your request.'}
                   {cmd.command === '/comp-leave' && 'Opens a modal to log worked time (date, start/end time, reason). AU/NZ: Time In Lieu only. Others: Cash or Leave.'}
-                  {cmd.command === '/leave status' && `Your recent leave requests:
+                  {cmd.command === '/bloom-leave status' && `Your recent leave requests:
 ──────────────────────────────
 📋 #1042 | Annual Leave | Mar 15-17 | ✅ Approved
 📋 #1038 | Sick Leave   | Mar 10    | ✅ Approved
 📋 #1055 | Annual Leave | Apr 1-3   | ⏳ Pending (Manager)`}
-                  {cmd.command === '/leave approve' && `📥 Pending Approvals (2)
+                  {cmd.command === '/bloom-leave approve' && `📥 Pending Approvals (2)
 ────────────────────────
 Jane Smith | Annual Leave | Mar 15-17 (3 days)
 [✅ Approve] [❌ Reject]`}
-                  {cmd.command === '/leave cancel [id]' && 'Example: /leave cancel 1042\nCancels request #1042 if it is still pending. You cannot cancel an already-approved request via Slack.'}
-                  {cmd.command === '/leave team' && `👥 Team — Today (11 Mar)
+                  {cmd.command === '/bloom-leave cancel [id]' && 'Example: /leave cancel 1042\nCancels request #1042 if it is still pending. You cannot cancel an already-approved request via Slack.'}
+                  {cmd.command === '/bloom-leave team' && `👥 Team — Today (11 Mar)
 ────────────────────────
 🏖️ Jane Smith — Annual Leave
 🏠 Tom Lee  — WFH
 ✅ Kim Park — In office`}
-                  {cmd.command === '/leave holidays' && `📅 Upcoming Holidays (AU)
+                  {cmd.command === '/bloom-leave holidays' && `📅 Upcoming Holidays (AU)
 ────────────────────────
 18 Apr 2026 — Good Friday
 21 Apr 2026 — Easter Monday
 25 Apr 2026 — ANZAC Day`}
-                  {cmd.command === '/leave help' && 'Lists all available /leave and /comp-leave commands with descriptions. Also links to this user guide.'}
+                  {cmd.command === '/bloom-leave help' && 'Lists all available /leave and /comp-leave commands with descriptions. Also links to this user guide.'}
                 </div>
               </div>
             ))}

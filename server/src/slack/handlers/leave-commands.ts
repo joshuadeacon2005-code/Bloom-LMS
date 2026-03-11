@@ -6,16 +6,16 @@ import { openLeaveApplyModal } from './leave-apply'
 
 const HELP_TEXT = `*Bloom LMS — Leave Commands*
 
-• \`/leave apply\` — Submit a new leave request
-• \`/leave balance\` — View your current leave balances
-• \`/leave upcoming\` — See team absences in the next 30 days
-• \`/leave status\` — View your recent leave requests
-• \`/leave cancel <id>\` — Cancel a pending or approved leave request
+• \`/bloom-leave apply\` — Submit a new leave request
+• \`/bloom-leave balance\` — View your current leave balances
+• \`/bloom-leave upcoming\` — See team absences in the next 30 days
+• \`/bloom-leave status\` — View your recent leave requests
+• \`/bloom-leave cancel <id>\` — Cancel a pending or approved leave request
 
 *Overtime Compensation:*
 • \`/comp-leave\` — Request comp leave or Time In Lieu (AU/NZ)
-• \`/leave overtime balance\` — View pending/approved overtime requests
-• \`/leave overtime status\` — View recent overtime requests
+• \`/bloom-leave overtime balance\` — View pending/approved overtime requests
+• \`/bloom-leave overtime status\` — View recent overtime requests
 
 _Need help? Visit the <https://bloom-lms.up.railway.app/guide|User Guide>_`
 
@@ -207,7 +207,7 @@ export function registerLeaveCommandHandlers(app: App) {
   })
 
 
-  app.command('/leave', async ({ command, ack, client }) => {
+  app.command('/bloom-leave', async ({ command, ack, client }) => {
     await ack()
 
     const [subcommand, ...args] = command.text.trim().split(/\s+/)
@@ -320,7 +320,7 @@ async function handleBalance(client: any, slackUserId: string) {
     blocks: [
       { type: 'header', text: { type: 'plain_text', text: `Your ${year} Leave Balances` } },
       { type: 'section', text: { type: 'mrkdwn', text: rows } },
-      { type: 'context', elements: [{ type: 'mrkdwn', text: `_Use \`/leave apply\` to submit a new request_` }] },
+      { type: 'context', elements: [{ type: 'mrkdwn', text: `_Use \`/bloom-leave apply\` to submit a new request_` }] },
     ]
   })
 }
@@ -420,7 +420,7 @@ async function handleStatus(client: any, slackUserId: string) {
     blocks: [
       { type: 'header', text: { type: 'plain_text', text: 'Your Recent Leave Requests' } },
       { type: 'section', text: { type: 'mrkdwn', text: rows } },
-      { type: 'context', elements: [{ type: 'mrkdwn', text: `_Use \`/leave cancel <id>\` to cancel a request_` }] },
+      { type: 'context', elements: [{ type: 'mrkdwn', text: `_Use \`/bloom-leave cancel <id>\` to cancel a request_` }] },
     ]
   })
 }
@@ -516,7 +516,7 @@ async function handleOvertimeBalance(client: any, slackUserId: string) {
             { type: 'mrkdwn', text: `*Pending Requests:*\n${balance.pendingCount} (${balance.pendingDays.toFixed(1)}d awaiting approval)` },
           ],
         },
-        { type: 'context', elements: [{ type: 'mrkdwn', text: '_Use `/leave overtime` to submit a new request_' }] },
+        { type: 'context', elements: [{ type: 'mrkdwn', text: '_Use `/bloom-leave overtime` to submit a new request_' }] },
       ],
     })
   } catch (err: any) {
@@ -532,7 +532,7 @@ async function handleOvertimeHistory(client: any, slackUserId: string) {
   }
   const { data } = await overtimeService.getMyOvertimeRequests(dbUser.id, { page: 1, pageSize: 5 })
   if (data.length === 0) {
-    await client.chat.postMessage({ channel: slackUserId, text: 'You have no overtime compensation requests yet. Use `/leave overtime` to submit one.' })
+    await client.chat.postMessage({ channel: slackUserId, text: 'You have no overtime compensation requests yet. Use `/bloom-leave overtime` to submit one.' })
     return
   }
   const statusIcon: Record<string, string> = {
@@ -550,7 +550,7 @@ async function handleOvertimeHistory(client: any, slackUserId: string) {
     blocks: [
       { type: 'header', text: { type: 'plain_text', text: 'Overtime Compensation Status (Last 5)' } },
       { type: 'section', text: { type: 'mrkdwn', text: rows } },
-      { type: 'context', elements: [{ type: 'mrkdwn', text: '_Use `/leave overtime` to submit a new request_' }] },
+      { type: 'context', elements: [{ type: 'mrkdwn', text: '_Use `/bloom-leave overtime` to submit a new request_' }] },
     ],
   })
 }
@@ -560,7 +560,7 @@ async function handleCancel(client: any, slackUserId: string, requestId: number)
   if (isNaN(requestId)) {
     await client.chat.postMessage({
       channel: slackUserId,
-      text: 'Usage: `/leave cancel <request-id>`\nExample: `/leave cancel 42`'
+      text: 'Usage: `/bloom-leave cancel <request-id>`\nExample: `/bloom-leave cancel 42`'
     })
     return
   }
