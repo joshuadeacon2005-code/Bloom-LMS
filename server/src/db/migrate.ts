@@ -294,6 +294,88 @@ export async function runMigrations(): Promise<void> {
       console.log(`[migrate] Removed ${dupCount} duplicate leave type rows`)
     }
 
+    // Second-pass: targeted cleanup of any remaining global-code duplicates.
+    // The general dedup above groups by code only, so it may keep a regional row
+    // (region_id != NULL) as the MAX-id winner while leaving extra global
+    // (region_id IS NULL) rows with the same code untouched.
+    // This pass works exclusively within global rows.
+    const globalDupResult = await client.query(`
+      SELECT code FROM leave_types WHERE region_id IS NULL GROUP BY code HAVING COUNT(*) > 1
+    `)
+    if (globalDupResult.rowCount && globalDupResult.rowCount > 0) {
+      const dupCodes = globalDupResult.rows.map((r: { code: string }) => r.code)
+      console.log(`[migrate] Found global leave type duplicates for codes: ${dupCodes.join(', ')}`)
+
+      // Reassign leave_requests from duplicate global IDs → the kept (MAX id) global row
+      await client.query(`
+        UPDATE leave_requests
+        SET leave_type_id = keeper.max_id
+        FROM (
+          SELECT lt.id AS old_id, k.max_id
+          FROM leave_types lt
+          JOIN (
+            SELECT code, MAX(id) AS max_id
+            FROM leave_types
+            WHERE region_id IS NULL AND code = ANY($1)
+            GROUP BY code
+          ) k ON k.code = lt.code AND lt.id != k.max_id
+          WHERE lt.region_id IS NULL
+        ) keeper
+        WHERE leave_requests.leave_type_id = keeper.old_id
+      `, [dupCodes])
+
+      // Reassign leave_balances similarly (ON CONFLICT DO NOTHING to avoid user-type-year unique clashes)
+      await client.query(`
+        UPDATE leave_balances
+        SET leave_type_id = keeper.max_id
+        FROM (
+          SELECT lt.id AS old_id, k.max_id
+          FROM leave_types lt
+          JOIN (
+            SELECT code, MAX(id) AS max_id
+            FROM leave_types
+            WHERE region_id IS NULL AND code = ANY($1)
+            GROUP BY code
+          ) k ON k.code = lt.code AND lt.id != k.max_id
+          WHERE lt.region_id IS NULL
+        ) keeper
+        WHERE leave_balances.leave_type_id = keeper.old_id
+        ON CONFLICT DO NOTHING
+      `, [dupCodes])
+
+      // Delete policies and remaining balances on the duplicate rows
+      await client.query(`
+        DELETE FROM leave_policies
+        WHERE leave_type_id IN (
+          SELECT lt.id FROM leave_types lt
+          JOIN (SELECT code, MAX(id) AS max_id FROM leave_types WHERE region_id IS NULL AND code = ANY($1) GROUP BY code) k
+            ON k.code = lt.code AND lt.id != k.max_id
+          WHERE lt.region_id IS NULL
+        )
+      `, [dupCodes])
+      await client.query(`
+        DELETE FROM leave_balances
+        WHERE leave_type_id IN (
+          SELECT lt.id FROM leave_types lt
+          JOIN (SELECT code, MAX(id) AS max_id FROM leave_types WHERE region_id IS NULL AND code = ANY($1) GROUP BY code) k
+            ON k.code = lt.code AND lt.id != k.max_id
+          WHERE lt.region_id IS NULL
+        )
+      `, [dupCodes])
+
+      // Finally delete the duplicate global leave_type rows
+      await client.query(`
+        DELETE FROM leave_types
+        WHERE region_id IS NULL
+          AND code = ANY($1)
+          AND id NOT IN (
+            SELECT MAX(id) FROM leave_types WHERE region_id IS NULL AND code = ANY($1) GROUP BY code
+          )
+      `, [dupCodes])
+
+      console.log(`[migrate] Cleaned up global leave type duplicates for: ${dupCodes.join(', ')}`)
+    }
+
     // Prevent future global leave type duplicates: unique index on code WHERE region_id IS NULL
     await client.query(`
       CREATE UNIQUE INDEX IF NOT EXISTS leave_types_global_code_unique
