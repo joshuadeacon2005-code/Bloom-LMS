@@ -12,6 +12,7 @@ export interface LeaveRequest {
   reason: string | null
   status: 'pending' | 'approved' | 'rejected' | 'cancelled'
   attachmentUrl: string | null
+  halfDayPeriod?: 'AM' | 'PM' | null
   createdAt: string
   updatedAt: string
   user?: { id: number; name: string; email: string; avatarUrl: string | null }

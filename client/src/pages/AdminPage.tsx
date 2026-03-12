@@ -778,7 +778,6 @@ function LeaveTypeDialog({
 
 function LeaveTypesTab() {
   const { user: me } = useAuthStore()
-  const isSuperAdmin = me?.role === 'super_admin'
   const isHrAdmin = me?.role === 'hr_admin' || me?.role === 'super_admin'
   const { data: regions } = useRegions()
   const [filterRegion, setFilterRegion] = useState<string>('__none__')
