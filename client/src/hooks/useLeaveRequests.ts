@@ -68,6 +68,7 @@ export function useCreateLeaveRequest() {
       leaveTypeId: number
       startDate: string
       endDate: string
+      halfDayPeriod?: 'AM' | 'PM' | null
       reason?: string
       attachmentUrl?: string
     }) => api.post<{ data: LeaveRequest }>('/leave/requests', data).then((r) => r.data.data),

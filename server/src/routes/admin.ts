@@ -85,7 +85,7 @@ router.get('/leave-types', async (req, res, next) => {
   }
 })
 
-router.post('/leave-types', requireRole('super_admin'), validate(createLeaveTypeSchema), async (req, res, next) => {
+router.post('/leave-types', validate(createLeaveTypeSchema), async (req, res, next) => {
   try {
     const [lt] = await db.insert(leaveTypes).values(req.body).returning()
     const response: ApiResponse<typeof lt> = { success: true, data: lt }
@@ -95,7 +95,7 @@ router.post('/leave-types', requireRole('super_admin'), validate(createLeaveType
   }
 })
 
-router.patch('/leave-types/:id', requireRole('super_admin'), validate(createLeaveTypeSchema.partial()), async (req, res, next) => {
+router.patch('/leave-types/:id', validate(createLeaveTypeSchema.partial()), async (req, res, next) => {
   try {
     const id = parseInt(req.params.id as string, 10)
     const [lt] = await db

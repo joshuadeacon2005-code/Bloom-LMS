@@ -167,6 +167,7 @@ export async function createLeaveRequest(
     leaveTypeId: number
     startDate: string
     endDate: string
+    halfDayPeriod?: 'AM' | 'PM' | null
     reason?: string
     attachmentUrl?: string
   }
@@ -206,8 +207,11 @@ export async function createLeaveRequest(
   // 4. Fetch public holidays in range
   const holidays = await getHolidaysInRange(user.regionId, data.startDate, data.endDate)
 
-  // 5. Calculate working days
-  const totalDays = calculateWorkingDays(data.startDate, data.endDate, holidays)
+  // 5. Calculate working days (half-day override when same-day + period specified)
+  let totalDays = calculateWorkingDays(data.startDate, data.endDate, holidays)
+  if (data.halfDayPeriod && data.startDate === data.endDate && totalDays === 1) {
+    totalDays = 0.5
+  }
   if (totalDays === 0) {
     throw new ValidationError(
       'The selected date range contains no working days (weekends and public holidays are excluded)'
@@ -257,6 +261,7 @@ export async function createLeaveRequest(
         startDate: data.startDate,
         endDate: data.endDate,
         totalDays: totalDays.toFixed(1),
+        halfDayPeriod: data.halfDayPeriod ?? null,
         reason: data.reason,
         status: 'approved',
         attachmentUrl: data.attachmentUrl,
@@ -311,6 +316,7 @@ export async function createLeaveRequest(
       startDate: data.startDate,
       endDate: data.endDate,
       totalDays: totalDays.toFixed(1),
+      halfDayPeriod: data.halfDayPeriod ?? null,
       reason: data.reason,
       status: 'pending',
       attachmentUrl: data.attachmentUrl,
@@ -714,6 +720,7 @@ export async function getTeamAbsences(filters: {
       startDate: leaveRequests.startDate,
       endDate: leaveRequests.endDate,
       totalDays: leaveRequests.totalDays,
+      halfDayPeriod: leaveRequests.halfDayPeriod,
       status: leaveRequests.status,
       user: {
         id: users.id,

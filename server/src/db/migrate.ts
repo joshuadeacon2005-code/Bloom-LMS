@@ -320,6 +320,12 @@ export async function runMigrations(): Promise<void> {
     }
     if (managerFixCount > 0) console.log(`[migrate] Fixed manager assignments for ${managerFixCount} users`)
 
+    // Add half_day_period column to leave_requests
+    await client.query(`
+      ALTER TABLE leave_requests
+      ADD COLUMN IF NOT EXISTS half_day_period varchar(2)
+    `)
+
     console.log('[migrate] Migrations complete')
   } catch (err) {
     console.error('[migrate] Migration error:', err)

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { format } from 'date-fns'
+import { format, isSameDay } from 'date-fns'
 import { CalendarIcon, Upload } from 'lucide-react'
 import type { DateRange } from 'react-day-picker'
 import {
@@ -22,6 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { cn } from '@/lib/utils'
@@ -37,6 +38,8 @@ const schema = z.object({
       to: z.date().optional(),
     })
     .refine((d) => d.from, { message: 'Please select a start date' }),
+  halfDay: z.boolean().default(false),
+  halfDayPeriod: z.enum(['AM', 'PM']).optional(),
   reason: z.string().max(1000).optional(),
 })
 
@@ -59,13 +62,19 @@ export function RequestLeaveSheet({ open, onOpenChange }: RequestLeaveSheetProps
     reset,
     formState: { errors },
     watch,
+    setValue,
   } = useForm<FormData>({
     resolver: zodResolver(schema),
-    defaultValues: { reason: '' },
+    defaultValues: { reason: '', halfDay: false, halfDayPeriod: 'AM' },
   })
 
   const selectedTypeId = watch('leaveTypeId')
   const selectedType = leaveTypes?.find((lt) => lt.id.toString() === selectedTypeId)
+  const dateRange = watch('dateRange')
+  const halfDay = watch('halfDay')
+
+  const isSingleDay =
+    dateRange?.from && (!dateRange.to || isSameDay(dateRange.from, dateRange.to))
 
   const onSubmit = async (data: FormData) => {
     const startDate = format(data.dateRange.from, 'yyyy-MM-dd')
@@ -73,10 +82,14 @@ export function RequestLeaveSheet({ open, onOpenChange }: RequestLeaveSheetProps
       ? format(data.dateRange.to, 'yyyy-MM-dd')
       : startDate
 
+    const halfDayPeriod =
+      data.halfDay && isSingleDay ? (data.halfDayPeriod ?? 'AM') : undefined
+
     await createRequest.mutateAsync({
       leaveTypeId: parseInt(data.leaveTypeId, 10),
       startDate,
       endDate,
+      halfDayPeriod: halfDayPeriod ?? null,
       reason: data.reason || undefined,
     })
 
@@ -151,7 +164,7 @@ export function RequestLeaveSheet({ open, onOpenChange }: RequestLeaveSheetProps
                     >
                       <CalendarIcon className="mr-2 h-4 w-4" />
                       {field.value?.from ? (
-                        field.value.to ? (
+                        field.value.to && !isSameDay(field.value.from, field.value.to) ? (
                           `${format(field.value.from, 'd MMM yyyy')} – ${format(field.value.to, 'd MMM yyyy')}`
                         ) : (
                           format(field.value.from, 'd MMM yyyy')
@@ -167,7 +180,12 @@ export function RequestLeaveSheet({ open, onOpenChange }: RequestLeaveSheetProps
                       selected={field.value as DateRange}
                       onSelect={(range) => {
                         field.onChange(range)
-                        if (range?.from && range?.to) setDatePickerOpen(false)
+                        setValue('halfDay', false)
+                        if (range?.from && range?.to && !isSameDay(range.from, range.to)) {
+                          setDatePickerOpen(false)
+                        } else if (range?.from && !range?.to) {
+                          setDatePickerOpen(false)
+                        }
                       }}
                       disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))}
                       initialFocus
@@ -182,6 +200,60 @@ export function RequestLeaveSheet({ open, onOpenChange }: RequestLeaveSheetProps
               </p>
             )}
           </div>
+
+          {/* Half-day option — only when a single day is selected */}
+          {isSingleDay && (
+            <div className="space-y-2 rounded-md border bg-muted/30 p-3">
+              <Controller
+                name="halfDay"
+                control={control}
+                render={({ field }) => (
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                      id="half-day-toggle"
+                    />
+                    <Label htmlFor="half-day-toggle" className="cursor-pointer">
+                      Half day only
+                    </Label>
+                  </div>
+                )}
+              />
+              {halfDay && (
+                <Controller
+                  name="halfDayPeriod"
+                  control={control}
+                  render={({ field }) => (
+                    <div className="flex gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => field.onChange('AM')}
+                        className={`flex-1 rounded-md border px-3 py-1.5 text-sm font-medium transition-colors ${
+                          field.value === 'AM'
+                            ? 'border-primary bg-primary/10 text-primary'
+                            : 'border-input bg-background text-muted-foreground hover:bg-accent'
+                        }`}
+                      >
+                        AM (morning)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => field.onChange('PM')}
+                        className={`flex-1 rounded-md border px-3 py-1.5 text-sm font-medium transition-colors ${
+                          field.value === 'PM'
+                            ? 'border-primary bg-primary/10 text-primary'
+                            : 'border-input bg-background text-muted-foreground hover:bg-accent'
+                        }`}
+                      >
+                        PM (afternoon)
+                      </button>
+                    </div>
+                  )}
+                />
+              )}
+            </div>
+          )}
 
           {/* Reason */}
           <div className="space-y-1.5">

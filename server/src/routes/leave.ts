@@ -18,6 +18,7 @@ const createLeaveSchema = z
     leaveTypeId: z.number().int().positive(),
     startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be YYYY-MM-DD'),
     endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be YYYY-MM-DD'),
+    halfDayPeriod: z.enum(['AM', 'PM']).optional().nullable(),
     reason: z.string().max(1000).optional(),
     attachmentUrl: z.string().url().optional(),
   })

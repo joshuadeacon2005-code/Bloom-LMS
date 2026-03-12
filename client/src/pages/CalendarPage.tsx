@@ -54,6 +54,7 @@ interface Absence {
   id: number
   startDate: string
   endDate: string
+  halfDayPeriod?: string | null
   leaveType?: { id: number; name: string }
   user?: { id: number; name: string; avatarUrl?: string | null }
 }
@@ -135,12 +136,15 @@ function CalendarDayCell({
                 />
                 <span className="truncate text-xs font-medium text-foreground">
                   {a.user?.name.split(' ')[0]}
+                  {a.halfDayPeriod ? ` (${a.halfDayPeriod})` : ''}
                 </span>
               </div>
             </TooltipTrigger>
             <TooltipContent side="top" className="text-xs">
               <p className="font-medium">{a.user?.name}</p>
-              <p className="text-muted-foreground">{a.leaveType?.name}</p>
+              <p className="text-muted-foreground">
+                {a.leaveType?.name}{a.halfDayPeriod ? ` (${a.halfDayPeriod})` : ''}
+              </p>
               <p className="text-muted-foreground">
                 {format(new Date(a.startDate), 'd MMM')} –{' '}
                 {format(new Date(a.endDate), 'd MMM yyyy')}
@@ -433,7 +437,7 @@ export function CalendarPage() {
                         <p className="font-medium">{u.name}</p>
                         {userAbsences.map((a) => (
                           <p key={a.id} className="text-muted-foreground">
-                            {a.leaveType?.name}: {format(new Date(a.startDate), 'd MMM')} –{' '}
+                            {a.leaveType?.name}{a.halfDayPeriod ? ` (${a.halfDayPeriod})` : ''}: {format(new Date(a.startDate), 'd MMM')} –{' '}
                             {format(new Date(a.endDate), 'd MMM')}
                           </p>
                         ))}

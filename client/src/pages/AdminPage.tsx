@@ -779,6 +779,7 @@ function LeaveTypeDialog({
 function LeaveTypesTab() {
   const { user: me } = useAuthStore()
   const isSuperAdmin = me?.role === 'super_admin'
+  const isHrAdmin = me?.role === 'hr_admin' || me?.role === 'super_admin'
   const { data: regions } = useRegions()
   const [filterRegion, setFilterRegion] = useState<string>('__none__')
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -803,7 +804,7 @@ function LeaveTypesTab() {
             ))}
           </SelectContent>
         </Select>
-        {isSuperAdmin && (
+        {isHrAdmin && (
           <Button size="sm" onClick={() => { setEditing(null); setDialogOpen(true) }}>
             <Plus className="mr-1.5 h-4 w-4" /> New Leave Type
           </Button>
@@ -817,17 +818,19 @@ function LeaveTypesTab() {
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Name</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Code</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Region</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Approval Flow</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Min Notice</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Max Days</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Paid</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Attachment</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Max days</th>
-              {isSuperAdmin && <th className="px-4 py-3" />}
+              {isHrAdmin && <th className="px-4 py-3" />}
             </tr>
           </thead>
           <tbody className="divide-y">
             {isLoading
               ? [...Array(4)].map((_, i) => (
                   <tr key={i}>
-                    {[...Array(6)].map((_, j) => (
+                    {[...Array(8)].map((_, j) => (
                       <td key={j} className="px-4 py-3"><Skeleton className="h-4 w-full" /></td>
                     ))}
                   </tr>
@@ -839,18 +842,27 @@ function LeaveTypesTab() {
                       <code className="rounded bg-muted px-1.5 py-0.5 text-xs">{lt.code}</code>
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">{regionName(lt.regionId)}</td>
+                    <td className="px-4 py-3 text-muted-foreground text-xs">
+                      {lt.approvalFlow === 'standard' ? 'Standard' :
+                       lt.approvalFlow === 'auto_approve' ? 'Auto-Approve' :
+                       lt.approvalFlow === 'hr_required' ? 'HR Required' :
+                       lt.approvalFlow === 'multi_level' ? 'Multi-Level' : lt.approvalFlow}
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground text-xs">
+                      {lt.minNoticeDays ? `${lt.minNoticeDays}d` : '—'}
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground text-xs">
+                      {lt.maxConsecutiveDays ? `${lt.maxConsecutiveDays}d` : '—'}
+                    </td>
                     <td className="px-4 py-3">
                       <Badge variant={lt.isPaid ? 'default' : 'secondary'}>
                         {lt.isPaid ? 'Paid' : 'Unpaid'}
                       </Badge>
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground">
+                    <td className="px-4 py-3 text-muted-foreground text-xs">
                       {lt.requiresAttachment ? 'Required' : 'No'}
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {lt.maxDaysPerYear ?? '—'}
-                    </td>
-                    {isSuperAdmin && (
+                    {isHrAdmin && (
                       <td className="px-4 py-3 text-right">
                         <Button
                           size="icon"
@@ -866,7 +878,7 @@ function LeaveTypesTab() {
                 ))}
             {!isLoading && (!leaveTypes || leaveTypes.length === 0) && (
               <tr>
-                <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
+                <td colSpan={9} className="px-4 py-10 text-center text-muted-foreground">
                   No leave types found
                 </td>
               </tr>

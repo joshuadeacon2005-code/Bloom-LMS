@@ -218,6 +218,7 @@ export const leaveRequests = pgTable(
     startDate: date('start_date').notNull(),
     endDate: date('end_date').notNull(),
     totalDays: numeric('total_days', { precision: 5, scale: 1 }).notNull(),
+    halfDayPeriod: varchar('half_day_period', { length: 2 }),
     reason: text('reason'),
     status: leaveStatusEnum('status').notNull().default('pending'),
     attachmentUrl: text('attachment_url'),
