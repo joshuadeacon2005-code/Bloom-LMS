@@ -326,6 +326,23 @@ export async function runMigrations(): Promise<void> {
       ADD COLUMN IF NOT EXISTS half_day_period varchar(2)
     `)
 
+    // CN approval flow: set hr_required + requires_attachment for Group 1 leave types
+    await client.query(`
+      UPDATE leave_types
+      SET approval_flow = 'hr_required', requires_attachment = true
+      WHERE code IN (
+        'BFL_CN', 'PRENATAL_CN', 'PARL_CN', 'CARE_CN', 'CL_CN',
+        'PEL_CN', 'SL_CN', 'SPL_CN', 'PL', 'MRL', 'ML', 'PARENTAL_CN'
+      )
+    `)
+
+    // CN approval flow: No Pay Leave → standard (was multi_level)
+    await client.query(`
+      UPDATE leave_types
+      SET approval_flow = 'standard'
+      WHERE code = 'NPL'
+    `)
+
     console.log('[migrate] Migrations complete')
   } catch (err) {
     console.error('[migrate] Migration error:', err)
