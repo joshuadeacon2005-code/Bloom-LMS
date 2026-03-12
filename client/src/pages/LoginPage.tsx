@@ -36,7 +36,7 @@ export function LoginPage() {
           <img
             src="/favicon.png"
             alt="Bloom & Grow"
-            className="mb-3 h-16 w-16 object-contain"
+            className="mb-3 h-32 w-32 object-contain"
           />
           <p className="text-xs text-muted-foreground">Leave Management System</p>
         </div>
