@@ -284,13 +284,12 @@ export async function createLeaveRequest(
     return { ...request, totalDays }
   }
 
-  // 8. Balance check (for paid leave only)
+  // 8. Balance check (for paid leave only) — warn manager but allow submission
+  let overBalanceWarning: string | null = null
   if (leaveType.isPaid) {
     const balance = await getOrCreateBalance(userId, data.leaveTypeId, currentYear, user.regionId)
     if (balance.available < totalDays) {
-      throw new ValidationError(
-        `Insufficient ${leaveType.name} balance. Available: ${balance.available} day(s), Requested: ${totalDays} day(s).`
-      )
+      overBalanceWarning = `⚠️ Balance warning: ${balance.available} day(s) available, ${totalDays} day(s) requested.`
     }
   } else {
     // Still initialise balance record for tracking purposes
@@ -360,9 +359,9 @@ export async function createLeaveRequest(
       await createNotification({
         userId: level1.approverId,
         type: 'leave_submitted',
-        title: 'New Leave Request Pending Approval',
-        message: `${requester?.name ?? 'An employee'} has submitted a ${leaveType.name} request from ${data.startDate} to ${data.endDate} (${totalDays} day${totalDays !== 1 ? 's' : ''}).`,
-        metadata: { leaveRequestId: request.id, requesterId: userId },
+        title: overBalanceWarning ? '⚠️ New Leave Request — Insufficient Balance' : 'New Leave Request Pending Approval',
+        message: `${requester?.name ?? 'An employee'} has submitted a ${leaveType.name} request from ${data.startDate} to ${data.endDate} (${totalDays} day${totalDays !== 1 ? 's' : ''}).${overBalanceWarning ? `\n\n${overBalanceWarning}` : ''}`,
+        metadata: { leaveRequestId: request.id, requesterId: userId, overBalance: !!overBalanceWarning },
       })
     }
   }

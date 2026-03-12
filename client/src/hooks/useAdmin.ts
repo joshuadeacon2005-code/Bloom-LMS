@@ -26,6 +26,7 @@ export interface AdminUser {
   regionId: number
   departmentId: number | null
   managerId: number | null
+  managerName: string | null
   isActive: boolean
   slackUserId: string | null
   avatarUrl: string | null

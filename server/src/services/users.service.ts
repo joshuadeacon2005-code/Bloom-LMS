@@ -1,4 +1,5 @@
 import { eq, and, ilike, isNull, sql, count } from 'drizzle-orm'
+import { alias } from 'drizzle-orm/pg-core'
 import { db } from '../db/index'
 import { users, regions, departments } from '../db/schema'
 import { hashPassword } from '../utils/password'
@@ -43,9 +44,12 @@ export async function getUsers(filters: {
     .from(users)
     .where(where)
 
+  const managersAlias = alias(users, 'manager')
+
   const rows = await db
-    .select(safeUserFields)
+    .select({ ...safeUserFields, managerName: managersAlias.name })
     .from(users)
+    .leftJoin(managersAlias, eq(users.managerId, managersAlias.id))
     .where(where)
     .orderBy(users.name)
     .limit(pageSize)

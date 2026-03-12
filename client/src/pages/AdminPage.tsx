@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -146,6 +146,24 @@ function UserDialog({
         }
       : { role: 'employee', isActive: true },
   })
+
+  useEffect(() => {
+    if (open) {
+      reset(
+        editing
+          ? {
+              name: editing.name,
+              email: editing.email,
+              role: editing.role,
+              regionId: String(editing.regionId),
+              departmentId: editing.departmentId ? String(editing.departmentId) : '',
+              managerId: editing.managerId ? String(editing.managerId) : '',
+              isActive: editing.isActive,
+            }
+          : { role: 'employee', isActive: true }
+      )
+    }
+  }, [open, editing, reset])
 
   const selectedRegionId = watch('regionId')
   const { data: departments } = useDepartments(
@@ -442,6 +460,7 @@ function UsersTab() {
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Email</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Role</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Region</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Manager</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Status</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Slack</th>
               <th className="px-4 py-3 text-right font-medium text-muted-foreground">Actions</th>
@@ -451,7 +470,7 @@ function UsersTab() {
             {isLoading
               ? [...Array(6)].map((_, i) => (
                   <tr key={i}>
-                    {[...Array(7)].map((_, j) => (
+                    {[...Array(8)].map((_, j) => (
                       <td key={j} className="px-4 py-3">
                         <Skeleton className="h-4 w-full" />
                       </td>
@@ -468,6 +487,7 @@ function UsersTab() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">{regionName(u.regionId)}</td>
+                    <td className="px-4 py-3 text-muted-foreground text-sm">{u.managerName ?? '—'}</td>
                     <td className="px-4 py-3">
                       <Badge variant={u.isActive ? 'default' : 'secondary'}>
                         {u.isActive ? 'Active' : 'Inactive'}
@@ -515,7 +535,7 @@ function UsersTab() {
                 ))}
             {!isLoading && users.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
+                <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
                   No users found
                 </td>
               </tr>
