@@ -65,14 +65,14 @@ export function Sidebar() {
     <aside
       className={cn(
         'relative flex h-screen flex-col transition-all duration-300',
-        sidebarCollapsed ? 'w-16' : 'w-60'
+        sidebarCollapsed ? 'w-16' : 'w-72'
       )}
       style={{ backgroundColor: 'var(--color-secondary)' }}
     >
       {/* Logo */}
       <div
         className={cn(
-          'flex h-16 items-center border-b px-3',
+          'flex h-24 items-center border-b px-3',
           sidebarCollapsed ? 'justify-center' : 'gap-2'
         )}
         style={{ borderColor: 'rgba(255,255,255,0.1)' }}
