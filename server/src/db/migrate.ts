@@ -402,6 +402,12 @@ export async function runMigrations(): Promise<void> {
     }
     if (managerFixCount > 0) console.log(`[migrate] Fixed manager assignments for ${managerFixCount} users`)
 
+    // Add google_event_id column to leave_requests (added to schema in c2b9930 without migration)
+    await client.query(`
+      ALTER TABLE leave_requests
+      ADD COLUMN IF NOT EXISTS google_event_id text
+    `)
+
     // Add half_day_period column to leave_requests
     await client.query(`
       ALTER TABLE leave_requests

@@ -175,13 +175,13 @@ async function runAll() {
   await test('Auth', 'POST /api/auth/change-password', async () => {
     const { status, data } = await api('POST', '/api/auth/change-password', {
       token: tok('employee'),
-      body: { currentPassword: 'Password123!', newPassword: 'Password456!' },
+      body: { currentPassword: 'BloomLeave', newPassword: 'BloomLeave2!' },
     });
     assert(status === 200, `Expected 200, got ${status}`);
     // Change back
     await api('POST', '/api/auth/change-password', {
       token: tok('employee'),
-      body: { currentPassword: 'Password456!', newPassword: 'Password123!' },
+      body: { currentPassword: 'BloomLeave2!', newPassword: 'BloomLeave' },
     });
   });
 
