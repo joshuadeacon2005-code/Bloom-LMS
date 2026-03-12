@@ -10,6 +10,7 @@ export interface OvertimeEntry {
   hoursWorked: number
   daysRequested: number
   reason: string
+  compensationType: 'time_off' | 'cash'
   status: 'pending' | 'approved' | 'rejected' | 'cancelled' | 'converted'
   rejectionReason?: string | null
   createdAt: string
@@ -80,8 +81,13 @@ export function usePendingOvertime() {
 export function useSubmitOvertime() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (data: { date: string; hoursWorked: number; daysRequested: number; reason: string }) =>
-      api.post<{ data: OvertimeEntry }>('/overtime', data).then((r) => r.data.data),
+    mutationFn: (data: {
+      date: string
+      hoursWorked: number
+      daysRequested: number
+      reason: string
+      compensationType: 'time_off' | 'cash'
+    }) => api.post<{ data: OvertimeEntry }>('/overtime', data).then((r) => r.data.data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: overtimeKeys.all })
       toast.success('Overtime compensation request submitted.')
@@ -103,7 +109,7 @@ export function useApproveOvertime() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: overtimeKeys.all })
       queryClient.invalidateQueries({ queryKey: ['balances'] })
-      toast.success('Overtime request approved. Compensatory leave balance updated.')
+      toast.success('Overtime request approved.')
     },
     onError: (err: unknown) => {
       const msg =

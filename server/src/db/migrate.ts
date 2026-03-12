@@ -208,6 +208,12 @@ export async function runMigrations(): Promise<void> {
       console.log(`[migrate] Reset ${resetResult.rowCount} account passwords to BloomLeave`)
     }
 
+    // Add compensation_type to overtime_entries
+    await client.query(`
+      ALTER TABLE overtime_entries
+      ADD COLUMN IF NOT EXISTS compensation_type varchar(20) NOT NULL DEFAULT 'time_off'
+    `)
+
     // Deduplicate leave types: the seed ran multiple times creating duplicate codes.
     // Keep the MAX id per code (requests live on highest IDs); delete the rest.
     const dupResult = await client.query(`

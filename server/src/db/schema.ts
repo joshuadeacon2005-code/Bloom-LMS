@@ -343,6 +343,7 @@ export const overtimeEntries = pgTable(
     hoursWorked: numeric('hours_worked', { precision: 5, scale: 2 }).notNull(),
     daysRequested: numeric('days_requested', { precision: 4, scale: 2 }).notNull().default('1.0'),
     reason: text('reason').notNull(),
+    compensationType: varchar('compensation_type', { length: 20 }).notNull().default('time_off'),
     status: overtimeStatusEnum('status').notNull().default('pending'),
     approvedById: integer('approved_by_id').references(() => users.id),
     approvedAt: timestamp('approved_at', { withTimezone: true }),

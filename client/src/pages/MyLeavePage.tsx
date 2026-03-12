@@ -100,7 +100,7 @@ export function MyLeavePage() {
   const cancelOvertime = useCancelOvertime()
 
   // Overtime form state
-  const [otForm, setOTForm] = useState({ date: '', hoursWorked: '', daysRequested: '1', reason: '' })
+  const [otForm, setOTForm] = useState({ date: '', hoursWorked: '', daysRequested: '1', reason: '', compensationType: 'time_off' as 'time_off' | 'cash' })
 
   // Leave history columns
   const leaveColumns: ColumnDef<LeaveRequest>[] = [
@@ -195,6 +195,16 @@ export function MyLeavePage() {
       ),
     },
     {
+      accessorKey: 'compensationType',
+      header: 'Compensation',
+      cell: ({ getValue }) =>
+        getValue() === 'cash' ? (
+          <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-700 text-xs">Cash</Badge>
+        ) : (
+          <Badge variant="outline" className="border-blue-200 bg-blue-50 text-blue-700 text-xs">Time Off</Badge>
+        ),
+    },
+    {
       accessorKey: 'status',
       header: 'Status',
       cell: ({ getValue }) => {
@@ -254,11 +264,11 @@ export function MyLeavePage() {
     const days = parseFloat(otForm.daysRequested)
     if (!otForm.date || isNaN(hours) || isNaN(days) || !otForm.reason.trim()) return
     submitOvertime.mutate(
-      { date: otForm.date, hoursWorked: hours, daysRequested: days, reason: otForm.reason },
+      { date: otForm.date, hoursWorked: hours, daysRequested: days, reason: otForm.reason, compensationType: otForm.compensationType },
       {
         onSuccess: () => {
           setSubmitOTOpen(false)
-          setOTForm({ date: '', hoursWorked: '', daysRequested: '1', reason: '' })
+          setOTForm({ date: '', hoursWorked: '', daysRequested: '1', reason: '', compensationType: 'time_off' })
         },
       }
     )
@@ -504,7 +514,7 @@ export function MyLeavePage() {
                 onChange={(e) => setOTForm({ ...otForm, date: e.target.value })}
               />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className={`gap-3 ${otForm.compensationType === 'cash' ? '' : 'grid grid-cols-2'}`}>
               <div className="space-y-1.5">
                 <Label>Hours Worked</Label>
                 <Input
@@ -517,18 +527,50 @@ export function MyLeavePage() {
                   onChange={(e) => setOTForm({ ...otForm, hoursWorked: e.target.value })}
                 />
               </div>
-              <div className="space-y-1.5">
-                <Label>Days Requested</Label>
-                <Select value={otForm.daysRequested} onValueChange={(v) => setOTForm({ ...otForm, daysRequested: v })}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="0.5">0.5 (half day)</SelectItem>
-                    <SelectItem value="1">1 (full day)</SelectItem>
-                  </SelectContent>
-                </Select>
+              {otForm.compensationType !== 'cash' && (
+                <div className="space-y-1.5">
+                  <Label>Days Requested</Label>
+                  <Select value={otForm.daysRequested} onValueChange={(v) => setOTForm({ ...otForm, daysRequested: v })}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="0.5">0.5 (half day)</SelectItem>
+                      <SelectItem value="1">1 (full day)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              <Label>Compensation Type</Label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setOTForm({ ...otForm, compensationType: 'time_off' })}
+                  className={`rounded-md border px-3 py-2 text-sm font-medium transition-colors ${
+                    otForm.compensationType === 'time_off'
+                      ? 'border-primary bg-primary/10 text-primary'
+                      : 'border-input bg-background text-muted-foreground hover:bg-accent'
+                  }`}
+                >
+                  Time Off
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOTForm({ ...otForm, compensationType: 'cash', daysRequested: '1' })}
+                  className={`rounded-md border px-3 py-2 text-sm font-medium transition-colors ${
+                    otForm.compensationType === 'cash'
+                      ? 'border-amber-500 bg-amber-50 text-amber-700'
+                      : 'border-input bg-background text-muted-foreground hover:bg-accent'
+                  }`}
+                >
+                  Cash Payment
+                </button>
               </div>
+              {otForm.compensationType === 'cash' && (
+                <p className="text-xs text-muted-foreground">Cash payment will be processed by HR/Payroll after approval.</p>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label>Reason for Overtime</Label>

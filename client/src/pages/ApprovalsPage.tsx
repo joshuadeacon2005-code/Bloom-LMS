@@ -446,9 +446,16 @@ export function ApprovalsPage() {
                             <p className="font-semibold">{entry.user.name}</p>
                             <p className="text-xs text-muted-foreground">{entry.user.email}</p>
                           </div>
-                          <Badge variant="outline" className="shrink-0 text-xs">
-                            {entry.hoursWorked}h overtime · {entry.daysRequested}d comp
-                          </Badge>
+                          <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+                            <Badge variant="outline" className="text-xs">
+                              {entry.hoursWorked}h overtime{entry.compensationType !== 'cash' && ` · ${entry.daysRequested}d comp`}
+                            </Badge>
+                            {entry.compensationType === 'cash' ? (
+                              <Badge variant="outline" className="text-xs border-amber-300 bg-amber-50 text-amber-700">Cash</Badge>
+                            ) : (
+                              <Badge variant="outline" className="text-xs border-blue-200 bg-blue-50 text-blue-700">Time Off</Badge>
+                            )}
+                          </div>
                         </div>
                         <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-sm sm:grid-cols-4">
                           <div>
@@ -506,9 +513,11 @@ export function ApprovalsPage() {
       <Dialog open={otActionId !== null} onOpenChange={() => setOTActionId(null)}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>Approve compensation request?</DialogTitle>
+            <DialogTitle>Approve overtime request?</DialogTitle>
             <DialogDescription>
-              The days will be credited to the employee's Compensatory Leave (or Time In Lieu for AU/NZ) balance automatically.
+              {pendingOT?.find((e) => e.id === otActionId)?.compensationType === 'cash'
+                ? 'This is a cash payment request. Approving will notify HR/Payroll to process the cash payment — no leave balance will be credited.'
+                : 'Days will be credited to the employee\'s Compensatory Leave (or Time In Lieu for AU/NZ) balance automatically.'}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

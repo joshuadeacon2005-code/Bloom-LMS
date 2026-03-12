@@ -15,6 +15,7 @@ const submitSchema = z.object({
   hoursWorked: z.number().positive().max(24),
   daysRequested: z.number().positive().max(5),
   reason: z.string().min(1).max(1000),
+  compensationType: z.enum(['time_off', 'cash']).optional().default('time_off'),
   evidenceUrl: z.string().url().optional(),
 })
 

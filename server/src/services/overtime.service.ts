@@ -52,7 +52,7 @@ async function isPublicHoliday(regionId: number, dateStr: string): Promise<boole
 
 export async function submitOvertimeRequest(
   userId: number,
-  data: { date: string; hoursWorked: number; daysRequested: number; reason: string; evidenceUrl?: string }
+  data: { date: string; hoursWorked: number; daysRequested: number; reason: string; compensationType?: string; evidenceUrl?: string }
 ) {
   const [user] = await db
     .select({ id: users.id, regionId: users.regionId, managerId: users.managerId, name: users.name })
@@ -101,6 +101,7 @@ export async function submitOvertimeRequest(
       hoursWorked: data.hoursWorked.toFixed(2),
       daysRequested: data.daysRequested.toFixed(2),
       reason: data.reason,
+      compensationType: data.compensationType === 'cash' ? 'cash' : 'time_off',
       evidenceUrl: data.evidenceUrl ?? null,
       status: 'pending',
       regionId: user.regionId,
@@ -142,6 +143,7 @@ export async function approveOvertimeRequest(
       regionId: overtimeEntries.regionId,
       status: overtimeEntries.status,
       date: overtimeEntries.date,
+      compensationType: overtimeEntries.compensationType,
     })
     .from(overtimeEntries)
     .where(eq(overtimeEntries.id, entryId))
@@ -190,8 +192,10 @@ export async function approveOvertimeRequest(
     .limit(1)
   const compLeaveTypeId = lt?.id ?? null
 
-  // Credit to correct leave type balance
-  if (compLeaveTypeId) {
+  const isCash = entry.compensationType === 'cash'
+
+  // Credit to leave balance only for time-off requests
+  if (!isCash && compLeaveTypeId) {
     const year = new Date().getFullYear()
     await addAdjustment(entry.userId, compLeaveTypeId, year, entry.regionId, daysToCredit)
   }
@@ -202,7 +206,7 @@ export async function approveOvertimeRequest(
       status: 'approved',
       approvedById: approverId,
       approvedAt: new Date(),
-      approvedDays: daysToCredit.toFixed(2),
+      approvedDays: isCash ? null : daysToCredit.toFixed(2),
       managerComment: comment ?? null,
     })
     .where(eq(overtimeEntries.id, entryId))
@@ -214,11 +218,15 @@ export async function approveOvertimeRequest(
     .limit(1)
 
   const leaveLabel = isAUNZ ? 'Time In Lieu' : 'Compensatory Leave'
+  const notifMessage = isCash
+    ? `Your overtime request (cash payment) for ${entry.date} has been approved by ${approver?.name ?? 'your manager'}. Your overtime hours will be processed for cash payment.`
+    : `Your ${isAUNZ ? 'overtime' : 'comp leave'} request for ${entry.date} has been approved by ${approver?.name ?? 'your manager'}. ${daysToCredit} day(s) added to your ${leaveLabel} balance.`
+
   await createNotification({
     userId: entry.userId,
     type: 'overtime_approved',
-    title: 'Overtime Compensation Approved',
-    message: `Your ${isAUNZ ? 'overtime' : 'comp leave'} request for ${entry.date} has been approved by ${approver?.name ?? 'your manager'}. ${daysToCredit} day(s) added to your ${leaveLabel} balance.`,
+    title: 'Overtime Approved',
+    message: notifMessage,
     metadata: { overtimeEntryId: entryId },
   })
 
@@ -341,6 +349,7 @@ export async function getMyOvertimeRequests(
       hoursWorked: overtimeEntries.hoursWorked,
       daysRequested: overtimeEntries.daysRequested,
       reason: overtimeEntries.reason,
+      compensationType: overtimeEntries.compensationType,
       status: overtimeEntries.status,
       rejectionReason: overtimeEntries.rejectionReason,
       createdAt: overtimeEntries.createdAt,
@@ -394,6 +403,7 @@ export async function getPendingOvertimeRequests(managerId: number, requestingRo
       hoursWorked: overtimeEntries.hoursWorked,
       daysRequested: overtimeEntries.daysRequested,
       reason: overtimeEntries.reason,
+      compensationType: overtimeEntries.compensationType,
       status: overtimeEntries.status,
       createdAt: overtimeEntries.createdAt,
       user: {
