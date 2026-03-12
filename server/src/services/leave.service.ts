@@ -1,4 +1,4 @@
-import { eq, and, or, lte, gte, desc, count, isNull, ne } from 'drizzle-orm'
+import { eq, and, or, lte, gte, desc, count, isNull, ne, sql } from 'drizzle-orm'
 import { db } from '../db/index'
 import {
   leaveRequests,
@@ -645,15 +645,29 @@ export async function cancelLeaveRequest(
 // ============================================================
 
 export async function getLeaveTypes(regionId?: number) {
-  const conditions = []
-  if (regionId !== undefined) {
-    conditions.push(or(isNull(leaveTypes.regionId), eq(leaveTypes.regionId, regionId)))
+  if (regionId === undefined) {
+    return db.select().from(leaveTypes).orderBy(leaveTypes.name)
   }
 
+  // Show a leave type if:
+  //  (a) it is region-specific for this region, OR
+  //  (b) it is global (region_id IS NULL) AND a policy exists for this region
   return db
     .select()
     .from(leaveTypes)
-    .where(conditions.length > 0 ? and(...conditions) : undefined)
+    .where(
+      or(
+        eq(leaveTypes.regionId, regionId),
+        and(
+          isNull(leaveTypes.regionId),
+          sql`EXISTS (
+            SELECT 1 FROM leave_policies lp
+            WHERE lp.leave_type_id = ${leaveTypes.id}
+            AND lp.region_id = ${regionId}
+          )`
+        )
+      )
+    )
     .orderBy(leaveTypes.name)
 }
 
