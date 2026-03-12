@@ -85,6 +85,8 @@ router.post('/requests', validate(createLeaveSchema), async (req, res, next) => 
     const response: ApiResponse<typeof request> = { success: true, data: request }
     res.status(201).json(response)
   } catch (err) {
+    // TODO: remove after debugging 500
+    console.error('[DEBUG leave POST]', err)
     next(err)
   }
 })
