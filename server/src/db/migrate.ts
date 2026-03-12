@@ -208,6 +208,26 @@ export async function runMigrations(): Promise<void> {
       console.log(`[migrate] Reset ${resetResult.rowCount} account passwords to BloomLeave`)
     }
 
+    // Fix missing manager assignments from Calamari approval flows
+    const managerFixes: { email: string; managerEmail: string }[] = [
+      { email: 'nenden.alifa@bloomandgrowgroup.com',   managerEmail: 'erica.lye@bloomandgrowgroup.com' }, // ID- Erica Lye
+      { email: 'meydira.shahnaz@bloomandgrowgroup.com', managerEmail: 'amy@bloomandgrowgroup.com' },       // ID- Amy (Amy Lam)
+    ]
+    let managerFixCount = 0
+    for (const fix of managerFixes) {
+      const res = await client.query(
+        `UPDATE users u
+         SET manager_id = m.id
+         FROM users m
+         WHERE u.email = $1
+           AND m.email = $2
+           AND u.manager_id IS NULL`,
+        [fix.email, fix.managerEmail]
+      )
+      if (res.rowCount) managerFixCount++
+    }
+    if (managerFixCount > 0) console.log(`[migrate] Fixed manager assignments for ${managerFixCount} users`)
+
     console.log('[migrate] Migrations complete')
   } catch (err) {
     console.error('[migrate] Migration error:', err)
