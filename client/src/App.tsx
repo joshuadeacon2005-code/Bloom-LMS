@@ -9,7 +9,7 @@ import { CalendarPage } from '@/pages/CalendarPage'
 import { ReportsPage } from '@/pages/ReportsPage'
 import { AdminPage } from '@/pages/AdminPage'
 import { SettingsPage } from '@/pages/SettingsPage'
-import { GuidePage } from '@/pages/GuidePage'
+import GuidePage from '@/pages/GuidePage'
 
 export default function App() {
   return (
