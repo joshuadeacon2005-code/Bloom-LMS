@@ -3,21 +3,17 @@ import pg from 'pg'
 const NEW_LEAVE_TYPES_SQL = `
 INSERT INTO leave_types (name, code, description, is_paid, requires_attachment) VALUES
 ('Birthday Leave', 'BDL', 'Annual birthday leave', true, false),
-('Breast-feeding Leave', 'BFL', 'Breast-feeding leave (1 hr per day)', true, false),
 ('Care Leave', 'CARE_CN', 'Care leave (China)', true, false),
 ('Compassionate Leave (CN)', 'CL_CN', 'Compassionate leave - China (unlimited)', true, false),
 ('Family Leave', 'FAM_ID', 'Family leave (Indonesia)', true, false),
 ('Hospitalisation Leave', 'HL', 'Hospitalisation leave (SG and MY)', true, true),
 ('Jury Duty Leave', 'JDL', 'Jury duty leave', true, false),
-('Long Service Leave', 'LSL', 'Long service leave (AU/NZ)', true, false),
 ('No Pay Sick Leave', 'NPSL', 'Unpaid sick leave', false, false),
 ('Parental Leave', 'PARL_CN', 'Parental leave (China)', true, false),
 ('Prenatal Examination Leave', 'PEL_CN', 'Prenatal examination leave (China)', true, false),
-('Reservist Leave', 'RSL', 'National Service/Reservist leave (SG)', true, true),
-('Sick Leave (CN)', 'SL_CN', 'Statutory sick leave - China (unlimited)', true, false),
 ('Special Leave', 'SPL_CN', 'Special leave (China)', true, false),
 ('Time-off (Medical)', 'TIMEOFF', 'Time-off for medical treatment (1.5 hours)', true, false)
-ON CONFLICT (code, region_id) DO NOTHING
+ON CONFLICT DO NOTHING
 `
 
 const balanceData: Array<{

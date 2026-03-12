@@ -99,7 +99,7 @@ export function RequestLeaveSheet({ open, onOpenChange }: RequestLeaveSheetProps
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full sm:max-w-md overflow-y-auto">
+      <SheetContent className="w-full sm:max-w-xl overflow-y-auto">
         <SheetHeader>
           <SheetTitle>Request Leave</SheetTitle>
           <SheetDescription>

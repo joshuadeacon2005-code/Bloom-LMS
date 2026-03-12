@@ -83,16 +83,11 @@ export async function runMigrations(): Promise<void> {
     const newLeaveTypes = [
       { code: 'NPL',          name: 'No Pay Leave',                    description: 'Unpaid leave approved by HR',                                                               isPaid: false, requiresAttachment: false, approvalFlow: 'multi_level',  minNoticeDays: 0, regionId: null },
       { code: 'WFH',          name: 'Work From Home',                  description: 'Work from home day — no balance deduction',                                                 isPaid: true,  requiresAttachment: false, approvalFlow: 'auto_approve', minNoticeDays: 0, regionId: null },
-      { code: 'BL',           name: 'Birthday Leave',                  description: "One paid day off on or around the employee's birthday",                                     isPaid: true,  requiresAttachment: false, approvalFlow: 'standard',     minNoticeDays: 3, regionId: null },
       { code: 'BT',           name: 'Business Trip',                   description: 'Approved business travel — no leave balance deduction',                                     isPaid: true,  requiresAttachment: false, approvalFlow: 'auto_approve', minNoticeDays: 1, regionId: null },
-      { code: 'HOSP',         name: 'Hospitalisation Leave',           description: 'Extended sick leave requiring hospitalisation (SG & MY)',                                   isPaid: true,  requiresAttachment: true,  approvalFlow: 'hr_required',  minNoticeDays: 0, regionId: null },
       { code: 'FPSL',         name: 'Full Pay Sick Leave',             description: 'Full pay sick leave (explicit variant used in some regions)',                               isPaid: true,  requiresAttachment: false, approvalFlow: 'standard',     minNoticeDays: 0, regionId: null },
       { code: 'WR',           name: 'Work Remotely',                   description: 'Working remotely from outside hometown — no balance deduction',                             isPaid: true,  requiresAttachment: false, approvalFlow: 'auto_approve', minNoticeDays: 1, regionId: null },
       { code: 'OTC',          name: 'OT Claim',                        description: 'Overtime cash claim — request payment for approved overtime hours',                         isPaid: true,  requiresAttachment: true,  approvalFlow: 'hr_required',  minNoticeDays: 0, regionId: null },
       { code: 'BFL_CN',       name: 'Breastfeeding Leave (CN)',        description: '1 hour per day breastfeeding break (China statutory, up to 12 months)',                    isPaid: true,  requiresAttachment: false, approvalFlow: 'hr_required',  minNoticeDays: 0, regionId: 6    },
-      { code: 'PARENTAL_CN',  name: 'Parental Leave (CN)',             description: 'Parental leave as mandated by local Chinese regulations',                                   isPaid: true,  requiresAttachment: true,  approvalFlow: 'hr_required',  minNoticeDays: 0, regionId: 6    },
-      { code: 'PRENATAL_CN',  name: 'Prenatal Examination Leave (CN)', description: 'Paid leave for prenatal medical examinations (China)',                                      isPaid: true,  requiresAttachment: true,  approvalFlow: 'standard',     minNoticeDays: 0, regionId: 6    },
-      { code: 'TOMED',        name: 'Time-off (Medical)',              description: '1.5-hour paid time-off for medical treatment appointments',                                  isPaid: true,  requiresAttachment: true,  approvalFlow: 'auto_approve', minNoticeDays: 0, regionId: 6    },
       { code: 'RSL_SG',       name: 'Reservist Leave (SG)',            description: 'NS/reservist training leave — Singapore statutory',                                         isPaid: true,  requiresAttachment: true,  approvalFlow: 'hr_required',  minNoticeDays: 0, regionId: 3    },
       { code: 'AL_AU',        name: 'Annual Leave (AU)',               description: 'Annual leave for Australia — Fair Work Act entitlement',                                    isPaid: true,  requiresAttachment: false, approvalFlow: 'standard',     minNoticeDays: 3, regionId: 7    },
       { code: 'FPSL_AU',      name: 'Full Pay Sick Leave (AU)',        description: "Personal/carer's leave — Australia Fair Work Act",                                         isPaid: true,  requiresAttachment: false, approvalFlow: 'standard',     minNoticeDays: 0, regionId: 7    },
@@ -124,13 +119,6 @@ export async function runMigrations(): Promise<void> {
       { ltCode: 'NPL',         rCode: 'MY', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
       { ltCode: 'NPL',         rCode: 'ID', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
       { ltCode: 'NPL',         rCode: 'CN', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
-      { ltCode: 'BL',          rCode: 'HK', entitlementDays: 1,   carryOverMax: 0,  probationMonths: 6  },
-      { ltCode: 'BL',          rCode: 'SG', entitlementDays: 1,   carryOverMax: 0,  probationMonths: 6  },
-      { ltCode: 'BL',          rCode: 'MY', entitlementDays: 1,   carryOverMax: 0,  probationMonths: 6  },
-      { ltCode: 'BL',          rCode: 'ID', entitlementDays: 1,   carryOverMax: 0,  probationMonths: 6  },
-      { ltCode: 'BL',          rCode: 'CN', entitlementDays: 1,   carryOverMax: 0,  probationMonths: 6  },
-      { ltCode: 'BL',          rCode: 'AU', entitlementDays: 1,   carryOverMax: 0,  probationMonths: 6  },
-      { ltCode: 'BL',          rCode: 'NZ', entitlementDays: 1,   carryOverMax: 0,  probationMonths: 6  },
       { ltCode: 'BT',          rCode: 'HK', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
       { ltCode: 'BT',          rCode: 'SG', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
       { ltCode: 'BT',          rCode: 'MY', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
@@ -143,11 +131,6 @@ export async function runMigrations(): Promise<void> {
       { ltCode: 'FPSL',        rCode: 'MY', entitlementDays: 14,  carryOverMax: 0,  probationMonths: 0  },
       { ltCode: 'FPSL',        rCode: 'ID', entitlementDays: 12,  carryOverMax: 0,  probationMonths: 0  },
       { ltCode: 'FPSL',        rCode: 'CN', entitlementDays: 12,  carryOverMax: 0,  probationMonths: 0  },
-      { ltCode: 'HOSP',        rCode: 'HK', entitlementDays: 30,  carryOverMax: 0,  probationMonths: 3  },
-      { ltCode: 'HOSP',        rCode: 'SG', entitlementDays: 60,  carryOverMax: 0,  probationMonths: 3  },
-      { ltCode: 'HOSP',        rCode: 'MY', entitlementDays: 60,  carryOverMax: 0,  probationMonths: 3  },
-      { ltCode: 'HOSP',        rCode: 'ID', entitlementDays: 30,  carryOverMax: 0,  probationMonths: 0  },
-      { ltCode: 'HOSP',        rCode: 'CN', entitlementDays: 30,  carryOverMax: 0,  probationMonths: 0  },
       { ltCode: 'WR',          rCode: 'HK', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
       { ltCode: 'WR',          rCode: 'SG', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
       { ltCode: 'WR',          rCode: 'MY', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
@@ -161,9 +144,6 @@ export async function runMigrations(): Promise<void> {
       { ltCode: 'OTC',         rCode: 'ID', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
       { ltCode: 'OTC',         rCode: 'CN', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
       { ltCode: 'BFL_CN',      rCode: 'CN', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
-      { ltCode: 'PARENTAL_CN', rCode: 'CN', entitlementDays: 30,  carryOverMax: 0,  probationMonths: 12 },
-      { ltCode: 'PRENATAL_CN', rCode: 'CN', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
-      { ltCode: 'TOMED',       rCode: 'CN', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
       { ltCode: 'RSL_SG',      rCode: 'SG', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
       { ltCode: 'AL_AU',       rCode: 'AU', entitlementDays: 20,  carryOverMax: 20, probationMonths: 0  },
       { ltCode: 'FPSL_AU',     rCode: 'AU', entitlementDays: 10,  carryOverMax: 10, probationMonths: 0  },
@@ -419,8 +399,8 @@ export async function runMigrations(): Promise<void> {
       UPDATE leave_types
       SET approval_flow = 'hr_required', requires_attachment = true
       WHERE code IN (
-        'BFL_CN', 'PRENATAL_CN', 'PARL_CN', 'CARE_CN', 'CL_CN',
-        'PEL_CN', 'SL_CN', 'SPL_CN', 'PL', 'MRL', 'ML', 'PARENTAL_CN'
+        'BFL_CN', 'PARL_CN', 'CARE_CN', 'CL_CN',
+        'PEL_CN', 'SPL_CN', 'PL', 'MRL', 'ML'
       )
     `)
 
@@ -430,6 +410,33 @@ export async function runMigrations(): Promise<void> {
       SET approval_flow = 'standard'
       WHERE code = 'NPL'
     `)
+
+    // Remove leave types that are no longer in the approved list.
+    // Only fully delete rows that have no associated leave_requests (safe).
+    // For types that DO have requests, only remove their policies so they
+    // disappear from the dropdown but historical data is preserved.
+    const obsoleteCodes = ['BL', 'HOSP', 'PARENTAL_CN', 'PRENATAL_CN', 'TOMED', 'STL', 'SL_CN', 'BFL', 'LSL', 'RSL']
+    // Remove policies first (applies to all obsolete types)
+    await client.query(`
+      DELETE FROM leave_policies WHERE leave_type_id IN (
+        SELECT id FROM leave_types WHERE code = ANY($1)
+      )
+    `, [obsoleteCodes])
+    // Delete leave_balances and the type row only when there are no requests referencing them
+    const obsoleteResult = await client.query(`
+      WITH safe_to_delete AS (
+        SELECT lt.id FROM leave_types lt
+        WHERE lt.code = ANY($1)
+          AND NOT EXISTS (SELECT 1 FROM leave_requests lr WHERE lr.leave_type_id = lt.id)
+      )
+      SELECT id FROM safe_to_delete
+    `, [obsoleteCodes])
+    if (obsoleteResult.rowCount && obsoleteResult.rowCount > 0) {
+      const safeIds = obsoleteResult.rows.map((r: { id: number }) => r.id)
+      await client.query(`DELETE FROM leave_balances WHERE leave_type_id = ANY($1)`, [safeIds])
+      await client.query(`DELETE FROM leave_types WHERE id = ANY($1)`, [safeIds])
+      console.log(`[migrate] Removed ${safeIds.length} obsolete leave type(s)`)
+    }
 
     console.log('[migrate] Migrations complete')
   } catch (err) {
