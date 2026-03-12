@@ -68,7 +68,8 @@ type StatusFilter = 'all' | 'pending' | 'approved' | 'rejected' | 'cancelled'
 type OTStatusFilter = 'all' | 'pending' | 'approved' | 'rejected' | 'cancelled'
 
 const OT_STATUS_BADGE: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
-  pending: { label: 'Pending', variant: 'secondary' },
+  pending: { label: 'Pending Approval', variant: 'secondary' },
+  pending_hr: { label: 'Pending HR Approval', variant: 'secondary' },
   approved: { label: 'Approved', variant: 'default' },
   rejected: { label: 'Rejected', variant: 'destructive' },
   cancelled: { label: 'Cancelled', variant: 'outline' },

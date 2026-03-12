@@ -11,7 +11,7 @@ export interface OvertimeEntry {
   daysRequested: number
   reason: string
   compensationType: 'time_off' | 'cash'
-  status: 'pending' | 'approved' | 'rejected' | 'cancelled' | 'converted'
+  status: 'pending' | 'approved' | 'rejected' | 'cancelled' | 'converted' | 'pending_hr'
   rejectionReason?: string | null
   createdAt: string
   approvedAt?: string | null
@@ -26,6 +26,8 @@ export interface OvertimeBalance {
 
 export interface PendingOvertimeEntry extends OvertimeEntry {
   user: { id: number; name: string; email: string }
+  regionId: number
+  requiresHrApproval: boolean
 }
 
 // ── Query Keys ───────────────────────────────────────────────
@@ -125,6 +127,42 @@ export function useRejectOvertime() {
   return useMutation({
     mutationFn: ({ id, reason }: { id: number; reason: string }) =>
       api.post(`/overtime/${id}/reject`, { reason }).then((r) => r.data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: overtimeKeys.all })
+      toast.success('Overtime request rejected.')
+    },
+    onError: (err: unknown) => {
+      const msg =
+        (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
+        'Failed to reject'
+      toast.error(msg)
+    },
+  })
+}
+
+export function useHrApproveOvertime() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) =>
+      api.post(`/overtime/${id}/hr-approve`).then((r) => r.data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: overtimeKeys.all })
+      toast.success('Cash overtime request approved. HR will process for payroll.')
+    },
+    onError: (err: unknown) => {
+      const msg =
+        (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
+        'Failed to approve'
+      toast.error(msg)
+    },
+  })
+}
+
+export function useHrRejectOvertime() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, reason }: { id: number; reason: string }) =>
+      api.post(`/overtime/${id}/hr-reject`, { reason }).then((r) => r.data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: overtimeKeys.all })
       toast.success('Overtime request rejected.')

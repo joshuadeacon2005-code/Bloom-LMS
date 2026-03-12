@@ -31,6 +31,9 @@ import {
   usePendingOvertime,
   useApproveOvertime,
   useRejectOvertime,
+  useHrApproveOvertime,
+  useHrRejectOvertime,
+  type PendingOvertimeEntry,
 } from '@/hooks/useOvertime'
 import { toast } from 'sonner'
 import { useQueryClient } from '@tanstack/react-query'
@@ -210,6 +213,9 @@ export function ApprovalsPage() {
   const [otActionId, setOTActionId] = useState<number | null>(null)
   const [otRejectId, setOTRejectId] = useState<number | null>(null)
   const [otRejectReason, setOTRejectReason] = useState('')
+  const [otHrActionId, setOTHrActionId] = useState<number | null>(null)
+  const [otHrRejectId, setOTHrRejectId] = useState<number | null>(null)
+  const [otHrRejectReason, setOTHrRejectReason] = useState('')
 
   const qc = useQueryClient()
   const { data: pending, isLoading: loadingPending } = usePendingApprovals()
@@ -221,6 +227,11 @@ export function ApprovalsPage() {
   const { data: pendingOT, isLoading: loadingOT } = usePendingOvertime()
   const approveOT = useApproveOvertime()
   const rejectOT = useRejectOvertime()
+  const hrApproveOT = useHrApproveOvertime()
+  const hrRejectOT = useHrRejectOvertime()
+
+  const supervisorPendingOT = pendingOT?.filter((e: PendingOvertimeEntry) => !e.requiresHrApproval) ?? []
+  const hrPendingOT = pendingOT?.filter((e: PendingOvertimeEntry) => e.requiresHrApproval) ?? []
 
   const pendingList = pending?.data ?? []
 
@@ -316,6 +327,9 @@ export function ApprovalsPage() {
             Overtime
             {pendingOT && pendingOT.length > 0 && (
               <Badge className="ml-1 h-5 px-1.5 text-xs">{pendingOT.length}</Badge>
+            )}
+            {hrPendingOT.length > 0 && (
+              <Badge className="ml-0.5 h-5 px-1.5 text-xs bg-amber-500">{hrPendingOT.length} HR</Badge>
             )}
           </TabsTrigger>
         </TabsList>
@@ -417,7 +431,7 @@ export function ApprovalsPage() {
         </TabsContent>
 
         {/* ── OVERTIME TAB ── */}
-        <TabsContent value="overtime" className="mt-4 space-y-4">
+        <TabsContent value="overtime" className="mt-4 space-y-6">
           {loadingOT ? (
             <div className="space-y-4">
               {[1, 2].map((i) => <Skeleton key={i} className="h-32 w-full" />)}
@@ -430,81 +444,148 @@ export function ApprovalsPage() {
               className="py-16"
             />
           ) : (
-            <div className="space-y-4">
-              {pendingOT.map((entry) => (
-                <Card key={entry.id} className="hover:shadow-md transition-all">
-                  <CardContent className="p-5">
-                    <div className="flex items-start gap-3">
-                      <Avatar className="h-10 w-10 shrink-0">
-                        <AvatarFallback style={{ backgroundColor: 'var(--color-primary)', color: 'white' }}>
-                          {entry.user.name.split(' ').map((n: string) => n[0]).join('').slice(0, 2)}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <p className="font-semibold">{entry.user.name}</p>
-                            <p className="text-xs text-muted-foreground">{entry.user.email}</p>
-                          </div>
-                          <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
-                            <Badge variant="outline" className="text-xs">
-                              {entry.hoursWorked}h overtime{entry.compensationType !== 'cash' && ` · ${entry.daysRequested}d comp`}
-                            </Badge>
-                            {entry.compensationType === 'cash' ? (
-                              <Badge variant="outline" className="text-xs border-amber-300 bg-amber-50 text-amber-700">Cash</Badge>
-                            ) : (
-                              <Badge variant="outline" className="text-xs border-blue-200 bg-blue-50 text-blue-700">Time Off</Badge>
+            <>
+              {/* ── Supervisor approval queue ── */}
+              {supervisorPendingOT.length > 0 && (
+                <div className="space-y-4">
+                  {hrPendingOT.length > 0 && (
+                    <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Supervisor Approval</h3>
+                  )}
+                  {supervisorPendingOT.map((entry) => (
+                    <Card key={entry.id} className="hover:shadow-md transition-all">
+                      <CardContent className="p-5">
+                        <div className="flex items-start gap-3">
+                          <Avatar className="h-10 w-10 shrink-0">
+                            <AvatarFallback style={{ backgroundColor: 'var(--color-primary)', color: 'white' }}>
+                              {entry.user.name.split(' ').map((n: string) => n[0]).join('').slice(0, 2)}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-start justify-between gap-2">
+                              <div>
+                                <p className="font-semibold">{entry.user.name}</p>
+                                <p className="text-xs text-muted-foreground">{entry.user.email}</p>
+                              </div>
+                              <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+                                <Badge variant="outline" className="text-xs">
+                                  {entry.hoursWorked}h overtime{entry.compensationType !== 'cash' && ` · ${entry.daysRequested}d comp`}
+                                </Badge>
+                                {entry.compensationType === 'cash' ? (
+                                  <Badge variant="outline" className="text-xs border-amber-300 bg-amber-50 text-amber-700">Cash</Badge>
+                                ) : (
+                                  <Badge variant="outline" className="text-xs border-blue-200 bg-blue-50 text-blue-700">Time Off</Badge>
+                                )}
+                              </div>
+                            </div>
+                            <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-sm sm:grid-cols-4">
+                              <div>
+                                <span className="text-xs text-muted-foreground block">Date</span>
+                                <span className="font-medium">{format(new Date(entry.date), 'd MMM yyyy')}</span>
+                              </div>
+                              <div>
+                                <span className="text-xs text-muted-foreground block">Hours Worked</span>
+                                <span className="font-medium">{entry.hoursWorked}h</span>
+                              </div>
+                              {entry.compensationType !== 'cash' && (
+                                <div>
+                                  <span className="text-xs text-muted-foreground block">Days Requested</span>
+                                  <span className="font-medium text-primary">{entry.daysRequested}d</span>
+                                </div>
+                              )}
+                              <div>
+                                <span className="text-xs text-muted-foreground block">Submitted</span>
+                                <span className="font-medium">{format(new Date(entry.createdAt), 'd MMM')}</span>
+                              </div>
+                            </div>
+                            {entry.reason && (
+                              <p className="mt-2 text-sm text-muted-foreground italic line-clamp-2">
+                                &ldquo;{entry.reason}&rdquo;
+                              </p>
                             )}
                           </div>
                         </div>
-                        <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-sm sm:grid-cols-4">
-                          <div>
-                            <span className="text-xs text-muted-foreground block">Date</span>
-                            <span className="font-medium">{format(new Date(entry.date), 'd MMM yyyy')}</span>
-                          </div>
-                          <div>
-                            <span className="text-xs text-muted-foreground block">Hours Worked</span>
-                            <span className="font-medium">{entry.hoursWorked}h</span>
-                          </div>
-                          <div>
-                            <span className="text-xs text-muted-foreground block">Days Requested</span>
-                            <span className="font-medium text-primary">{entry.daysRequested}d</span>
-                          </div>
-                          <div>
-                            <span className="text-xs text-muted-foreground block">Submitted</span>
-                            <span className="font-medium">{format(new Date(entry.createdAt), 'd MMM')}</span>
+                        <div className="mt-4 flex justify-end gap-2 border-t pt-4">
+                          <Button variant="outline" size="sm" className="border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700" onClick={() => setOTRejectId(entry.id)}>
+                            <XCircle className="mr-1.5 h-4 w-4" />
+                            Decline
+                          </Button>
+                          <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => setOTActionId(entry.id)}>
+                            <CheckCircle className="mr-1.5 h-4 w-4" />
+                            Approve
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
+
+              {/* ── HR final approval queue ── */}
+              {hrPendingOT.length > 0 && (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-semibold text-amber-700 uppercase tracking-wide">HR Final Approval — Cash Requests</h3>
+                    <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-700 text-xs">{hrPendingOT.length}</Badge>
+                  </div>
+                  {hrPendingOT.map((entry) => (
+                    <Card key={entry.id} className="hover:shadow-md transition-all border-amber-200">
+                      <CardContent className="p-5">
+                        <div className="flex items-start gap-3">
+                          <Avatar className="h-10 w-10 shrink-0">
+                            <AvatarFallback className="bg-amber-100 text-amber-700">
+                              {entry.user.name.split(' ').map((n: string) => n[0]).join('').slice(0, 2)}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-start justify-between gap-2">
+                              <div>
+                                <p className="font-semibold">{entry.user.name}</p>
+                                <p className="text-xs text-muted-foreground">{entry.user.email}</p>
+                              </div>
+                              <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+                                <Badge variant="outline" className="text-xs">
+                                  {entry.hoursWorked}h overtime
+                                </Badge>
+                                <Badge variant="outline" className="text-xs border-amber-300 bg-amber-50 text-amber-700">Cash — Supervisor Approved</Badge>
+                              </div>
+                            </div>
+                            <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-sm sm:grid-cols-3">
+                              <div>
+                                <span className="text-xs text-muted-foreground block">Date</span>
+                                <span className="font-medium">{format(new Date(entry.date), 'd MMM yyyy')}</span>
+                              </div>
+                              <div>
+                                <span className="text-xs text-muted-foreground block">Hours Worked</span>
+                                <span className="font-medium">{entry.hoursWorked}h</span>
+                              </div>
+                              <div>
+                                <span className="text-xs text-muted-foreground block">Submitted</span>
+                                <span className="font-medium">{format(new Date(entry.createdAt), 'd MMM')}</span>
+                              </div>
+                            </div>
+                            {entry.reason && (
+                              <p className="mt-2 text-sm text-muted-foreground italic line-clamp-2">
+                                &ldquo;{entry.reason}&rdquo;
+                              </p>
+                            )}
                           </div>
                         </div>
-                        {entry.reason && (
-                          <p className="mt-2 text-sm text-muted-foreground italic line-clamp-2">
-                            &ldquo;{entry.reason}&rdquo;
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                    <div className="mt-4 flex justify-end gap-2 border-t pt-4">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
-                        onClick={() => setOTRejectId(entry.id)}
-                      >
-                        <XCircle className="mr-1.5 h-4 w-4" />
-                        Decline
-                      </Button>
-                      <Button
-                        size="sm"
-                        className="bg-green-600 hover:bg-green-700"
-                        onClick={() => setOTActionId(entry.id)}
-                      >
-                        <CheckCircle className="mr-1.5 h-4 w-4" />
-                        Approve
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
+                        <div className="mt-4 flex justify-end gap-2 border-t pt-4">
+                          <Button variant="outline" size="sm" className="border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700" onClick={() => setOTHrRejectId(entry.id)}>
+                            <XCircle className="mr-1.5 h-4 w-4" />
+                            Decline
+                          </Button>
+                          <Button size="sm" className="bg-amber-600 hover:bg-amber-700" onClick={() => setOTHrActionId(entry.id)}>
+                            <CheckCircle className="mr-1.5 h-4 w-4" />
+                            HR Approve
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </>
           )}
         </TabsContent>
       </Tabs>
@@ -567,6 +648,67 @@ export function ApprovalsPage() {
               }}
             >
               {rejectOT.isPending ? 'Declining…' : 'Decline'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* HR Approve confirmation */}
+      <Dialog open={otHrActionId !== null} onOpenChange={() => setOTHrActionId(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>HR Final Approval — Cash Payment</DialogTitle>
+            <DialogDescription>
+              Approving this will confirm the cash overtime payment. It will be processed for the employee in the next payroll run.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOTHrActionId(null)}>Cancel</Button>
+            <Button
+              className="bg-amber-600 hover:bg-amber-700"
+              disabled={hrApproveOT.isPending}
+              onClick={() => {
+                if (otHrActionId) hrApproveOT.mutate(otHrActionId, { onSuccess: () => setOTHrActionId(null) })
+              }}
+            >
+              {hrApproveOT.isPending ? 'Approving…' : 'Confirm HR Approval'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* HR Reject dialog */}
+      <Dialog open={otHrRejectId !== null} onOpenChange={() => { setOTHrRejectId(null); setOTHrRejectReason('') }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Decline Cash Overtime Request</DialogTitle>
+            <DialogDescription>The employee and their supervisor will be notified with your reason.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-1.5">
+            <Label>Reason <span className="text-muted-foreground text-xs">(required)</span></Label>
+            <Textarea
+              value={otHrRejectReason}
+              onChange={(e) => setOTHrRejectReason(e.target.value)}
+              placeholder="Briefly explain why this cash overtime request cannot be approved..."
+              rows={3}
+              className="resize-none"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setOTHrRejectId(null); setOTHrRejectReason('') }}>Cancel</Button>
+            <Button
+              className="bg-destructive hover:bg-destructive/90"
+              disabled={hrRejectOT.isPending || !otHrRejectReason.trim()}
+              onClick={() => {
+                if (otHrRejectId && otHrRejectReason.trim()) {
+                  hrRejectOT.mutate(
+                    { id: otHrRejectId, reason: otHrRejectReason },
+                    { onSuccess: () => { setOTHrRejectId(null); setOTHrRejectReason('') } }
+                  )
+                }
+              }}
+            >
+              {hrRejectOT.isPending ? 'Declining…' : 'Decline'}
             </Button>
           </DialogFooter>
         </DialogContent>

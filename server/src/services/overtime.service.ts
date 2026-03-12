@@ -46,6 +46,55 @@ async function isPublicHoliday(regionId: number, dateStr: string): Promise<boole
   return !!row
 }
 
+// Local HR reps by region code. Stable across environments (matched by email).
+const LOCAL_HR_EMAILS: Record<string, string> = {
+  ID: 'rina.juwita@bloomandgrowgroup.com',
+  CN: 'michelle.su@bloomandgrow.com.cn',
+}
+const DEFAULT_HR_EMAIL = 'elaine@bloomandgrowgroup.com'
+
+async function getLocalHrUserId(regionId: number): Promise<number | null> {
+  const [region] = await db
+    .select({ code: regions.code })
+    .from(regions)
+    .where(eq(regions.id, regionId))
+    .limit(1)
+  const email = (region?.code && LOCAL_HR_EMAILS[region.code]) ? LOCAL_HR_EMAILS[region.code] : DEFAULT_HR_EMAIL
+  const [hrUser] = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.email, email))
+    .limit(1)
+  return hrUser?.id ?? null
+}
+
+async function getHrResponsibleRegionIds(userId: number): Promise<number[] | null> {
+  const [user] = await db
+    .select({ email: users.email, role: users.role })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1)
+  if (!user) return []
+  if (user.role === 'super_admin') return null
+
+  let responsibleCodes: string[]
+  if (user.email === 'rina.juwita@bloomandgrowgroup.com') {
+    responsibleCodes = ['ID']
+  } else if (user.email === 'michelle.su@bloomandgrow.com.cn') {
+    responsibleCodes = ['CN']
+  } else if (user.email === 'elaine@bloomandgrowgroup.com') {
+    responsibleCodes = ['HK', 'SG', 'MY', 'AU', 'NZ']
+  } else {
+    return []
+  }
+
+  const regionRows = await db
+    .select({ id: regions.id })
+    .from(regions)
+    .where(inArray(regions.code, responsibleCodes))
+  return regionRows.map((r) => r.id)
+}
+
 // ============================================================
 // Submit Overtime Request
 // ============================================================
@@ -194,8 +243,57 @@ export async function approveOvertimeRequest(
 
   const isCash = entry.compensationType === 'cash'
 
-  // Credit to leave balance only for time-off requests
-  if (!isCash && compLeaveTypeId) {
+  const [approver] = await db
+    .select({ name: users.name })
+    .from(users)
+    .where(eq(users.id, approverId))
+    .limit(1)
+
+  const [employee] = await db
+    .select({ name: users.name })
+    .from(users)
+    .where(eq(users.id, entry.userId))
+    .limit(1)
+
+  const localHrId = await getLocalHrUserId(entry.regionId)
+
+  if (isCash) {
+    // Step 1 of 2: supervisor approval — move to pending_hr, notify HR
+    await db
+      .update(overtimeEntries)
+      .set({
+        status: 'pending_hr',
+        approvedById: approverId,
+        approvedAt: new Date(),
+        managerComment: comment ?? null,
+      })
+      .where(eq(overtimeEntries.id, entryId))
+
+    // Notify local HR for final approval
+    if (localHrId) {
+      await createNotification({
+        userId: localHrId,
+        type: 'overtime_submitted',
+        title: 'Cash Overtime — HR Approval Required',
+        message: `${employee?.name ?? 'An employee'}'s cash overtime request for ${entry.date} (${entry.hoursWorked}h) has been approved by ${approver?.name ?? 'their supervisor'} and requires your final approval.`,
+        metadata: { overtimeEntryId: entryId },
+      })
+    }
+
+    // Notify employee that supervisor approved, waiting for HR
+    await createNotification({
+      userId: entry.userId,
+      type: 'overtime_approved',
+      title: 'Overtime — Supervisor Approved',
+      message: `Your cash overtime request for ${entry.date} has been approved by ${approver?.name ?? 'your supervisor'}. It is now pending final HR approval.`,
+      metadata: { overtimeEntryId: entryId },
+    })
+
+    return { id: entryId, status: 'pending_hr' }
+  }
+
+  // Time-off / TIL: credit balance and fully approve
+  if (compLeaveTypeId) {
     const year = new Date().getFullYear()
     await addAdjustment(entry.userId, compLeaveTypeId, year, entry.regionId, daysToCredit)
   }
@@ -206,29 +304,32 @@ export async function approveOvertimeRequest(
       status: 'approved',
       approvedById: approverId,
       approvedAt: new Date(),
-      approvedDays: isCash ? null : daysToCredit.toFixed(2),
+      approvedDays: daysToCredit.toFixed(2),
       managerComment: comment ?? null,
     })
     .where(eq(overtimeEntries.id, entryId))
 
-  const [approver] = await db
-    .select({ name: users.name })
-    .from(users)
-    .where(eq(users.id, approverId))
-    .limit(1)
-
   const leaveLabel = isAUNZ ? 'Time In Lieu' : 'Compensatory Leave'
-  const notifMessage = isCash
-    ? `Your overtime request (cash payment) for ${entry.date} has been approved by ${approver?.name ?? 'your manager'}. Your overtime hours will be processed for cash payment.`
-    : `Your ${isAUNZ ? 'overtime' : 'comp leave'} request for ${entry.date} has been approved by ${approver?.name ?? 'your manager'}. ${daysToCredit} day(s) added to your ${leaveLabel} balance.`
 
+  // Notify employee
   await createNotification({
     userId: entry.userId,
     type: 'overtime_approved',
     title: 'Overtime Approved',
-    message: notifMessage,
+    message: `Your ${isAUNZ ? 'Time In Lieu' : 'comp leave'} request for ${entry.date} has been approved by ${approver?.name ?? 'your manager'}. ${daysToCredit} day(s) added to your ${leaveLabel} balance.`,
     metadata: { overtimeEntryId: entryId },
   })
+
+  // Notify local HR for records
+  if (localHrId) {
+    await createNotification({
+      userId: localHrId,
+      type: 'overtime_approved',
+      title: 'Overtime Approved — For Records',
+      message: `${employee?.name ?? 'An employee'}'s ${leaveLabel} request for ${entry.date} was approved by ${approver?.name ?? 'their supervisor'}. ${daysToCredit}d added to balance.`,
+      metadata: { overtimeEntryId: entryId },
+    })
+  }
 
   return { id: entryId, status: 'approved' }
 }
@@ -280,6 +381,138 @@ export async function rejectOvertimeRequest(entryId: number, approverId: number,
     message: `Your overtime compensation request for ${entry.date} was rejected by ${approver?.name ?? 'your manager'}. Reason: ${reason}`,
     metadata: { overtimeEntryId: entryId },
   })
+
+  return { id: entryId, status: 'rejected' }
+}
+
+// ============================================================
+// HR Final Approve (cash requests only, after supervisor approval)
+// ============================================================
+
+export async function hrApproveOvertimeRequest(entryId: number, hrUserId: number) {
+  const [entry] = await db
+    .select({
+      id: overtimeEntries.id,
+      userId: overtimeEntries.userId,
+      status: overtimeEntries.status,
+      compensationType: overtimeEntries.compensationType,
+      date: overtimeEntries.date,
+      hoursWorked: overtimeEntries.hoursWorked,
+      regionId: overtimeEntries.regionId,
+      approvedById: overtimeEntries.approvedById,
+    })
+    .from(overtimeEntries)
+    .where(eq(overtimeEntries.id, entryId))
+    .limit(1)
+
+  if (!entry) throw new NotFoundError('Overtime request')
+  if (entry.status !== 'pending_hr') {
+    throw new ValidationError('This request is not awaiting HR approval')
+  }
+  if (entry.compensationType !== 'cash') {
+    throw new ValidationError('Only cash requests require HR approval')
+  }
+
+  const responsibleRegionIds = await getHrResponsibleRegionIds(hrUserId)
+  if (responsibleRegionIds !== null && !responsibleRegionIds.includes(entry.regionId)) {
+    throw new ForbiddenError()
+  }
+
+  await db
+    .update(overtimeEntries)
+    .set({
+      status: 'approved',
+      hrApprovedById: hrUserId,
+      hrApprovedAt: new Date(),
+    })
+    .where(eq(overtimeEntries.id, entryId))
+
+  const [hrUser] = await db
+    .select({ name: users.name })
+    .from(users)
+    .where(eq(users.id, hrUserId))
+    .limit(1)
+
+  await createNotification({
+    userId: entry.userId,
+    type: 'overtime_approved',
+    title: 'Overtime Approved — Cash Payment',
+    message: `Your cash overtime request for ${entry.date} has received final HR approval from ${hrUser?.name ?? 'HR'}. It will be processed in the next payroll.`,
+    metadata: { overtimeEntryId: entryId },
+  })
+
+  return { id: entryId, status: 'approved' }
+}
+
+// ============================================================
+// HR Reject (cash requests at pending_hr stage)
+// ============================================================
+
+export async function hrRejectOvertimeRequest(entryId: number, hrUserId: number, reason: string) {
+  const [entry] = await db
+    .select({
+      id: overtimeEntries.id,
+      userId: overtimeEntries.userId,
+      status: overtimeEntries.status,
+      compensationType: overtimeEntries.compensationType,
+      date: overtimeEntries.date,
+      regionId: overtimeEntries.regionId,
+      approvedById: overtimeEntries.approvedById,
+    })
+    .from(overtimeEntries)
+    .where(eq(overtimeEntries.id, entryId))
+    .limit(1)
+
+  if (!entry) throw new NotFoundError('Overtime request')
+  if (entry.status !== 'pending_hr') {
+    throw new ValidationError('This request is not awaiting HR approval')
+  }
+
+  const responsibleRegionIds = await getHrResponsibleRegionIds(hrUserId)
+  if (responsibleRegionIds !== null && !responsibleRegionIds.includes(entry.regionId)) {
+    throw new ForbiddenError()
+  }
+
+  const [hrUser] = await db
+    .select({ name: users.name })
+    .from(users)
+    .where(eq(users.id, hrUserId))
+    .limit(1)
+
+  await db
+    .update(overtimeEntries)
+    .set({
+      status: 'rejected',
+      hrApprovedById: hrUserId,
+      hrApprovedAt: new Date(),
+      rejectionReason: reason,
+    })
+    .where(eq(overtimeEntries.id, entryId))
+
+  // Notify employee
+  await createNotification({
+    userId: entry.userId,
+    type: 'overtime_rejected',
+    title: 'Cash Overtime Rejected by HR',
+    message: `Your cash overtime request for ${entry.date} was rejected at the HR approval stage by ${hrUser?.name ?? 'HR'}. Reason: ${reason}`,
+    metadata: { overtimeEntryId: entryId },
+  })
+
+  // Notify original supervisor too
+  if (entry.approvedById) {
+    const [employee] = await db
+      .select({ name: users.name })
+      .from(users)
+      .where(eq(users.id, entry.userId))
+      .limit(1)
+    await createNotification({
+      userId: entry.approvedById,
+      type: 'overtime_rejected',
+      title: 'Cash Overtime Rejected by HR',
+      message: `${employee?.name ?? 'An employee'}'s cash overtime request for ${entry.date} was rejected at the HR stage by ${hrUser?.name ?? 'HR'}.`,
+      metadata: { overtimeEntryId: entryId },
+    })
+  }
 
   return { id: entryId, status: 'rejected' }
 }
@@ -383,46 +616,72 @@ export async function getMyOvertimeRequests(
 export async function getPendingOvertimeRequests(managerId: number, requestingRole: string) {
   const isHrOrAbove = ['hr_admin', 'super_admin'].includes(requestingRole)
 
-  let userIds: number[] | null = null
+  const entrySelectFields = {
+    id: overtimeEntries.id,
+    date: overtimeEntries.date,
+    hoursWorked: overtimeEntries.hoursWorked,
+    daysRequested: overtimeEntries.daysRequested,
+    reason: overtimeEntries.reason,
+    compensationType: overtimeEntries.compensationType,
+    status: overtimeEntries.status,
+    createdAt: overtimeEntries.createdAt,
+    regionId: overtimeEntries.regionId,
+    user: {
+      id: users.id,
+      name: users.name,
+      email: users.email,
+    },
+  }
+
+  async function queryEntries(statusFilter: 'pending' | 'pending_hr', userIdsFilter?: number[], regionIdsFilter?: number[]) {
+    const conditions = [eq(overtimeEntries.status, statusFilter)]
+    if (userIdsFilter && userIdsFilter.length > 0) conditions.push(inArray(overtimeEntries.userId, userIdsFilter))
+    if (regionIdsFilter && regionIdsFilter.length > 0) conditions.push(inArray(overtimeEntries.regionId, regionIdsFilter))
+    return db
+      .select(entrySelectFields)
+      .from(overtimeEntries)
+      .leftJoin(users, eq(overtimeEntries.userId, users.id))
+      .where(and(...conditions))
+      .orderBy(overtimeEntries.date)
+  }
+
+  // ── Supervisor queue: pending entries ──
+  let supervisorRaw: Awaited<ReturnType<typeof queryEntries>> = []
   if (!isHrOrAbove) {
     const reports = await db
       .select({ id: users.id })
       .from(users)
       .where(and(eq(users.managerId, managerId), eq(users.isActive, true), isNull(users.deletedAt)))
-    userIds = reports.map((r) => r.id)
-    if (userIds.length === 0) return []
+    const userIds = reports.map((r) => r.id)
+    if (userIds.length > 0) {
+      supervisorRaw = await queryEntries('pending', userIds)
+    }
+  } else {
+    supervisorRaw = await queryEntries('pending')
   }
 
-  const conditions = [eq(overtimeEntries.status, 'pending')]
-  if (userIds) conditions.push(inArray(overtimeEntries.userId, userIds))
+  // ── HR queue: pending_hr cash entries for this HR's region responsibility ──
+  let hrRaw: Awaited<ReturnType<typeof queryEntries>> = []
+  if (isHrOrAbove) {
+    const responsibleRegionIds = await getHrResponsibleRegionIds(managerId)
+    if (responsibleRegionIds === null) {
+      hrRaw = await queryEntries('pending_hr')
+    } else if (responsibleRegionIds.length > 0) {
+      hrRaw = await queryEntries('pending_hr', undefined, responsibleRegionIds)
+    }
+  }
 
-  return db
-    .select({
-      id: overtimeEntries.id,
-      date: overtimeEntries.date,
-      hoursWorked: overtimeEntries.hoursWorked,
-      daysRequested: overtimeEntries.daysRequested,
-      reason: overtimeEntries.reason,
-      compensationType: overtimeEntries.compensationType,
-      status: overtimeEntries.status,
-      createdAt: overtimeEntries.createdAt,
-      user: {
-        id: users.id,
-        name: users.name,
-        email: users.email,
-      },
-    })
-    .from(overtimeEntries)
-    .leftJoin(users, eq(overtimeEntries.userId, users.id))
-    .where(and(...conditions))
-    .orderBy(overtimeEntries.date)
-    .then((rows) =>
-      rows.map((r) => ({
-        ...r,
-        hoursWorked: parseDecimal(r.hoursWorked),
-        daysRequested: parseDecimal(r.daysRequested),
-      }))
-    )
+  const mapRow = (r: Awaited<ReturnType<typeof queryEntries>>[number], requiresHrApproval: boolean) => ({
+    ...r,
+    hoursWorked: parseDecimal(String(r.hoursWorked)),
+    daysRequested: parseDecimal(String(r.daysRequested)),
+    requiresHrApproval,
+  })
+
+  return [
+    ...supervisorRaw.map((r) => mapRow(r, false)),
+    ...hrRaw.map((r) => mapRow(r, true)),
+  ]
 }
 
 // ============================================================

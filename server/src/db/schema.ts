@@ -60,6 +60,7 @@ export const overtimeStatusEnum = pgEnum('overtime_status', [
   'rejected',
   'converted',
   'cancelled',
+  'pending_hr',
 ])
 
 // =============================================================================
@@ -352,6 +353,8 @@ export const overtimeEntries = pgTable(
     approvedDays: numeric('approved_days', { precision: 4, scale: 2 }),
     managerComment: text('manager_comment'),
     compLeaveRequestId: integer('comp_leave_request_id').references(() => leaveRequests.id),
+    hrApprovedById: integer('hr_approved_by_id').references(() => users.id),
+    hrApprovedAt: timestamp('hr_approved_at', { withTimezone: true }),
     regionId: integer('region_id')
       .notNull()
       .references(() => regions.id),

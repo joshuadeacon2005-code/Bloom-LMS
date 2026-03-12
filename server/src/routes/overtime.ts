@@ -133,6 +133,38 @@ router.post('/:id/reject', validate(rejectSchema), async (req, res, next) => {
   }
 })
 
+// POST /api/overtime/:id/hr-approve
+router.post('/:id/hr-approve', async (req, res, next) => {
+  try {
+    const { role, userId } = req.user!
+    if (!['hr_admin', 'super_admin'].includes(role)) {
+      return res.status(403).json({ success: false, error: 'Forbidden' })
+    }
+    const id = parseInt(req.params['id'] as string)
+    const result = await overtimeService.hrApproveOvertimeRequest(id, userId)
+    const response: ApiResponse<typeof result> = { success: true, data: result }
+    res.json(response)
+  } catch (err) {
+    next(err)
+  }
+})
+
+// POST /api/overtime/:id/hr-reject
+router.post('/:id/hr-reject', validate(rejectSchema), async (req, res, next) => {
+  try {
+    const { role, userId } = req.user!
+    if (!['hr_admin', 'super_admin'].includes(role)) {
+      return res.status(403).json({ success: false, error: 'Forbidden' })
+    }
+    const id = parseInt(req.params['id'] as string)
+    const result = await overtimeService.hrRejectOvertimeRequest(id, userId, req.body.reason)
+    const response: ApiResponse<typeof result> = { success: true, data: result }
+    res.json(response)
+  } catch (err) {
+    next(err)
+  }
+})
+
 // PATCH /api/overtime/:id/cancel
 router.patch('/:id/cancel', async (req, res, next) => {
   try {

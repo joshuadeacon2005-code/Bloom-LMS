@@ -214,6 +214,20 @@ export async function runMigrations(): Promise<void> {
       ADD COLUMN IF NOT EXISTS compensation_type varchar(20) NOT NULL DEFAULT 'time_off'
     `)
 
+    // Add pending_hr and converted values to overtime_status enum
+    await client.query(`ALTER TYPE overtime_status ADD VALUE IF NOT EXISTS 'pending_hr'`)
+    await client.query(`ALTER TYPE overtime_status ADD VALUE IF NOT EXISTS 'converted'`)
+
+    // Add HR approval columns to overtime_entries
+    await client.query(`
+      ALTER TABLE overtime_entries
+      ADD COLUMN IF NOT EXISTS hr_approved_by_id integer REFERENCES users(id)
+    `)
+    await client.query(`
+      ALTER TABLE overtime_entries
+      ADD COLUMN IF NOT EXISTS hr_approved_at timestamptz
+    `)
+
     // Deduplicate leave types: the seed ran multiple times creating duplicate codes.
     // Keep the MAX id per code (requests live on highest IDs); delete the rest.
     const dupResult = await client.query(`
