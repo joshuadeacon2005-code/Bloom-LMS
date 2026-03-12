@@ -1,10 +1,13 @@
 import { Router } from 'express'
 import { z } from 'zod'
+import { and, eq, gte, lte } from 'drizzle-orm'
 import { authenticate } from '../middleware/auth'
 import { validate } from '../middleware/validate'
 import { upload } from '../middleware/upload'
 import * as leaveService from '../services/leave.service'
 import { uploadAttachment } from '../services/cloudinary.service'
+import { db } from '../db/index'
+import { publicHolidays } from '../db/schema'
 import type { ApiResponse } from './types'
 
 const router = Router()
@@ -134,6 +137,31 @@ router.get('/calendar/team', validate(teamCalendarSchema, 'query'), async (req, 
       departmentId: query.departmentId,
     })
     const response: ApiResponse<typeof absences> = { success: true, data: absences }
+    res.json(response)
+  } catch (err) {
+    next(err)
+  }
+})
+
+// GET /api/leave/holidays?regionId=1&year=2026
+router.get('/holidays', async (req, res, next) => {
+  try {
+    const regionId = req.query.regionId ? parseInt(req.query.regionId as string, 10) : undefined
+    const year = req.query.year ? parseInt(req.query.year as string, 10) : new Date().getFullYear()
+
+    const conditions = [
+      gte(publicHolidays.date, `${year}-01-01`),
+      lte(publicHolidays.date, `${year}-12-31`),
+    ]
+    if (regionId) conditions.push(eq(publicHolidays.regionId, regionId))
+
+    const rows = await db
+      .select()
+      .from(publicHolidays)
+      .where(and(...conditions))
+      .orderBy(publicHolidays.date)
+
+    const response: ApiResponse<typeof rows> = { success: true, data: rows }
     res.json(response)
   } catch (err) {
     next(err)

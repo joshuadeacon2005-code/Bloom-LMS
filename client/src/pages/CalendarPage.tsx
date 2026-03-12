@@ -18,13 +18,22 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { EmptyState } from '@/components/shared/EmptyState'
-import { useTeamCalendar } from '@/hooks/useLeaveRequests'
+import { useTeamCalendar, usePublicHolidays } from '@/hooks/useLeaveRequests'
+import { useRegions } from '@/hooks/useAdmin'
 import { useAuthStore } from '@/stores/authStore'
+import type { PublicHoliday } from '@/hooks/useLeaveRequests'
 
 const LEAVE_COLOURS = [
   'bg-blue-500',
@@ -54,22 +63,32 @@ function CalendarDayCell({
   isCurrentMonth,
   absences,
   isToday,
+  holidays,
 }: {
   date: Date
   isCurrentMonth: boolean
   absences: Absence[]
   isToday: boolean
+  holidays: PublicHoliday[]
 }) {
   const weekend = isWeekend(date)
   const dateStr = format(date, 'yyyy-MM-dd')
   const dayAbsences = absences.filter(
     (a) => a.startDate <= dateStr && a.endDate >= dateStr,
   )
+  const dayHolidays = holidays.filter((h) => h.date === dateStr)
+  const isHoliday = dayHolidays.length > 0
 
   return (
     <div
       className={`min-h-[90px] border-b border-r border-border p-1.5 ${
-        !isCurrentMonth ? 'bg-muted/30' : weekend ? 'bg-muted/10' : ''
+        !isCurrentMonth
+          ? 'bg-muted/30'
+          : isHoliday
+            ? 'bg-amber-50/60 dark:bg-amber-950/20'
+            : weekend
+              ? 'bg-muted/10'
+              : ''
       }`}
     >
       <div className="mb-1 flex items-center justify-between">
@@ -89,6 +108,22 @@ function CalendarDayCell({
       </div>
 
       <div className="space-y-0.5">
+        {/* Public holiday banners */}
+        {dayHolidays.map((h) => (
+          <Tooltip key={h.id}>
+            <TooltipTrigger asChild>
+              <div className="truncate rounded bg-amber-200/80 px-1 py-0.5 text-xs font-medium text-amber-900 dark:bg-amber-800/60 dark:text-amber-100">
+                {h.name}
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="text-xs">
+              <p className="font-medium">{h.name}</p>
+              <p className="text-muted-foreground">Public Holiday</p>
+            </TooltipContent>
+          </Tooltip>
+        ))}
+
+        {/* Team absences */}
         {dayAbsences.slice(0, 3).map((a) => (
           <Tooltip key={a.id}>
             <TooltipTrigger asChild>
@@ -123,9 +158,20 @@ function CalendarDayCell({
   )
 }
 
+const CALENDAR_REGION_KEY = 'bloomCalendarRegionId'
+
 export function CalendarPage() {
   const { user } = useAuthStore()
   const [currentMonth, setCurrentMonth] = useState(new Date())
+
+  const isHROrAdmin = user?.role === 'hr_admin' || user?.role === 'super_admin'
+
+  const [selectedRegionId, setSelectedRegionId] = useState<number>(() => {
+    const stored = localStorage.getItem(CALENDAR_REGION_KEY)
+    return stored ? parseInt(stored, 10) : (user?.regionId ?? 0)
+  })
+
+  const { data: regions } = useRegions()
 
   const startDate = format(
     startOfWeek(startOfMonth(currentMonth), { weekStartsOn: 1 }),
@@ -136,10 +182,17 @@ export function CalendarPage() {
     'yyyy-MM-dd',
   )
 
+  const effectiveRegionId = isHROrAdmin ? selectedRegionId : user?.regionId
+
   const { data: absences, isLoading } = useTeamCalendar({
     startDate,
     endDate,
-    regionId: user?.regionId,
+    regionId: effectiveRegionId,
+  })
+
+  const { data: holidays = [] } = usePublicHolidays({
+    regionId: effectiveRegionId,
+    year: currentMonth.getFullYear(),
   })
 
   const today = new Date()
@@ -167,15 +220,44 @@ export function CalendarPage() {
     ).values(),
   )
 
+  // Holidays this month (for "upcoming" section)
+  const monthStr = format(currentMonth, 'yyyy-MM')
+  const monthHolidays = holidays.filter((h) => h.date.startsWith(monthStr))
+
+  function handleRegionChange(value: string) {
+    const id = parseInt(value, 10)
+    setSelectedRegionId(id)
+    localStorage.setItem(CALENDAR_REGION_KEY, value)
+  }
+
+  const selectedRegion = regions?.find((r) => r.id === selectedRegionId)
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold">Team Calendar</h2>
           <p className="text-sm text-muted-foreground">
-            View team absences and plan ahead
+            {selectedRegion
+              ? `${selectedRegion.name} — team absences and public holidays`
+              : 'View team absences and plan ahead'}
           </p>
         </div>
+
+        {isHROrAdmin && regions && regions.length > 0 && (
+          <Select value={String(selectedRegionId)} onValueChange={handleRegionChange}>
+            <SelectTrigger className="w-[160px]">
+              <SelectValue placeholder="Select region" />
+            </SelectTrigger>
+            <SelectContent>
+              {regions.map((r) => (
+                <SelectItem key={r.id} value={String(r.id)}>
+                  {r.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
       </div>
 
       <Card>
@@ -214,18 +296,22 @@ export function CalendarPage() {
           </div>
 
           {/* Legend */}
-          {leaveTypes.length > 0 && (
-            <div className="flex flex-wrap gap-3 pt-2">
-              {leaveTypes.map((lt) => (
-                <div key={lt.id} className="flex items-center gap-1.5">
-                  <div
-                    className={`h-2.5 w-2.5 rounded-full ${getLeaveColour(lt.id)}`}
-                  />
-                  <span className="text-xs text-muted-foreground">{lt.name}</span>
-                </div>
-              ))}
-            </div>
-          )}
+          <div className="flex flex-wrap gap-3 pt-2">
+            {monthHolidays.length > 0 && (
+              <div className="flex items-center gap-1.5">
+                <div className="h-2.5 w-2.5 rounded-sm bg-amber-400" />
+                <span className="text-xs text-muted-foreground">Public holiday</span>
+              </div>
+            )}
+            {leaveTypes.map((lt) => (
+              <div key={lt.id} className="flex items-center gap-1.5">
+                <div
+                  className={`h-2.5 w-2.5 rounded-full ${getLeaveColour(lt.id)}`}
+                />
+                <span className="text-xs text-muted-foreground">{lt.name}</span>
+              </div>
+            ))}
+          </div>
         </CardHeader>
 
         <CardContent className="p-0">
@@ -265,12 +351,36 @@ export function CalendarPage() {
                   isCurrentMonth={isSameMonth(day, currentMonth)}
                   absences={absences ?? []}
                   isToday={isSameDay(day, today)}
+                  holidays={holidays}
                 />
               ))}
             </div>
           )}
         </CardContent>
       </Card>
+
+      {/* Public Holidays this month */}
+      {!isLoading && monthHolidays.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <h3 className="text-base font-semibold">
+              Public Holidays in {format(currentMonth, 'MMMM')}
+            </h3>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {monthHolidays.map((h) => (
+                <div key={h.id} className="flex items-center gap-3">
+                  <div className="min-w-[48px] text-sm font-medium text-amber-700 dark:text-amber-400">
+                    {format(new Date(h.date), 'd MMM')}
+                  </div>
+                  <span className="text-sm">{h.name}</span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Who's away this month */}
       {!isLoading && (

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { User, Bell, Slack, Shield, CheckCircle2 } from 'lucide-react'
+import { User, Bell, Slack, Shield, CheckCircle2, CalendarDays } from 'lucide-react'
 import { toast } from 'sonner'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -11,8 +11,18 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Separator } from '@/components/ui/separator'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { useAuthStore } from '@/stores/authStore'
+import { useRegions } from '@/hooks/useAdmin'
 import api from '@/lib/api'
+
+const CALENDAR_REGION_KEY = 'bloomCalendarRegionId'
 
 const profileSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
@@ -52,6 +62,12 @@ export function SettingsPage() {
   const { user, setAuth, accessToken, refreshToken } = useAuthStore()
   const [savingProfile, setSavingProfile] = useState(false)
   const [savingPassword, setSavingPassword] = useState(false)
+
+  const isHROrAdmin = user?.role === 'hr_admin' || user?.role === 'super_admin'
+  const { data: regions } = useRegions()
+  const [calendarRegionId, setCalendarRegionId] = useState<string>(() => {
+    return localStorage.getItem(CALENDAR_REGION_KEY) ?? String(user?.regionId ?? '')
+  })
   const [notifPrefs, setNotifPrefs] = useState({
     leaveApproved: true,
     leaveRejected: true,
@@ -266,6 +282,48 @@ export function SettingsPage() {
           ))}
         </CardContent>
       </Card>
+
+      {/* Calendar region preference — HR/Super Admin only */}
+      {isHROrAdmin && regions && regions.length > 0 && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <CalendarDays className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-base">Calendar Preferences</CardTitle>
+            </div>
+            <CardDescription>
+              Choose which region's team absences and public holidays appear in the Team Calendar by default
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-1.5">
+              <Label>Default calendar region</Label>
+              <Select
+                value={calendarRegionId}
+                onValueChange={(v) => {
+                  setCalendarRegionId(v)
+                  localStorage.setItem(CALENDAR_REGION_KEY, v)
+                  toast.success('Calendar region saved')
+                }}
+              >
+                <SelectTrigger className="w-full max-w-xs">
+                  <SelectValue placeholder="Select region" />
+                </SelectTrigger>
+                <SelectContent>
+                  {regions.map((r) => (
+                    <SelectItem key={r.id} value={String(r.id)}>
+                      {r.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                You can also switch regions directly from the Team Calendar page.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Slack connection */}
       <Card>

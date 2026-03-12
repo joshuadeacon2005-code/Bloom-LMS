@@ -113,3 +113,23 @@ export function useTeamCalendar(filters: {
         .then((r) => r.data.data),
   })
 }
+
+export interface PublicHoliday {
+  id: number
+  name: string
+  date: string
+  regionId: number
+  isRecurring: boolean
+}
+
+export function usePublicHolidays(params: { regionId?: number; year?: number }) {
+  return useQuery({
+    queryKey: ['public-holidays', params],
+    queryFn: () =>
+      api
+        .get<{ data: PublicHoliday[] }>('/leave/holidays', { params })
+        .then((r) => r.data.data),
+    enabled: !!params.regionId,
+    staleTime: 60 * 60 * 1000, // 1 hour
+  })
+}
