@@ -79,6 +79,124 @@ export async function runMigrations(): Promise<void> {
     await client.query(`CREATE INDEX IF NOT EXISTS overtime_entries_status_idx ON overtime_entries(status)`)
     await client.query(`CREATE INDEX IF NOT EXISTS overtime_entries_region_id_idx ON overtime_entries(region_id)`)
 
+    // Add new leave types introduced in March 2026 seed update (safe — skips if code already exists)
+    const newLeaveTypes = [
+      { code: 'NPL',          name: 'No Pay Leave',                    description: 'Unpaid leave approved by HR',                                                               isPaid: false, requiresAttachment: false, approvalFlow: 'multi_level',  minNoticeDays: 0, regionId: null },
+      { code: 'WFH',          name: 'Work From Home',                  description: 'Work from home day — no balance deduction',                                                 isPaid: true,  requiresAttachment: false, approvalFlow: 'auto_approve', minNoticeDays: 0, regionId: null },
+      { code: 'BL',           name: 'Birthday Leave',                  description: "One paid day off on or around the employee's birthday",                                     isPaid: true,  requiresAttachment: false, approvalFlow: 'standard',     minNoticeDays: 3, regionId: null },
+      { code: 'BT',           name: 'Business Trip',                   description: 'Approved business travel — no leave balance deduction',                                     isPaid: true,  requiresAttachment: false, approvalFlow: 'auto_approve', minNoticeDays: 1, regionId: null },
+      { code: 'HOSP',         name: 'Hospitalisation Leave',           description: 'Extended sick leave requiring hospitalisation (SG & MY)',                                   isPaid: true,  requiresAttachment: true,  approvalFlow: 'hr_required',  minNoticeDays: 0, regionId: null },
+      { code: 'FPSL',         name: 'Full Pay Sick Leave',             description: 'Full pay sick leave (explicit variant used in some regions)',                               isPaid: true,  requiresAttachment: false, approvalFlow: 'standard',     minNoticeDays: 0, regionId: null },
+      { code: 'WR',           name: 'Work Remotely',                   description: 'Working remotely from outside hometown — no balance deduction',                             isPaid: true,  requiresAttachment: false, approvalFlow: 'auto_approve', minNoticeDays: 1, regionId: null },
+      { code: 'OTC',          name: 'OT Claim',                        description: 'Overtime cash claim — request payment for approved overtime hours',                         isPaid: true,  requiresAttachment: true,  approvalFlow: 'hr_required',  minNoticeDays: 0, regionId: null },
+      { code: 'BFL_CN',       name: 'Breastfeeding Leave (CN)',        description: '1 hour per day breastfeeding break (China statutory, up to 12 months)',                    isPaid: true,  requiresAttachment: false, approvalFlow: 'hr_required',  minNoticeDays: 0, regionId: 6    },
+      { code: 'PARENTAL_CN',  name: 'Parental Leave (CN)',             description: 'Parental leave as mandated by local Chinese regulations',                                   isPaid: true,  requiresAttachment: true,  approvalFlow: 'hr_required',  minNoticeDays: 0, regionId: 6    },
+      { code: 'PRENATAL_CN',  name: 'Prenatal Examination Leave (CN)', description: 'Paid leave for prenatal medical examinations (China)',                                      isPaid: true,  requiresAttachment: true,  approvalFlow: 'standard',     minNoticeDays: 0, regionId: 6    },
+      { code: 'TOMED',        name: 'Time-off (Medical)',              description: '1.5-hour paid time-off for medical treatment appointments',                                  isPaid: true,  requiresAttachment: true,  approvalFlow: 'auto_approve', minNoticeDays: 0, regionId: 6    },
+      { code: 'RSL_SG',       name: 'Reservist Leave (SG)',            description: 'NS/reservist training leave — Singapore statutory',                                         isPaid: true,  requiresAttachment: true,  approvalFlow: 'hr_required',  minNoticeDays: 0, regionId: 3    },
+      { code: 'AL_AU',        name: 'Annual Leave (AU)',               description: 'Annual leave for Australia — Fair Work Act entitlement',                                    isPaid: true,  requiresAttachment: false, approvalFlow: 'standard',     minNoticeDays: 3, regionId: 7    },
+      { code: 'FPSL_AU',      name: 'Full Pay Sick Leave (AU)',        description: "Personal/carer's leave — Australia Fair Work Act",                                         isPaid: true,  requiresAttachment: false, approvalFlow: 'standard',     minNoticeDays: 0, regionId: 7    },
+      { code: 'LSL_AU',       name: 'Long Service Leave (AU)',         description: 'Long service leave after qualifying period — Australia',                                    isPaid: true,  requiresAttachment: false, approvalFlow: 'multi_level',  minNoticeDays: 14, regionId: 7   },
+      { code: 'ML_AU',        name: 'Maternity Leave (AU)',            description: 'Parental leave for primary caregiver — Australia Fair Work Act',                            isPaid: true,  requiresAttachment: true,  approvalFlow: 'hr_required',  minNoticeDays: 0, regionId: 7    },
+      { code: 'NPL_AU',       name: 'No Pay Leave (AU)',               description: 'Unpaid leave — Australia',                                                                  isPaid: false, requiresAttachment: false, approvalFlow: 'multi_level',  minNoticeDays: 0, regionId: 7    },
+      { code: 'AL_NZ',        name: 'Annual Leave (NZ)',               description: 'Annual leave — New Zealand Holidays Act entitlement',                                       isPaid: true,  requiresAttachment: false, approvalFlow: 'standard',     minNoticeDays: 3, regionId: 8    },
+      { code: 'FPSL_NZ',      name: 'Full Pay Sick Leave (NZ)',        description: 'Sick leave — New Zealand Holidays Act',                                                     isPaid: true,  requiresAttachment: false, approvalFlow: 'standard',     minNoticeDays: 0, regionId: 8    },
+      { code: 'LSL_NZ',       name: 'Long Service Leave (NZ)',         description: 'Long service leave after qualifying period — New Zealand',                                  isPaid: true,  requiresAttachment: false, approvalFlow: 'multi_level',  minNoticeDays: 14, regionId: 8   },
+      { code: 'ML_NZ',        name: 'Maternity Leave (NZ)',            description: 'Parental leave for primary caregiver — New Zealand',                                        isPaid: true,  requiresAttachment: true,  approvalFlow: 'hr_required',  minNoticeDays: 0, regionId: 8    },
+      { code: 'NPL_NZ',       name: 'No Pay Leave (NZ)',               description: 'Unpaid leave — New Zealand',                                                                isPaid: false, requiresAttachment: false, approvalFlow: 'multi_level',  minNoticeDays: 0, regionId: 8    },
+    ]
+    let newTypeCount = 0
+    for (const lt of newLeaveTypes) {
+      const res = await client.query(
+        `INSERT INTO leave_types (name, code, description, is_paid, requires_attachment, approval_flow, min_notice_days, region_id)
+         SELECT $1::varchar,$2::varchar,$3::text,$4::boolean,$5::boolean,$6::varchar,$7::int,$8
+         WHERE NOT EXISTS (SELECT 1 FROM leave_types WHERE code = $2::varchar)`,
+        [lt.name, lt.code, lt.description, lt.isPaid, lt.requiresAttachment, lt.approvalFlow, lt.minNoticeDays, lt.regionId]
+      )
+      if (res.rowCount) newTypeCount++
+    }
+    if (newTypeCount > 0) console.log(`[migrate] Added ${newTypeCount} new leave types`)
+
+    // Add leave policies for the new types — look up region IDs by code to be DB-agnostic
+    const newPolicies: Array<{ ltCode: string; rCode: string; entitlementDays: number; carryOverMax: number; probationMonths: number }> = [
+      { ltCode: 'NPL',         rCode: 'HK', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
+      { ltCode: 'NPL',         rCode: 'SG', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
+      { ltCode: 'NPL',         rCode: 'MY', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
+      { ltCode: 'NPL',         rCode: 'ID', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
+      { ltCode: 'NPL',         rCode: 'CN', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
+      { ltCode: 'BL',          rCode: 'HK', entitlementDays: 1,   carryOverMax: 0,  probationMonths: 6  },
+      { ltCode: 'BL',          rCode: 'SG', entitlementDays: 1,   carryOverMax: 0,  probationMonths: 6  },
+      { ltCode: 'BL',          rCode: 'MY', entitlementDays: 1,   carryOverMax: 0,  probationMonths: 6  },
+      { ltCode: 'BL',          rCode: 'ID', entitlementDays: 1,   carryOverMax: 0,  probationMonths: 6  },
+      { ltCode: 'BL',          rCode: 'CN', entitlementDays: 1,   carryOverMax: 0,  probationMonths: 6  },
+      { ltCode: 'BL',          rCode: 'AU', entitlementDays: 1,   carryOverMax: 0,  probationMonths: 6  },
+      { ltCode: 'BL',          rCode: 'NZ', entitlementDays: 1,   carryOverMax: 0,  probationMonths: 6  },
+      { ltCode: 'BT',          rCode: 'HK', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
+      { ltCode: 'BT',          rCode: 'SG', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
+      { ltCode: 'BT',          rCode: 'MY', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
+      { ltCode: 'BT',          rCode: 'ID', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
+      { ltCode: 'BT',          rCode: 'CN', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
+      { ltCode: 'BT',          rCode: 'AU', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
+      { ltCode: 'BT',          rCode: 'NZ', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
+      { ltCode: 'FPSL',        rCode: 'HK', entitlementDays: 14,  carryOverMax: 0,  probationMonths: 1  },
+      { ltCode: 'FPSL',        rCode: 'SG', entitlementDays: 14,  carryOverMax: 0,  probationMonths: 3  },
+      { ltCode: 'FPSL',        rCode: 'MY', entitlementDays: 14,  carryOverMax: 0,  probationMonths: 0  },
+      { ltCode: 'FPSL',        rCode: 'ID', entitlementDays: 12,  carryOverMax: 0,  probationMonths: 0  },
+      { ltCode: 'FPSL',        rCode: 'CN', entitlementDays: 12,  carryOverMax: 0,  probationMonths: 0  },
+      { ltCode: 'HOSP',        rCode: 'HK', entitlementDays: 30,  carryOverMax: 0,  probationMonths: 3  },
+      { ltCode: 'HOSP',        rCode: 'SG', entitlementDays: 60,  carryOverMax: 0,  probationMonths: 3  },
+      { ltCode: 'HOSP',        rCode: 'MY', entitlementDays: 60,  carryOverMax: 0,  probationMonths: 3  },
+      { ltCode: 'HOSP',        rCode: 'ID', entitlementDays: 30,  carryOverMax: 0,  probationMonths: 0  },
+      { ltCode: 'HOSP',        rCode: 'CN', entitlementDays: 30,  carryOverMax: 0,  probationMonths: 0  },
+      { ltCode: 'WR',          rCode: 'HK', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
+      { ltCode: 'WR',          rCode: 'SG', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
+      { ltCode: 'WR',          rCode: 'MY', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
+      { ltCode: 'WR',          rCode: 'ID', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
+      { ltCode: 'WR',          rCode: 'CN', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
+      { ltCode: 'WR',          rCode: 'AU', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
+      { ltCode: 'WR',          rCode: 'NZ', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
+      { ltCode: 'OTC',         rCode: 'HK', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
+      { ltCode: 'OTC',         rCode: 'SG', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
+      { ltCode: 'OTC',         rCode: 'MY', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
+      { ltCode: 'OTC',         rCode: 'ID', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
+      { ltCode: 'OTC',         rCode: 'CN', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
+      { ltCode: 'BFL_CN',      rCode: 'CN', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
+      { ltCode: 'PARENTAL_CN', rCode: 'CN', entitlementDays: 30,  carryOverMax: 0,  probationMonths: 12 },
+      { ltCode: 'PRENATAL_CN', rCode: 'CN', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
+      { ltCode: 'TOMED',       rCode: 'CN', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
+      { ltCode: 'RSL_SG',      rCode: 'SG', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
+      { ltCode: 'AL_AU',       rCode: 'AU', entitlementDays: 20,  carryOverMax: 20, probationMonths: 0  },
+      { ltCode: 'FPSL_AU',     rCode: 'AU', entitlementDays: 10,  carryOverMax: 10, probationMonths: 0  },
+      { ltCode: 'LSL_AU',      rCode: 'AU', entitlementDays: 33,  carryOverMax: 0,  probationMonths: 84 },
+      { ltCode: 'ML_AU',       rCode: 'AU', entitlementDays: 365, carryOverMax: 0,  probationMonths: 12 },
+      { ltCode: 'NPL_AU',      rCode: 'AU', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
+      { ltCode: 'AL_NZ',       rCode: 'NZ', entitlementDays: 20,  carryOverMax: 20, probationMonths: 12 },
+      { ltCode: 'FPSL_NZ',     rCode: 'NZ', entitlementDays: 10,  carryOverMax: 20, probationMonths: 0  },
+      { ltCode: 'LSL_NZ',      rCode: 'NZ', entitlementDays: 65,  carryOverMax: 0,  probationMonths: 120 },
+      { ltCode: 'ML_NZ',       rCode: 'NZ', entitlementDays: 365, carryOverMax: 0,  probationMonths: 6  },
+      { ltCode: 'NPL_NZ',      rCode: 'NZ', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
+    ]
+    let newPolicyCount = 0
+    for (const p of newPolicies) {
+      const res = await client.query(
+        `INSERT INTO leave_policies (leave_type_id, region_id, entitlement_days, carry_over_max, probation_months)
+         SELECT lt.id, r.id, $3::numeric, $4::numeric, $5::int
+         FROM leave_types lt
+         JOIN regions r ON r.code = $2::varchar
+         WHERE lt.code = $1::varchar
+           AND NOT EXISTS (
+             SELECT 1 FROM leave_policies lp2
+             JOIN leave_types lt2 ON lt2.id = lp2.leave_type_id
+             JOIN regions r2 ON r2.id = lp2.region_id
+             WHERE lt2.code = $1::varchar AND r2.code = $2::varchar
+           )
+         LIMIT 1`,
+        [p.ltCode, p.rCode, p.entitlementDays, p.carryOverMax, p.probationMonths]
+      )
+      if (res.rowCount) newPolicyCount++
+    }
+    if (newPolicyCount > 0) console.log(`[migrate] Added ${newPolicyCount} new leave policies`)
+
     // One-time data fix: reset all non-Josh accounts from Welcome2026! hash to BloomLeave hash
     const OLD_HASH = '$2a$10$AG1n.L8fwtbiJujEpKyunOn817/TSTyP6vp9Os.mfGYsSzI5bkBL6'
     const NEW_HASH = '$2a$10$n7QA/1MdmOB5AvXoe9wbieoxNNvdbbzUPJGA3YkwFKA/UWU7VHERi'
