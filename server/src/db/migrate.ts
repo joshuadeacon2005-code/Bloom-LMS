@@ -79,6 +79,17 @@ export async function runMigrations(): Promise<void> {
     await client.query(`CREATE INDEX IF NOT EXISTS overtime_entries_status_idx ON overtime_entries(status)`)
     await client.query(`CREATE INDEX IF NOT EXISTS overtime_entries_region_id_idx ON overtime_entries(region_id)`)
 
+    // One-time data fix: reset all non-Josh accounts from Welcome2026! hash to BloomLeave hash
+    const OLD_HASH = '$2a$10$AG1n.L8fwtbiJujEpKyunOn817/TSTyP6vp9Os.mfGYsSzI5bkBL6'
+    const NEW_HASH = '$2a$10$n7QA/1MdmOB5AvXoe9wbieoxNNvdbbzUPJGA3YkwFKA/UWU7VHERi'
+    const resetResult = await client.query(
+      `UPDATE users SET password_hash = $1 WHERE password_hash = $2 AND email != 'josh@bloomandgrowgroup.com'`,
+      [NEW_HASH, OLD_HASH]
+    )
+    if (resetResult.rowCount && resetResult.rowCount > 0) {
+      console.log(`[migrate] Reset ${resetResult.rowCount} account passwords to BloomLeave`)
+    }
+
     console.log('[migrate] Migrations complete')
   } catch (err) {
     console.error('[migrate] Migration error:', err)
