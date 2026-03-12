@@ -16,6 +16,7 @@ export default function App() {
     <>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/guide" element={<GuidePage />} />
 
         <Route element={<AppLayout />}>
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
@@ -26,7 +27,6 @@ export default function App() {
           <Route path="/reports" element={<ReportsPage />} />
           <Route path="/admin" element={<AdminPage />} />
           <Route path="/settings" element={<SettingsPage />} />
-          <Route path="/guide" element={<GuidePage />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
