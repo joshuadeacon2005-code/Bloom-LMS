@@ -208,6 +208,78 @@ export async function runMigrations(): Promise<void> {
       console.log(`[migrate] Reset ${resetResult.rowCount} account passwords to BloomLeave`)
     }
 
+    // Deduplicate leave types: the seed ran multiple times creating duplicate codes.
+    // Keep the MAX id per code (requests live on highest IDs); delete the rest.
+    const dupResult = await client.query(`
+      WITH keeper AS (
+        SELECT MAX(id) AS id FROM leave_types GROUP BY code HAVING COUNT(*) > 1
+      ),
+      to_delete AS (
+        SELECT lt.id FROM leave_types lt
+        WHERE lt.code IN (
+          SELECT code FROM leave_types GROUP BY code HAVING COUNT(*) > 1
+        )
+        AND lt.id NOT IN (SELECT id FROM keeper)
+      )
+      SELECT COUNT(*) AS cnt FROM to_delete
+    `)
+    const dupCount = parseInt(dupResult.rows[0]?.cnt ?? '0', 10)
+    if (dupCount > 0) {
+      // Step 1: Reassign leave_requests from dup IDs → canonical (MAX) ID per code
+      await client.query(`
+        UPDATE leave_requests lr
+        SET leave_type_id = canonical.max_id
+        FROM (
+          SELECT code, MAX(id) AS max_id FROM leave_types GROUP BY code HAVING COUNT(*) > 1
+        ) canonical
+        JOIN leave_types lt ON lt.code = canonical.code AND lt.id != canonical.max_id
+        WHERE lr.leave_type_id = lt.id
+      `)
+
+      // Step 2: Reassign leave_balances from dup IDs → canonical ID per code
+      await client.query(`
+        UPDATE leave_balances lb
+        SET leave_type_id = canonical.max_id
+        FROM (
+          SELECT code, MAX(id) AS max_id FROM leave_types GROUP BY code HAVING COUNT(*) > 1
+        ) canonical
+        JOIN leave_types lt ON lt.code = canonical.code AND lt.id != canonical.max_id
+        WHERE lb.leave_type_id = lt.id
+        ON CONFLICT DO NOTHING
+      `)
+
+      // Step 3: Delete orphan policies and balances still on dup IDs
+      const dupIdSubquery = `(
+        SELECT lt.id FROM leave_types lt
+        WHERE lt.code IN (
+          SELECT code FROM leave_types GROUP BY code HAVING COUNT(*) > 1
+        )
+        AND lt.id NOT IN (
+          SELECT MAX(id) FROM leave_types GROUP BY code
+        )
+      )`
+      await client.query(`DELETE FROM leave_policies WHERE leave_type_id IN ${dupIdSubquery}`)
+      await client.query(`DELETE FROM leave_balances WHERE leave_type_id IN ${dupIdSubquery}`)
+
+      // Step 4: Delete the duplicate leave_type rows
+      await client.query(`
+        DELETE FROM leave_types
+        WHERE code IN (
+          SELECT code FROM leave_types GROUP BY code HAVING COUNT(*) > 1
+        )
+        AND id NOT IN (
+          SELECT MAX(id) FROM leave_types GROUP BY code
+        )
+      `)
+      console.log(`[migrate] Removed ${dupCount} duplicate leave type rows`)
+    }
+
+    // Prevent future global leave type duplicates: unique index on code WHERE region_id IS NULL
+    await client.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS leave_types_global_code_unique
+      ON leave_types (code) WHERE region_id IS NULL
+    `)
+
     // Fix missing manager assignments from Calamari approval flows
     const managerFixes: { email: string; managerEmail: string }[] = [
       { email: 'nenden.alifa@bloomandgrowgroup.com',   managerEmail: 'erica.lye@bloomandgrowgroup.com' }, // ID- Erica Lye
