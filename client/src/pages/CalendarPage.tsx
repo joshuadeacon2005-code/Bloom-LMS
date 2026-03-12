@@ -29,6 +29,12 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { useTeamCalendar, usePublicHolidays } from '@/hooks/useLeaveRequests'
 import { useRegions } from '@/hooks/useAdmin'
@@ -72,6 +78,7 @@ function CalendarDayCell({
   isToday: boolean
   holidays: PublicHoliday[]
 }) {
+  const [overflowOpen, setOverflowOpen] = useState(false)
   const weekend = isWeekend(date)
   const dateStr = format(date, 'yyyy-MM-dd')
   const dayAbsences = absences.filter(
@@ -81,84 +88,118 @@ function CalendarDayCell({
   const isHoliday = dayHolidays.length > 0
 
   return (
-    <div
-      className={`min-h-[90px] border-b border-r border-border p-1.5 ${
-        !isCurrentMonth
-          ? 'bg-muted/30'
-          : isHoliday
-            ? 'bg-amber-50/60 dark:bg-amber-950/20'
-            : weekend
-              ? 'bg-muted/10'
-              : ''
-      }`}
-    >
-      <div className="mb-1 flex items-center justify-between">
-        <span
-          className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium ${
-            isToday
-              ? 'bg-primary text-primary-foreground'
-              : !isCurrentMonth
-                ? 'text-muted-foreground/50'
-                : weekend
-                  ? 'text-muted-foreground'
-                  : 'text-foreground'
-          }`}
-        >
-          {format(date, 'd')}
-        </span>
-      </div>
+    <>
+      <div
+        className={`min-h-[90px] border-b border-r border-border p-1.5 ${
+          !isCurrentMonth
+            ? 'bg-muted/30'
+            : isHoliday
+              ? 'bg-amber-50/60 dark:bg-amber-950/20'
+              : weekend
+                ? 'bg-muted/10'
+                : ''
+        }`}
+      >
+        <div className="mb-1 flex items-center justify-between">
+          <span
+            className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium ${
+              isToday
+                ? 'bg-primary text-primary-foreground'
+                : !isCurrentMonth
+                  ? 'text-muted-foreground/50'
+                  : weekend
+                    ? 'text-muted-foreground'
+                    : 'text-foreground'
+            }`}
+          >
+            {format(date, 'd')}
+          </span>
+        </div>
 
-      <div className="space-y-0.5">
-        {/* Public holiday banners */}
-        {dayHolidays.map((h) => (
-          <Tooltip key={h.id}>
-            <TooltipTrigger asChild>
-              <div className="truncate rounded bg-amber-200/80 px-1 py-0.5 text-xs font-medium text-amber-900 dark:bg-amber-800/60 dark:text-amber-100">
-                {h.name}
-              </div>
-            </TooltipTrigger>
-            <TooltipContent side="top" className="text-xs">
-              <p className="font-medium">{h.name}</p>
-              <p className="text-muted-foreground">Public Holiday</p>
-            </TooltipContent>
-          </Tooltip>
-        ))}
+        <div className="space-y-0.5">
+          {/* Public holiday banners */}
+          {dayHolidays.map((h) => (
+            <Tooltip key={h.id}>
+              <TooltipTrigger asChild>
+                <div className="truncate rounded bg-amber-200/80 px-1 py-0.5 text-xs font-medium text-amber-900 dark:bg-amber-800/60 dark:text-amber-100">
+                  {h.name}
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="text-xs">
+                <p className="font-medium">{h.name}</p>
+                <p className="text-muted-foreground">Public Holiday</p>
+              </TooltipContent>
+            </Tooltip>
+          ))}
 
-        {/* Team absences */}
-        {dayAbsences.slice(0, 3).map((a) => (
-          <Tooltip key={a.id}>
-            <TooltipTrigger asChild>
-              <div
-                className={`flex cursor-default items-center gap-1 rounded px-1 py-0.5 ${getLeaveColour(a.leaveType?.id ?? 0)} bg-opacity-15`}
-              >
+          {/* Team absences */}
+          {dayAbsences.slice(0, 3).map((a) => (
+            <Tooltip key={a.id}>
+              <TooltipTrigger asChild>
                 <div
-                  className={`h-1.5 w-1.5 shrink-0 rounded-full ${getLeaveColour(a.leaveType?.id ?? 0)}`}
-                />
-                <span className="truncate text-xs font-medium text-foreground">
-                  {a.user?.name.split(' ')[0]}
-                  {a.halfDayPeriod ? ` (${a.halfDayPeriod})` : ''}
-                </span>
-              </div>
-            </TooltipTrigger>
-            <TooltipContent side="top" className="text-xs">
-              <p className="font-medium">{a.user?.name}</p>
-              <p className="text-muted-foreground">
-                {a.leaveType?.name}{a.halfDayPeriod ? ` (${a.halfDayPeriod})` : ''}
-              </p>
-              <p className="text-muted-foreground">
-                {format(new Date(a.startDate), 'd MMM')} –{' '}
-                {format(new Date(a.endDate), 'd MMM yyyy')}
-              </p>
-            </TooltipContent>
-          </Tooltip>
-        ))}
-        {dayAbsences.length > 3 && (
-          <p className="pl-1 text-xs text-muted-foreground">
-            +{dayAbsences.length - 3} more
-          </p>
-        )}
+                  className={`flex cursor-default items-center gap-1 rounded px-1 py-0.5 ${getLeaveColour(a.leaveType?.id ?? 0)} bg-opacity-15`}
+                >
+                  <div
+                    className={`h-1.5 w-1.5 shrink-0 rounded-full ${getLeaveColour(a.leaveType?.id ?? 0)}`}
+                  />
+                  <span className="truncate text-xs font-medium text-foreground">
+                    {a.user?.name.split(' ')[0]}
+                    {a.halfDayPeriod ? ` (${a.halfDayPeriod})` : ''}
+                  </span>
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="text-xs">
+                <p className="font-medium">{a.user?.name}</p>
+                <p className="text-muted-foreground">
+                  {a.leaveType?.name}{a.halfDayPeriod ? ` (${a.halfDayPeriod})` : ''}
+                </p>
+                <p className="text-muted-foreground">
+                  {format(new Date(a.startDate), 'd MMM')} –{' '}
+                  {format(new Date(a.endDate), 'd MMM yyyy')}
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          ))}
+          {dayAbsences.length > 3 && (
+            <button
+              onClick={() => setOverflowOpen(true)}
+              className="pl-1 text-xs text-primary hover:underline focus:outline-none"
+            >
+              +{dayAbsences.length - 3} more
+            </button>
+          )}
+        </div>
       </div>
-    </div>
+
+      <Dialog open={overflowOpen} onOpenChange={setOverflowOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{format(date, 'EEEE, d MMMM yyyy')}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2 pt-1">
+            {dayAbsences.map((a) => (
+              <div key={a.id} className="flex items-start gap-3">
+                <div
+                  className={`mt-1 h-2 w-2 shrink-0 rounded-full ${getLeaveColour(a.leaveType?.id ?? 0)}`}
+                />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium leading-tight">
+                    {a.user?.name}
+                    {a.halfDayPeriod ? (
+                      <span className="ml-1 text-xs font-normal text-muted-foreground">({a.halfDayPeriod})</span>
+                    ) : null}
+                  </p>
+                  <p className="text-xs text-muted-foreground">{a.leaveType?.name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {format(new Date(a.startDate), 'd MMM')} – {format(new Date(a.endDate), 'd MMM yyyy')}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }
 

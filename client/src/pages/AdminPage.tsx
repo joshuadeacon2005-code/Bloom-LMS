@@ -67,6 +67,8 @@ import {
   useSlackStatus,
   useSlackTestDm,
   useSlackSync,
+  useSlackCommandsEnabled,
+  useToggleSlackCommands,
   type SlackSyncResult,
   type AdminUser,
   type LeaveType,
@@ -354,6 +356,8 @@ function UsersTab() {
   const slackSync = useSlackSync()
   const slackTestDm = useSlackTestDm()
   const { data: slackStatus, isLoading: slackStatusLoading } = useSlackStatus()
+  const { data: slackCommandsData } = useSlackCommandsEnabled()
+  const toggleSlackCommands = useToggleSlackCommands()
 
   const users = data?.data ?? []
   const total = data?.meta?.total ?? 0
@@ -450,6 +454,28 @@ function UsersTab() {
           )}
         </div>
       )}
+
+      {/* Slack commands toggle */}
+      <div className="rounded-lg border bg-muted/40 px-4 py-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium flex items-center gap-1.5">
+              <Slack className="h-4 w-4" />
+              Slack commands
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {slackCommandsData?.enabled
+                ? 'Users can submit and manage leave via Slack.'
+                : 'Commands show a "work in progress" message to all users.'}
+            </p>
+          </div>
+          <Switch
+            checked={slackCommandsData?.enabled ?? false}
+            onCheckedChange={(val) => toggleSlackCommands.mutate(val)}
+            disabled={toggleSlackCommands.isPending}
+          />
+        </div>
+      </div>
 
       {/* Table */}
       <div className="rounded-lg border overflow-hidden">

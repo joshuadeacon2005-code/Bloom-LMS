@@ -370,3 +370,28 @@ export function useSlackSync() {
     },
   })
 }
+
+export function useSlackCommandsEnabled() {
+  return useQuery({
+    queryKey: ['slack-commands-enabled'],
+    queryFn: () =>
+      api.get<{ data: { enabled: boolean } }>('/admin/slack/commands-enabled').then((r) => r.data.data),
+    staleTime: 0,
+    retry: false,
+  })
+}
+
+export function useToggleSlackCommands() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (enabled: boolean) =>
+      api.post<{ data: { enabled: boolean } }>('/admin/slack/commands-enabled', { enabled }).then((r) => r.data.data),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['slack-commands-enabled'] })
+      toast.success(`Slack commands ${data.enabled ? 'activated' : 'deactivated'}`)
+    },
+    onError: () => {
+      toast.error('Failed to update Slack commands setting')
+    },
+  })
+}

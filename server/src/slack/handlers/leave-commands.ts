@@ -210,6 +210,15 @@ export function registerLeaveCommandHandlers(app: App) {
   app.command('/bloom-leave', async ({ command, ack, client }) => {
     await ack()
 
+    const { isSlackCommandsEnabled } = await import('../settings')
+    if (!isSlackCommandsEnabled()) {
+      await client.chat.postMessage({
+        channel: command.user_id,
+        text: 'Thank you for your request! Our new Bloom LMS system is still a work in progress — please stay tuned for further updates. We\'ll keep you posted as soon as things are ready! 🌱',
+      })
+      return
+    }
+
     const [subcommand, ...args] = command.text.trim().split(/\s+/)
     const slackUserId = command.user_id
 
@@ -245,7 +254,6 @@ export function registerLeaveCommandHandlers(app: App) {
           } else if (subCmd === 'status') {
             await handleOvertimeHistory(client, slackUserId)
           } else {
-            // No subcommand — open the request modal
             await handleOvertimeLog(client, command.trigger_id, slackUserId)
           }
           break
@@ -261,7 +269,7 @@ export function registerLeaveCommandHandlers(app: App) {
       console.error('[leave-commands] Unhandled error:', error)
       await client.chat.postMessage({
         channel: slackUserId,
-        text: 'An unexpected error occurred. Please try again or contact HR.'
+        text: 'An unexpected error occurred. Please try again or contact HR.',
       })
     }
   })

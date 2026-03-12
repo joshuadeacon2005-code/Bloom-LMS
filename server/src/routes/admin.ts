@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import { z } from 'zod'
 import { eq, and, isNull } from 'drizzle-orm'
+import { isSlackCommandsEnabled, setSlackCommandsEnabled } from '../slack/settings'
 import { db } from '../db/index'
 import {
   regions,
@@ -344,6 +345,21 @@ router.post('/slack/sync', requireRole('hr_admin'), async (_req, res, next) => {
   } catch (err) {
     next(err)
   }
+})
+
+// ============================================================
+// Slack: commands enabled toggle
+// ============================================================
+
+router.get('/slack/commands-enabled', requireRole('hr_admin'), (_req, res) => {
+  res.json({ success: true, data: { enabled: isSlackCommandsEnabled() } })
+})
+
+router.post('/slack/commands-enabled', requireRole('super_admin'), (req, res) => {
+  const enabled = Boolean(req.body.enabled)
+  setSlackCommandsEnabled(enabled)
+  console.log(`[admin] Slack commands ${enabled ? 'enabled' : 'disabled'} by admin`)
+  res.json({ success: true, data: { enabled } })
 })
 
 export default router

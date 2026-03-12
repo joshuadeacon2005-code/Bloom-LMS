@@ -184,11 +184,19 @@ export function registerCompLeaveHandlers(app: App) {
     try {
       await ack()
 
+      const { isSlackCommandsEnabled } = await import('../settings')
+      if (!isSlackCommandsEnabled()) {
+        await client.chat.postMessage({
+          channel: command.user_id,
+          text: 'Thank you for your request! Our new Bloom LMS system is still a work in progress — please stay tuned for further updates. We\'ll keep you posted as soon as things are ready! 🌱',
+        })
+        return
+      }
+
       let userEmail = ''
       let userName = ''
       let isAUNZ = false
 
-      // Get Slack profile info
       try {
         const userInfo = await client.users.info({ user: command.user_id })
         userEmail = userInfo.user?.profile?.email || ''
@@ -197,17 +205,14 @@ export function registerCompLeaveHandlers(app: App) {
         console.error('[comp-leave] Error fetching Slack user info:', err)
       }
 
-      // Look up DB user to determine region
       if (command.user_id) {
         try {
           const dbUser = await dbService.getUserBySlackId(command.user_id)
           if (dbUser) {
             isAUNZ = isAUNZRegion(dbUser.region.code)
-            // Use DB email/name if Slack profile is empty
             if (!userEmail) userEmail = dbUser.email
             if (!userName) userName = dbUser.name
           } else if (userEmail) {
-            // Fall back to email lookup
             const dbUserByEmail = await dbService.getUserByEmail(userEmail)
             if (dbUserByEmail) {
               isAUNZ = isAUNZRegion(dbUserByEmail.region.code)
@@ -229,8 +234,8 @@ export function registerCompLeaveHandlers(app: App) {
           title: { type: 'plain_text', text: 'Compensation Leave' },
           submit: { type: 'plain_text', text: 'Submit Request' },
           close: { type: 'plain_text', text: 'Cancel' },
-          blocks: modalBlocks
-        }
+          blocks: modalBlocks,
+        },
       })
       console.log('[comp-leave] Modal opened successfully')
     } catch (error) {
