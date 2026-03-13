@@ -28,6 +28,7 @@ export interface AdminUser {
   managerId: number | null
   managerName: string | null
   isActive: boolean
+  isOnProbation: boolean
   slackUserId: string | null
   avatarUrl: string | null
   createdAt: string

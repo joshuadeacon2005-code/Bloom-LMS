@@ -176,7 +176,7 @@ export async function createLeaveRequest(
 ) {
   // 1. Get user
   const [user] = await db
-    .select({ id: users.id, regionId: users.regionId, isActive: users.isActive })
+    .select({ id: users.id, regionId: users.regionId, isActive: users.isActive, isOnProbation: users.isOnProbation })
     .from(users)
     .where(eq(users.id, userId))
     .limit(1)
@@ -305,30 +305,10 @@ export async function createLeaveRequest(
     )
   }
 
-  // 8b. Check if employee is on probation (for notification purposes only — does NOT block)
-  let probationNotice: string | null = null
-  const [userForProbation] = await db
-    .select({ createdAt: users.createdAt })
-    .from(users)
-    .where(eq(users.id, userId))
-    .limit(1)
-  if (userForProbation) {
-    const monthsEmployed = monthsBetween(new Date(userForProbation.createdAt), new Date())
-    // Check against any relevant policy probation months
-    const [policy] = await db
-      .select({ probationMonths: leavePolicies.probationMonths })
-      .from(leavePolicies)
-      .where(
-        and(eq(leavePolicies.leaveTypeId, data.leaveTypeId), eq(leavePolicies.regionId, user.regionId))
-      )
-      .limit(1)
-    if (policy && policy.probationMonths > 0 && monthsEmployed < policy.probationMonths) {
-      const endDate = new Date(userForProbation.createdAt)
-      endDate.setMonth(endDate.getMonth() + policy.probationMonths)
-      const endStr = endDate.toISOString().split('T')[0]
-      probationNotice = `⚠️ PROBATION NOTICE: This employee is currently in their probation period (ends ${endStr}). Please review accordingly.`
-    }
-  }
+  // 8b. Check if employee is manually flagged as on probation (notification only — does NOT block)
+  const probationNotice: string | null = user.isOnProbation
+    ? `⚠️ PROBATION NOTICE: This employee is currently in their probation period. Please review accordingly.`
+    : null
 
   // 9. Build approval chain first to get level-1 approver
   const approverChain = await buildApprovalChain(userId, user.regionId, totalDays)

@@ -118,6 +118,7 @@ export const users = pgTable(
     departmentId: integer('department_id').references(() => departments.id),
     managerId: integer('manager_id').references((): AnyPgColumn => users.id),
     isActive: boolean('is_active').notNull().default(true),
+    isOnProbation: boolean('is_on_probation').notNull().default(false),
     avatarUrl: text('avatar_url'),
     ...timestamps,
     ...softDelete,

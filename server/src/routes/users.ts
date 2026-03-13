@@ -30,6 +30,7 @@ const createUserSchema = z.object({
   regionId: z.number().int().positive(),
   departmentId: z.number().int().positive().optional(),
   managerId: z.number().int().positive().optional(),
+  isOnProbation: z.boolean().optional(),
 })
 
 const updateUserSchema = z.object({
@@ -40,6 +41,7 @@ const updateUserSchema = z.object({
   departmentId: z.number().int().positive().nullable().optional(),
   managerId: z.number().int().positive().nullable().optional(),
   isActive: z.boolean().optional(),
+  isOnProbation: z.boolean().optional(),
   slackUserId: z.string().max(50).nullable().optional(),
 })
 

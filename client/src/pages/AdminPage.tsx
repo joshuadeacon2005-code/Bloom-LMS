@@ -121,6 +121,7 @@ const createUserSchema = z.object({
   regionId: z.string().min(1, 'Region required'),
   managerId: z.string().optional(),
   isActive: z.boolean().optional(),
+  isOnProbation: z.boolean().optional(),
 })
 type UserFormData = z.infer<typeof createUserSchema>
 
@@ -154,8 +155,9 @@ function UserDialog({
           regionId: String(editing.regionId),
           managerId: editing.managerId ? String(editing.managerId) : '',
           isActive: editing.isActive,
+          isOnProbation: editing.isOnProbation,
         }
-      : { role: 'employee', isActive: true },
+      : { role: 'employee', isActive: true, isOnProbation: false },
   })
 
   useEffect(() => {
@@ -169,8 +171,9 @@ function UserDialog({
               regionId: String(editing.regionId),
               managerId: editing.managerId ? String(editing.managerId) : '',
               isActive: editing.isActive,
+              isOnProbation: editing.isOnProbation,
             }
-          : { role: 'employee', isActive: true }
+          : { role: 'employee', isActive: true, isOnProbation: false }
       )
     }
   }, [open, editing, reset])
@@ -187,6 +190,7 @@ function UserDialog({
       regionId: Number(data.regionId),
       managerId: data.managerId && data.managerId !== '__none__' ? Number(data.managerId) : undefined,
       isActive: data.isActive,
+      isOnProbation: data.isOnProbation ?? false,
     }
 
     if (editing) {
@@ -306,6 +310,17 @@ function UserDialog({
               <Label>Active account</Label>
             </div>
           )}
+
+          <div className="flex items-center gap-3">
+            <Controller
+              name="isOnProbation"
+              control={control}
+              render={({ field }) => (
+                <Switch checked={field.value ?? false} onCheckedChange={field.onChange} />
+              )}
+            />
+            <Label>On probation</Label>
+          </div>
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>

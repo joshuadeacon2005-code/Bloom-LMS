@@ -239,7 +239,6 @@ export async function runMigrations(): Promise<void> {
         ) canonical
         JOIN leave_types lt ON lt.code = canonical.code AND lt.id != canonical.max_id
         WHERE lb.leave_type_id = lt.id
-        ON CONFLICT DO NOTHING
       `)
 
       // Step 3: Delete orphan policies and balances still on dup IDs
@@ -386,6 +385,12 @@ export async function runMigrations(): Promise<void> {
     await client.query(`
       ALTER TABLE leave_requests
       ADD COLUMN IF NOT EXISTS half_day_period varchar(2)
+    `)
+
+    // Add is_on_probation column to users (manual toggle — no automatic date-based logic)
+    await client.query(`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS is_on_probation boolean NOT NULL DEFAULT false
     `)
 
     // CN approval flow: set hr_required + requires_attachment for Group 1 leave types
