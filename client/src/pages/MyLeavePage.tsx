@@ -107,7 +107,11 @@ export function MyLeavePage() {
   const isAUNZ = user?.regionCode === 'AU' || user?.regionCode === 'NZ'
 
   // Overtime form state — AU/NZ always use Time In Lieu; other regions choose
-  const [otForm, setOTForm] = useState({ date: '', hoursWorked: '', daysRequested: '1', reason: '', compensationType: 'time_off' as 'time_off' | 'cash' })
+  const [otForm, setOTForm] = useState({
+    dates: [{ date: '', hoursWorked: '', daysRequested: '1' }],
+    reason: '',
+    compensationType: 'time_off' as 'time_off' | 'cash',
+  })
 
   // Leave history columns
   const leaveColumns: ColumnDef<LeaveRequest>[] = [
@@ -266,19 +270,21 @@ export function MyLeavePage() {
     getSortedRowModel: getSortedRowModel(),
   })
 
-  function handleSubmitOT() {
-    const hours = parseFloat(otForm.hoursWorked)
-    const days = parseFloat(otForm.daysRequested)
-    if (!otForm.date || isNaN(hours) || isNaN(days) || !otForm.reason.trim()) return
-    submitOvertime.mutate(
-      { date: otForm.date, hoursWorked: hours, daysRequested: days, reason: otForm.reason, compensationType: otForm.compensationType },
-      {
-        onSuccess: () => {
-          setSubmitOTOpen(false)
-          setOTForm({ date: '', hoursWorked: '', daysRequested: '1', reason: '', compensationType: 'time_off' })
-        },
+  async function handleSubmitOT() {
+    const validDates = otForm.dates.filter((d) => d.date && d.hoursWorked)
+    if (validDates.length === 0 || !otForm.reason.trim()) return
+    try {
+      for (const entry of validDates) {
+        const hours = parseFloat(entry.hoursWorked)
+        const days = parseFloat(entry.daysRequested)
+        if (isNaN(hours) || isNaN(days)) continue
+        await submitOvertime.mutateAsync({ date: entry.date, hoursWorked: hours, daysRequested: days, reason: otForm.reason, compensationType: otForm.compensationType })
       }
-    )
+      setSubmitOTOpen(false)
+      setOTForm({ dates: [{ date: '', hoursWorked: '', daysRequested: '1' }], reason: '', compensationType: 'time_off' })
+    } catch (_) {
+      // error handled by hook toast
+    }
   }
 
   return (
@@ -416,7 +422,10 @@ export function MyLeavePage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-base">Overtime Compensation</CardTitle>
-              <Button onClick={() => setSubmitOTOpen(true)}>
+              <Button onClick={() => {
+                setOTForm({ dates: [{ date: '', hoursWorked: '', daysRequested: '1' }], reason: '', compensationType: 'time_off' })
+                setSubmitOTOpen(true)
+              }}>
                 <Clock className="mr-1.5 h-4 w-4" />
                 Request Compensation
               </Button>
@@ -508,48 +517,13 @@ export function MyLeavePage() {
 
       {/* Submit Overtime Request Dialog */}
       <Dialog open={submitOTOpen} onOpenChange={setSubmitOTOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Request Overtime Compensation</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <div className="space-y-1.5">
-              <Label>Date Worked</Label>
-              <Input
-                type="date"
-                max={new Date().toISOString().slice(0, 10)}
-                value={otForm.date}
-                onChange={(e) => setOTForm({ ...otForm, date: e.target.value })}
-              />
-            </div>
-            <div className={`gap-3 ${otForm.compensationType === 'cash' ? '' : 'grid grid-cols-2'}`}>
-              <div className="space-y-1.5">
-                <Label>Hours Worked</Label>
-                <Input
-                  type="number"
-                  step="0.5"
-                  min="0.5"
-                  max="24"
-                  placeholder="e.g. 3"
-                  value={otForm.hoursWorked}
-                  onChange={(e) => setOTForm({ ...otForm, hoursWorked: e.target.value })}
-                />
-              </div>
-              {otForm.compensationType !== 'cash' && (
-                <div className="space-y-1.5">
-                  <Label>Days Requested</Label>
-                  <Select value={otForm.daysRequested} onValueChange={(v) => setOTForm({ ...otForm, daysRequested: v })}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="0.5">0.5 (half day)</SelectItem>
-                      <SelectItem value="1">1 (full day)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-            </div>
+
+            {/* Compensation type — shared across all dates */}
             <div className="space-y-1.5">
               <Label>Compensation Type</Label>
               {isAUNZ ? (
@@ -572,7 +546,7 @@ export function MyLeavePage() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => setOTForm({ ...otForm, compensationType: 'cash', daysRequested: '1' })}
+                      onClick={() => setOTForm({ ...otForm, compensationType: 'cash' })}
                       className={`rounded-md border px-3 py-2 text-sm font-medium transition-colors ${
                         otForm.compensationType === 'cash'
                           ? 'border-amber-500 bg-amber-50 text-amber-700'
@@ -588,6 +562,86 @@ export function MyLeavePage() {
                 </>
               )}
             </div>
+
+            {/* Per-date rows */}
+            <div className="space-y-3">
+              <Label>Date(s) Worked</Label>
+              {otForm.dates.map((entry, idx) => (
+                <div key={idx} className="flex items-start gap-2 rounded-md border bg-muted/30 p-3">
+                  <div className={`flex-1 grid gap-2 ${otForm.compensationType !== 'cash' ? 'grid-cols-3' : 'grid-cols-2'}`}>
+                    <div className="space-y-1">
+                      <span className="text-xs text-muted-foreground">Date</span>
+                      <Input
+                        type="date"
+                        max={new Date().toISOString().slice(0, 10)}
+                        value={entry.date}
+                        onChange={(e) => {
+                          const updated = otForm.dates.map((d, i) => i === idx ? { ...d, date: e.target.value } : d)
+                          setOTForm({ ...otForm, dates: updated })
+                        }}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <span className="text-xs text-muted-foreground">Hours Worked</span>
+                      <Input
+                        type="number"
+                        step="0.5"
+                        min="0.5"
+                        max="24"
+                        placeholder="e.g. 8"
+                        value={entry.hoursWorked}
+                        onChange={(e) => {
+                          const updated = otForm.dates.map((d, i) => i === idx ? { ...d, hoursWorked: e.target.value } : d)
+                          setOTForm({ ...otForm, dates: updated })
+                        }}
+                      />
+                    </div>
+                    {otForm.compensationType !== 'cash' && (
+                      <div className="space-y-1">
+                        <span className="text-xs text-muted-foreground">Days Requested</span>
+                        <Select
+                          value={entry.daysRequested}
+                          onValueChange={(v) => {
+                            const updated = otForm.dates.map((d, i) => i === idx ? { ...d, daysRequested: v } : d)
+                            setOTForm({ ...otForm, dates: updated })
+                          }}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="0.5">0.5 (half day)</SelectItem>
+                            <SelectItem value="1">1 (full day)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+                  </div>
+                  {otForm.dates.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => setOTForm({ ...otForm, dates: otForm.dates.filter((_, i) => i !== idx) })}
+                      className="mt-6 text-muted-foreground hover:text-destructive transition-colors"
+                      aria-label="Remove date"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
+              ))}
+              {otForm.dates.length < 10 && (
+                <button
+                  type="button"
+                  onClick={() => setOTForm({ ...otForm, dates: [...otForm.dates, { date: '', hoursWorked: '', daysRequested: '1' }] })}
+                  className="flex items-center gap-1.5 text-sm text-primary hover:underline"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Add another date
+                </button>
+              )}
+            </div>
+
+            {/* Reason — shared */}
             <div className="space-y-1.5">
               <Label>Reason for Overtime</Label>
               <Textarea
@@ -602,9 +656,17 @@ export function MyLeavePage() {
             <Button variant="outline" onClick={() => setSubmitOTOpen(false)}>Cancel</Button>
             <Button
               onClick={handleSubmitOT}
-              disabled={submitOvertime.isPending || !otForm.date || !otForm.hoursWorked || !otForm.reason}
+              disabled={
+                submitOvertime.isPending ||
+                !otForm.dates.some((d) => d.date && d.hoursWorked) ||
+                !otForm.reason
+              }
             >
-              {submitOvertime.isPending ? 'Submitting…' : 'Submit Request'}
+              {submitOvertime.isPending
+                ? 'Submitting…'
+                : otForm.dates.filter((d) => d.date && d.hoursWorked).length > 1
+                  ? `Submit ${otForm.dates.filter((d) => d.date && d.hoursWorked).length} Requests`
+                  : 'Submit Request'}
             </Button>
           </DialogFooter>
         </DialogContent>
