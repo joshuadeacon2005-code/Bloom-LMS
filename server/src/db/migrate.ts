@@ -86,7 +86,6 @@ export async function runMigrations(): Promise<void> {
       { code: 'BT',           name: 'Business Trip',                   description: 'Approved business travel — no leave balance deduction',                                     isPaid: true,  requiresAttachment: false, approvalFlow: 'auto_approve', minNoticeDays: 1, regionId: null },
       { code: 'FPSL',         name: 'Full Pay Sick Leave',             description: 'Full pay sick leave (explicit variant used in some regions)',                               isPaid: true,  requiresAttachment: false, approvalFlow: 'standard',     minNoticeDays: 0, regionId: null },
       { code: 'WR',           name: 'Work Remotely',                   description: 'Working remotely from outside hometown — no balance deduction',                             isPaid: true,  requiresAttachment: false, approvalFlow: 'auto_approve', minNoticeDays: 1, regionId: null },
-      { code: 'OTC',          name: 'OT Claim',                        description: 'Overtime cash claim — request payment for approved overtime hours',                         isPaid: true,  requiresAttachment: true,  approvalFlow: 'hr_required',  minNoticeDays: 0, regionId: null },
       { code: 'BFL_CN',       name: 'Breastfeeding Leave (CN)',        description: '1 hour per day breastfeeding break (China statutory, up to 12 months)',                    isPaid: true,  requiresAttachment: false, approvalFlow: 'hr_required',  minNoticeDays: 0, regionId: 6    },
       { code: 'RSL_SG',       name: 'Reservist Leave (SG)',            description: 'NS/reservist training leave — Singapore statutory',                                         isPaid: true,  requiresAttachment: true,  approvalFlow: 'hr_required',  minNoticeDays: 0, regionId: 3    },
       { code: 'AL_AU',        name: 'Annual Leave (AU)',               description: 'Annual leave for Australia — Fair Work Act entitlement',                                    isPaid: true,  requiresAttachment: false, approvalFlow: 'standard',     minNoticeDays: 3, regionId: 7    },
@@ -138,11 +137,6 @@ export async function runMigrations(): Promise<void> {
       { ltCode: 'WR',          rCode: 'CN', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
       { ltCode: 'WR',          rCode: 'AU', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
       { ltCode: 'WR',          rCode: 'NZ', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
-      { ltCode: 'OTC',         rCode: 'HK', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
-      { ltCode: 'OTC',         rCode: 'SG', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
-      { ltCode: 'OTC',         rCode: 'MY', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
-      { ltCode: 'OTC',         rCode: 'ID', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
-      { ltCode: 'OTC',         rCode: 'CN', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
       { ltCode: 'BFL_CN',      rCode: 'CN', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
       { ltCode: 'RSL_SG',      rCode: 'SG', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
       { ltCode: 'AL_AU',       rCode: 'AU', entitlementDays: 20,  carryOverMax: 20, probationMonths: 0  },
@@ -415,7 +409,7 @@ export async function runMigrations(): Promise<void> {
     // Only fully delete rows that have no associated leave_requests (safe).
     // For types that DO have requests, only remove their policies so they
     // disappear from the dropdown but historical data is preserved.
-    const obsoleteCodes = ['BL', 'HOSP', 'PARENTAL_CN', 'PRENATAL_CN', 'TOMED', 'STL', 'SL_CN', 'BFL', 'LSL', 'RSL']
+    const obsoleteCodes = ['BL', 'HOSP', 'PARENTAL_CN', 'PRENATAL_CN', 'TOMED', 'STL', 'SL_CN', 'BFL', 'LSL', 'RSL', 'OTC']
     // Remove policies first (applies to all obsolete types)
     await client.query(`
       DELETE FROM leave_policies WHERE leave_type_id IN (
