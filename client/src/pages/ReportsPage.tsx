@@ -25,7 +25,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { useUtilisationReport, useDepartmentSummary, downloadPayrollCsv } from '@/hooks/useReports'
+import {
+  useUtilisationReport,
+  useDepartmentSummary,
+  downloadPayrollCsv,
+  downloadLeaveRequestsCsv,
+  downloadEntitlementsCsv,
+} from '@/hooks/useReports'
 
 const MONTHS = [
   'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -91,6 +97,9 @@ export function ReportsPage() {
   const [year, setYear] = useState(currentYear)
   const [exportMonth, setExportMonth] = useState('')
   const [exporting, setExporting] = useState(false)
+  const [exportingLR, setExportingLR] = useState(false)
+  const [exportingEnt, setExportingEnt] = useState(false)
+  const [lrStatus, setLrStatus] = useState('all')
 
   const { data: utilData, isLoading: utilLoading } = useUtilisationReport({ year })
   const { data: deptData, isLoading: deptLoading } = useDepartmentSummary({ year })
@@ -124,6 +133,30 @@ export function ReportsPage() {
       toast.error('Export failed')
     } finally {
       setExporting(false)
+    }
+  }
+
+  async function handleExportLeaveRequests() {
+    setExportingLR(true)
+    try {
+      await downloadLeaveRequestsCsv({ year, status: lrStatus })
+      toast.success('Export downloaded')
+    } catch {
+      toast.error('Export failed')
+    } finally {
+      setExportingLR(false)
+    }
+  }
+
+  async function handleExportEntitlements() {
+    setExportingEnt(true)
+    try {
+      await downloadEntitlementsCsv({ year })
+      toast.success('Export downloaded')
+    } catch {
+      toast.error('Export failed')
+    } finally {
+      setExportingEnt(false)
     }
   }
 
@@ -360,66 +393,107 @@ export function ReportsPage() {
               )}
             </TabsContent>
 
-            {/* Payroll export */}
-            <TabsContent value="export">
+            {/* Exports */}
+            <TabsContent value="export" className="space-y-4">
+              {/* Payroll export */}
               <Card>
                 <CardHeader>
-                  <CardTitle>Payroll CSV Export</CardTitle>
-                  <CardDescription>
-                    Export approved leave records for payroll processing
-                  </CardDescription>
+                  <CardTitle>Payroll CSV</CardTitle>
+                  <CardDescription>Approved leave records for payroll processing</CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-6">
+                <CardContent className="space-y-4">
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div className="space-y-2">
                       <label className="text-sm font-medium">Year</label>
-                      <Select
-                        value={String(year)}
-                        onValueChange={(v) => setYear(Number(v))}
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
+                      <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
                         <SelectContent>
                           {YEARS.map((y) => (
-                            <SelectItem key={y} value={String(y)}>
-                              {y}
-                            </SelectItem>
+                            <SelectItem key={y} value={String(y)}>{y}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
                     </div>
-
                     <div className="space-y-2">
                       <label className="text-sm font-medium">Month (optional)</label>
                       <Select value={exportMonth} onValueChange={setExportMonth}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Full year" />
-                        </SelectTrigger>
+                        <SelectTrigger><SelectValue placeholder="Full year" /></SelectTrigger>
                         <SelectContent>
                           {EXPORT_MONTHS.map((m) => (
-                            <SelectItem key={m.value} value={m.value}>
-                              {m.label}
-                            </SelectItem>
+                            <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
                     </div>
                   </div>
-
-                  <div className="rounded-lg border bg-muted/40 p-4 text-sm text-muted-foreground">
-                    <p className="font-medium text-foreground mb-1">Export includes:</p>
-                    <ul className="list-disc list-inside space-y-0.5">
-                      <li>Employee name and email</li>
-                      <li>Department and region</li>
-                      <li>Leave type, start/end date, total days</li>
-                      <li>Only <strong>approved</strong> leave requests</li>
-                    </ul>
-                  </div>
-
                   <Button onClick={handleExport} disabled={exporting} className="w-full sm:w-auto">
                     <Download className="mr-2 h-4 w-4" />
-                    {exporting ? 'Exporting…' : `Download CSV — ${year}${exportMonth ? ` ${MONTHS[Number(exportMonth) - 1]}` : ''}`}
+                    {exporting ? 'Exporting…' : `Download — ${year}${exportMonth ? ` ${MONTHS[Number(exportMonth) - 1]}` : ''}`}
+                  </Button>
+                </CardContent>
+              </Card>
+
+              {/* Leave requests export */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Leave Requests CSV</CardTitle>
+                  <CardDescription>All leave requests across all regions</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Year</label>
+                      <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {YEARS.map((y) => (
+                            <SelectItem key={y} value={String(y)}>{y}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Status</label>
+                      <Select value={lrStatus} onValueChange={setLrStatus}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All statuses</SelectItem>
+                          <SelectItem value="approved">Approved</SelectItem>
+                          <SelectItem value="pending">Pending</SelectItem>
+                          <SelectItem value="rejected">Rejected</SelectItem>
+                          <SelectItem value="cancelled">Cancelled</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <Button onClick={handleExportLeaveRequests} disabled={exportingLR} className="w-full sm:w-auto">
+                    <Download className="mr-2 h-4 w-4" />
+                    {exportingLR ? 'Exporting…' : `Download — ${year} (${lrStatus})`}
+                  </Button>
+                </CardContent>
+              </Card>
+
+              {/* Entitlements export */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Entitlements CSV</CardTitle>
+                  <CardDescription>Leave balances and entitlements for all employees</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2 max-w-xs">
+                    <label className="text-sm font-medium">Year</label>
+                    <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {YEARS.map((y) => (
+                          <SelectItem key={y} value={String(y)}>{y}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Button onClick={handleExportEntitlements} disabled={exportingEnt} className="w-full sm:w-auto">
+                    <Download className="mr-2 h-4 w-4" />
+                    {exportingEnt ? 'Exporting…' : `Download — ${year}`}
                   </Button>
                 </CardContent>
               </Card>

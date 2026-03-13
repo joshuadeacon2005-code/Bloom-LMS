@@ -63,8 +63,10 @@ import {
   useAdminLeaveTypes,
   useCreateLeaveType,
   useUpdateLeaveType,
+  useDeleteLeaveType,
   usePolicies,
   useUpsertPolicy,
+  useDeletePolicy,
   useHolidays,
   useCreateHoliday,
   useDeleteHoliday,
@@ -122,6 +124,7 @@ const createUserSchema = z.object({
   managerId: z.string().optional(),
   isActive: z.boolean().optional(),
   isOnProbation: z.boolean().optional(),
+  joinedDate: z.string().optional(),
 })
 type UserFormData = z.infer<typeof createUserSchema>
 
@@ -156,8 +159,9 @@ function UserDialog({
           managerId: editing.managerId ? String(editing.managerId) : '',
           isActive: editing.isActive,
           isOnProbation: editing.isOnProbation,
+          joinedDate: editing.joinedDate ?? '',
         }
-      : { role: 'employee', isActive: true, isOnProbation: false },
+      : { role: 'employee', isActive: true, isOnProbation: false, joinedDate: '' },
   })
 
   useEffect(() => {
@@ -172,8 +176,9 @@ function UserDialog({
               managerId: editing.managerId ? String(editing.managerId) : '',
               isActive: editing.isActive,
               isOnProbation: editing.isOnProbation,
+              joinedDate: editing.joinedDate ?? '',
             }
-          : { role: 'employee', isActive: true, isOnProbation: false }
+          : { role: 'employee', isActive: true, isOnProbation: false, joinedDate: '' }
       )
     }
   }, [open, editing, reset])
@@ -191,6 +196,7 @@ function UserDialog({
       managerId: data.managerId && data.managerId !== '__none__' ? Number(data.managerId) : undefined,
       isActive: data.isActive,
       isOnProbation: data.isOnProbation ?? false,
+      joinedDate: data.joinedDate || null,
     }
 
     if (editing) {
@@ -320,6 +326,11 @@ function UserDialog({
               )}
             />
             <Label>On probation</Label>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Joined date <span className="text-muted-foreground text-xs">(optional)</span></Label>
+            <Input {...register('joinedDate')} type="date" />
           </div>
 
           <DialogFooter>
@@ -636,6 +647,8 @@ const leaveTypeSchema = z.object({
   approvalFlow: z.enum(['standard', 'auto_approve', 'hr_required', 'multi_level']),
   minNoticeDays: z.string().optional(),
   maxConsecutiveDays: z.string().optional(),
+  dayCalculation: z.enum(['working_days', 'calendar_days']).default('working_days'),
+  staffRestriction: z.string().optional(),
 })
 type LeaveTypeFormData = z.infer<typeof leaveTypeSchema>
 
@@ -654,21 +667,29 @@ function LeaveTypeDialog({
 
   const { register, control, handleSubmit, reset, formState: { errors } } = useForm<LeaveTypeFormData>({
     resolver: zodResolver(leaveTypeSchema),
-    defaultValues: editing
-      ? {
-          name: editing.name,
-          code: editing.code,
-          description: editing.description ?? '',
-          isPaid: editing.isPaid,
-          requiresAttachment: editing.requiresAttachment,
-          maxDaysPerYear: editing.maxDaysPerYear ? String(editing.maxDaysPerYear) : '',
-          regionId: editing.regionId ? String(editing.regionId) : '',
-          approvalFlow: editing.approvalFlow ?? 'standard',
-          minNoticeDays: editing.minNoticeDays !== undefined ? String(editing.minNoticeDays) : '0',
-          maxConsecutiveDays: editing.maxConsecutiveDays ? String(editing.maxConsecutiveDays) : '',
-        }
-      : { isPaid: true, requiresAttachment: false, approvalFlow: 'standard', minNoticeDays: '0' },
+    defaultValues: { isPaid: true, requiresAttachment: false, approvalFlow: 'standard', minNoticeDays: '0', dayCalculation: 'working_days' },
   })
+
+  useEffect(() => {
+    if (open && editing) {
+      reset({
+        name: editing.name,
+        code: editing.code,
+        description: editing.description ?? '',
+        isPaid: editing.isPaid,
+        requiresAttachment: editing.requiresAttachment,
+        maxDaysPerYear: editing.maxDaysPerYear ? String(editing.maxDaysPerYear) : '',
+        regionId: editing.regionId ? String(editing.regionId) : '',
+        approvalFlow: editing.approvalFlow ?? 'standard',
+        minNoticeDays: editing.minNoticeDays !== undefined ? String(editing.minNoticeDays) : '0',
+        maxConsecutiveDays: editing.maxConsecutiveDays ? String(editing.maxConsecutiveDays) : '',
+        dayCalculation: editing.dayCalculation ?? 'working_days',
+        staffRestriction: editing.staffRestriction ?? '',
+      })
+    } else if (open && !editing) {
+      reset({ isPaid: true, requiresAttachment: false, approvalFlow: 'standard', minNoticeDays: '0', dayCalculation: 'working_days', staffRestriction: '' })
+    }
+  }, [open, editing, reset])
 
   async function onSubmit(data: LeaveTypeFormData) {
     const payload = {
@@ -682,6 +703,8 @@ function LeaveTypeDialog({
       approvalFlow: data.approvalFlow,
       minNoticeDays: data.minNoticeDays ? Number(data.minNoticeDays) : 0,
       maxConsecutiveDays: data.maxConsecutiveDays ? Number(data.maxConsecutiveDays) : null,
+      dayCalculation: data.dayCalculation,
+      staffRestriction: data.staffRestriction || null,
     }
     if (editing) {
       await updateLT.mutateAsync({ id: editing.id, data: payload })
@@ -774,6 +797,28 @@ function LeaveTypeDialog({
             </div>
           </div>
 
+          <div className="space-y-1.5">
+            <Label>Day Calculation</Label>
+            <Controller
+              name="dayCalculation"
+              control={control}
+              render={({ field }) => (
+                <Select value={field.value || 'working_days'} onValueChange={field.onChange}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="working_days">Working days (excludes weekends & holidays)</SelectItem>
+                    <SelectItem value="calendar_days">Calendar days (includes weekends)</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Staff restriction <span className="text-muted-foreground text-xs">(optional — comma-separated user IDs)</span></Label>
+            <Input {...register('staffRestriction')} placeholder="e.g. 12,34,56 — blank = all staff" />
+          </div>
+
           <div className="flex gap-6">
             <Controller
               name="isPaid"
@@ -812,10 +857,13 @@ function LeaveTypeDialog({
 function LeaveTypesTab() {
   const { user: me } = useAuthStore()
   const isHrAdmin = me?.role === 'hr_admin' || me?.role === 'super_admin'
+  const isSuperAdmin = me?.role === 'super_admin'
   const { data: regions } = useRegions()
   const [filterRegion, setFilterRegion] = useState<string>('__none__')
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<LeaveType | null>(null)
+  const [deletingLT, setDeletingLT] = useState<LeaveType | null>(null)
+  const deleteLeaveType = useDeleteLeaveType()
 
   const { data: leaveTypes, isLoading } = useAdminLeaveTypes(
     filterRegion && filterRegion !== '__none__' ? Number(filterRegion) : undefined
@@ -896,14 +944,26 @@ function LeaveTypesTab() {
                     </td>
                     {isHrAdmin && (
                       <td className="px-4 py-3 text-right">
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-7 w-7"
-                          onClick={() => { setEditing(lt); setDialogOpen(true) }}
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
+                        <div className="flex items-center justify-end gap-1">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7"
+                            onClick={() => { setEditing(lt); setDialogOpen(true) }}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                          {isSuperAdmin && (
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-7 w-7 text-destructive hover:text-destructive"
+                              onClick={() => setDeletingLT(lt)}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                        </div>
                       </td>
                     )}
                   </tr>
@@ -920,6 +980,31 @@ function LeaveTypesTab() {
       </div>
 
       <LeaveTypeDialog open={dialogOpen} onOpenChange={setDialogOpen} editing={editing} />
+
+      <AlertDialog open={!!deletingLT} onOpenChange={(v) => !v && setDeletingLT(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {deletingLT?.name}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              If this leave type has existing leave requests, it will be deactivated instead of deleted.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={async () => {
+                if (deletingLT) {
+                  await deleteLeaveType.mutateAsync(deletingLT.id)
+                  setDeletingLT(null)
+                }
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
@@ -928,7 +1013,9 @@ function LeaveTypesTab() {
 
 const policySchema = z.object({
   entitlementDays: z.string().regex(/^\d+(\.\d)?$/, 'e.g. 14 or 14.5'),
+  entitlementUnlimited: z.boolean().default(false),
   carryOverMax: z.string().regex(/^\d+(\.\d)?$/, 'e.g. 5'),
+  carryoverUnlimited: z.boolean().default(false),
   probationMonths: z.string(),
   accrualRate: z.string().optional(),
 })
@@ -948,14 +1035,19 @@ function PolicyDialog({
   regionName: string
 }) {
   const upsert = useUpsertPolicy()
-  const { register, handleSubmit, formState: { errors } } = useForm<PolicyFormData>({
+  const { register, control, handleSubmit, watch, formState: { errors } } = useForm<PolicyFormData>({
     defaultValues: {
       entitlementDays: policy.entitlementDays,
+      entitlementUnlimited: policy.entitlementUnlimited ?? false,
       carryOverMax: policy.carryOverMax,
+      carryoverUnlimited: policy.carryoverUnlimited ?? false,
       probationMonths: String(policy.probationMonths),
       accrualRate: policy.accrualRate ?? '',
     },
   })
+
+  const isEntitlementUnlimited = watch('entitlementUnlimited')
+  const isCarryoverUnlimited = watch('carryoverUnlimited')
 
   async function onSubmit(data: PolicyFormData) {
     await upsert.mutateAsync({
@@ -963,8 +1055,10 @@ function PolicyDialog({
       data: {
         leaveTypeId: policy.leaveTypeId,
         regionId: policy.regionId,
-        entitlementDays: data.entitlementDays,
-        carryOverMax: data.carryOverMax,
+        entitlementDays: data.entitlementUnlimited ? '0' : data.entitlementDays,
+        entitlementUnlimited: data.entitlementUnlimited,
+        carryOverMax: data.carryoverUnlimited ? '0' : data.carryOverMax,
+        carryoverUnlimited: data.carryoverUnlimited,
         probationMonths: Number(data.probationMonths),
         accrualRate: data.accrualRate || null,
       },
@@ -984,14 +1078,42 @@ function PolicyDialog({
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 pt-2">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <Label>Entitlement days</Label>
-              <Input {...register('entitlementDays')} placeholder="14" />
-              <FieldError msg={errors.entitlementDays?.message} />
+              <div className="flex items-center justify-between">
+                <Label>Entitlement days</Label>
+                <Controller
+                  name="entitlementUnlimited"
+                  control={control}
+                  render={({ field }) => (
+                    <div className="flex items-center gap-1.5">
+                      <Switch checked={field.value} onCheckedChange={field.onChange} className="h-4 w-7" />
+                      <span className="text-xs text-muted-foreground">Unlimited</span>
+                    </div>
+                  )}
+                />
+              </div>
+              {isEntitlementUnlimited
+                ? <p className="text-sm text-muted-foreground italic">Unlimited</p>
+                : <><Input {...register('entitlementDays')} placeholder="14" /><FieldError msg={errors.entitlementDays?.message} /></>
+              }
             </div>
             <div className="space-y-1.5">
-              <Label>Carry-over max</Label>
-              <Input {...register('carryOverMax')} placeholder="0" />
-              <FieldError msg={errors.carryOverMax?.message} />
+              <div className="flex items-center justify-between">
+                <Label>Carry-over max</Label>
+                <Controller
+                  name="carryoverUnlimited"
+                  control={control}
+                  render={({ field }) => (
+                    <div className="flex items-center gap-1.5">
+                      <Switch checked={field.value} onCheckedChange={field.onChange} className="h-4 w-7" />
+                      <span className="text-xs text-muted-foreground">Unlimited</span>
+                    </div>
+                  )}
+                />
+              </div>
+              {isCarryoverUnlimited
+                ? <p className="text-sm text-muted-foreground italic">Unlimited</p>
+                : <><Input {...register('carryOverMax')} placeholder="0" /><FieldError msg={errors.carryOverMax?.message} /></>
+              }
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
@@ -1017,11 +1139,15 @@ function PolicyDialog({
 }
 
 function PoliciesTab() {
+  const { user: me } = useAuthStore()
+  const isSuperAdmin = me?.role === 'super_admin'
   const { data: regions } = useRegions()
   const { data: leaveTypes } = useAdminLeaveTypes()
   const [regionId, setRegionId] = useState<string>('__none__')
   const { data: policies, isLoading } = usePolicies(regionId && regionId !== '__none__' ? Number(regionId) : undefined)
   const [editingPolicy, setEditingPolicy] = useState<LeavePolicy | null>(null)
+  const [deletingPolicy, setDeletingPolicy] = useState<LeavePolicy | null>(null)
+  const deletePolicy = useDeletePolicy()
 
   const ltName = (id: number) => leaveTypes?.find((lt) => lt.id === id)?.name ?? String(id)
   const rName = (id: number) => regions?.find((r) => r.id === id)?.name ?? String(id)
@@ -1076,14 +1202,26 @@ function PoliciesTab() {
                       {p.accrualRate ? `${p.accrualRate}/mo` : 'Annual'}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="h-7 w-7"
-                        onClick={() => setEditingPolicy(p)}
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                      </Button>
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-7 w-7"
+                          onClick={() => setEditingPolicy(p)}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        {isSuperAdmin && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7 text-destructive hover:text-destructive"
+                            onClick={() => setDeletingPolicy(p)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -1107,6 +1245,31 @@ function PoliciesTab() {
           regionName={rName(editingPolicy.regionId)}
         />
       )}
+
+      <AlertDialog open={!!deletingPolicy} onOpenChange={(v) => !v && setDeletingPolicy(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this policy?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deletingPolicy && `${ltName(deletingPolicy.leaveTypeId)} · ${rName(deletingPolicy.regionId)}`}. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={async () => {
+                if (deletingPolicy) {
+                  await deletePolicy.mutateAsync(deletingPolicy.id)
+                  setDeletingPolicy(null)
+                }
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

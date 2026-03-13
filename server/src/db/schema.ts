@@ -7,6 +7,7 @@ import {
   boolean,
   timestamp,
   date,
+  time,
   numeric,
   jsonb,
   index,
@@ -119,6 +120,7 @@ export const users = pgTable(
     managerId: integer('manager_id').references((): AnyPgColumn => users.id),
     isActive: boolean('is_active').notNull().default(true),
     isOnProbation: boolean('is_on_probation').notNull().default(false),
+    joinedDate: date('joined_date'),
     avatarUrl: text('avatar_url'),
     ...timestamps,
     ...softDelete,
@@ -159,6 +161,10 @@ export const leaveTypes = pgTable(
     color: varchar('color', { length: 7 }),
     // Whether leave deducts from balance (false for WFH, Business Trip, etc.)
     deductsBalance: boolean('deducts_balance').notNull().default(true),
+    // Comma-separated employee IDs to restrict this type to specific staff (NULL = all eligible)
+    staffRestriction: text('staff_restriction'),
+    // 'working_days' (default) or 'calendar_days' (e.g. maternity leave)
+    dayCalculation: varchar('day_calculation', { length: 20 }).notNull().default('working_days'),
   },
   (table) => [
     index('leave_types_region_id_idx').on(table.regionId),
@@ -177,7 +183,9 @@ export const leavePolicies = pgTable(
       .notNull()
       .references(() => regions.id),
     entitlementDays: numeric('entitlement_days', { precision: 5, scale: 1 }).notNull(),
+    entitlementUnlimited: boolean('entitlement_unlimited').notNull().default(false),
     carryOverMax: numeric('carry_over_max', { precision: 5, scale: 1 }).notNull().default('0'),
+    carryoverUnlimited: boolean('carryover_unlimited').notNull().default(false),
     accrualRate: numeric('accrual_rate', { precision: 5, scale: 4 }), // days accrued per month
     probationMonths: integer('probation_months').notNull().default(0),
     ...timestamps,
@@ -235,6 +243,9 @@ export const leaveRequests = pgTable(
     status: leaveStatusEnum('status').notNull().default('pending'),
     attachmentUrl: text('attachment_url'),
     googleEventId: text('google_event_id'),
+    // For hourly leave types (e.g. Breastfeeding Leave CN) — daily recurring time slot
+    dailyStartTime: time('daily_start_time'),
+    dailyEndTime: time('daily_end_time'),
     approvalStep: integer('approval_step').notNull().default(1),
     currentApproverId: integer('current_approver_id').references((): AnyPgColumn => users.id),
     ...timestamps,

@@ -29,6 +29,7 @@ export interface AdminUser {
   managerName: string | null
   isActive: boolean
   isOnProbation: boolean
+  joinedDate: string | null
   slackUserId: string | null
   avatarUrl: string | null
   createdAt: string
@@ -46,6 +47,8 @@ export interface LeaveType {
   approvalFlow: 'standard' | 'auto_approve' | 'hr_required' | 'multi_level'
   minNoticeDays: number
   maxConsecutiveDays: number | null
+  dayCalculation: 'working_days' | 'calendar_days'
+  staffRestriction: string | null
 }
 
 export interface LeavePolicy {
@@ -56,6 +59,8 @@ export interface LeavePolicy {
   carryOverMax: string
   accrualRate: string | null
   probationMonths: number
+  entitlementUnlimited: boolean
+  carryoverUnlimited: boolean
 }
 
 export interface PublicHoliday {
@@ -144,6 +149,8 @@ export function useCreateUser() {
       regionId: number
       departmentId?: number
       managerId?: number
+      isOnProbation?: boolean
+      joinedDate?: string | null
     }) => api.post<{ data: AdminUser }>('/users', data).then((r) => r.data.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin-users'] })
@@ -171,6 +178,8 @@ export function useUpdateUser() {
         departmentId: number | null
         managerId: number | null
         isActive: boolean
+        isOnProbation: boolean
+        joinedDate: string | null
       }>
     }) => api.patch<{ data: AdminUser }>(`/users/${id}`, data).then((r) => r.data.data),
     onSuccess: () => {
@@ -240,6 +249,20 @@ export function useUpdateLeaveType() {
   })
 }
 
+export function useDeleteLeaveType() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => api.delete(`/admin/leave-types/${id}`).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin-leave-types'] })
+      toast.success('Leave type deleted')
+    },
+    onError: (e: { response?: { data?: { error?: string } } }) => {
+      toast.error(e.response?.data?.error ?? 'Failed to delete leave type')
+    },
+  })
+}
+
 // ─── Policies ─────────────────────────────────────────────────────────────────
 
 export function usePolicies(regionId?: number) {
@@ -273,6 +296,20 @@ export function useUpsertPolicy() {
     },
     onError: (e: { response?: { data?: { error?: string } } }) => {
       toast.error(e.response?.data?.error ?? 'Failed to save policy')
+    },
+  })
+}
+
+export function useDeletePolicy() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => api.delete(`/admin/policies/${id}`).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin-policies'] })
+      toast.success('Policy deleted')
+    },
+    onError: (e: { response?: { data?: { error?: string } } }) => {
+      toast.error(e.response?.data?.error ?? 'Failed to delete policy')
     },
   })
 }

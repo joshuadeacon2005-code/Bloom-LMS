@@ -31,6 +31,7 @@ const createUserSchema = z.object({
   departmentId: z.number().int().positive().optional(),
   managerId: z.number().int().positive().optional(),
   isOnProbation: z.boolean().optional(),
+  joinedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
 })
 
 const updateUserSchema = z.object({
@@ -43,6 +44,7 @@ const updateUserSchema = z.object({
   isActive: z.boolean().optional(),
   isOnProbation: z.boolean().optional(),
   slackUserId: z.string().max(50).nullable().optional(),
+  joinedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
 })
 
 // GET /api/users — HR Admin+

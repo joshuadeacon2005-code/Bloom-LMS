@@ -731,6 +731,61 @@ export async function runMigrations(): Promise<void> {
       ALTER TABLE users ALTER COLUMN department_id DROP NOT NULL
     `).catch(() => null) // ignore if already nullable
 
+    // ── Phase 3 migrations ────────────────────────────────────────────────────
+
+    // Fix 1: joined_date on users
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS joined_date DATE`)
+
+    // Fix 5: daily time slot columns on leave_requests (for breastfeeding leave CN)
+    await client.query(`ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS daily_start_time TIME`)
+    await client.query(`ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS daily_end_time TIME`)
+
+    // Fix 9: unlimited entitlement/carryover flags on leave_policies
+    await client.query(`ALTER TABLE leave_policies ADD COLUMN IF NOT EXISTS entitlement_unlimited BOOLEAN NOT NULL DEFAULT FALSE`)
+    await client.query(`ALTER TABLE leave_policies ADD COLUMN IF NOT EXISTS carryover_unlimited BOOLEAN NOT NULL DEFAULT FALSE`)
+
+    // Fix 10: staff_restriction on leave_types
+    await client.query(`ALTER TABLE leave_types ADD COLUMN IF NOT EXISTS staff_restriction TEXT`)
+
+    // Fix 11: day_calculation on leave_types
+    await client.query(`ALTER TABLE leave_types ADD COLUMN IF NOT EXISTS day_calculation VARCHAR(20) NOT NULL DEFAULT 'working_days'`)
+
+    // Fix 11: set calendar_days for maternity/paternity/parental types
+    await client.query(`
+      UPDATE leave_types SET day_calculation = 'calendar_days'
+      WHERE code IN ('ML', 'ML_AUNZ', 'PL', 'PARL_CN')
+    `)
+
+    // Fix 3: Remove min notice days for Annual Leave
+    await client.query(`UPDATE leave_types SET min_notice_days = 0 WHERE code IN ('AL', 'AL_AUNZ')`)
+
+    // Fix 4: Deactivate duplicate Birthday Leave — keep oldest active one, deactivate the rest
+    await client.query(`
+      UPDATE leave_types SET is_active = false
+      WHERE name = 'Birthday Leave'
+        AND id NOT IN (
+          SELECT MIN(id) FROM leave_types WHERE name = 'Birthday Leave' AND is_active = true
+        )
+        AND is_active = true
+    `)
+
+    // Fix 6: Correct region_restriction assignments
+    await client.query(`UPDATE leave_types SET region_restriction = 'AU,NZ' WHERE code = 'AL_AUNZ'`)
+    await client.query(`UPDATE leave_types SET region_restriction = 'CN' WHERE code IN ('BFL_CN', 'CARE_CN', 'CL_CN', 'PARL_CN', 'PEL_CN', 'SPL_CN')`)
+    await client.query(`UPDATE leave_types SET region_restriction = 'SG' WHERE code = 'CCL_SG'`)
+    await client.query(`UPDATE leave_types SET region_restriction = 'SG' WHERE code = 'RSL_SG'`)
+    await client.query(`UPDATE leave_types SET region_restriction = 'SG,MY' WHERE code = 'HOSP_SGMY'`)
+    await client.query(`UPDATE leave_types SET region_restriction = 'ID' WHERE code = 'FAM_ID'`)
+    await client.query(`UPDATE leave_types SET region_restriction = 'AU,NZ' WHERE code IN ('FPSL_AUNZ', 'LSL_AUNZ', 'ML_AUNZ', 'NPL_AUNZ')`)
+    // Ensure TIL is always restricted to AU,NZ — never globally available
+    await client.query(`
+      UPDATE leave_types SET region_restriction = 'AU,NZ'
+      WHERE code = 'TIL' AND (region_restriction IS NULL OR region_restriction != 'AU,NZ')
+    `)
+
+    // Fix 8: Deactivate "Unpaid Leave" if it still exists (replaced by No Pay Leave)
+    await client.query(`UPDATE leave_types SET is_active = false WHERE name = 'Unpaid Leave' AND is_active = true`)
+
     console.log('[migrate] Migrations complete')
   } catch (err) {
     console.error('[migrate] Migration error:', err)

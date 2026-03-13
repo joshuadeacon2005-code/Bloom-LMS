@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { z } from 'zod'
-import { eq, and, isNull, desc } from 'drizzle-orm'
+import { eq, and, isNull, desc, sql } from 'drizzle-orm'
 import { isSlackCommandsEnabled, setSlackCommandsEnabled } from '../slack/settings'
 import { db } from '../db/index'
 import {
@@ -8,6 +8,7 @@ import {
   departments,
   leaveTypes,
   leavePolicies,
+  leaveRequests,
   publicHolidays,
   users,
   leaveBalances,
@@ -63,14 +64,16 @@ router.get('/departments', async (req, res, next) => {
 const createLeaveTypeSchema = z.object({
   name: z.string().min(2).max(100),
   code: z.string().min(2).max(20).toUpperCase(),
-  description: z.string().max(500).optional(),
+  description: z.string().max(500).nullable().optional(),
   isPaid: z.boolean().default(true),
   requiresAttachment: z.boolean().default(false),
-  maxDaysPerYear: z.number().int().positive().optional(),
+  maxDaysPerYear: z.number().int().positive().nullable().optional(),
   regionId: z.number().int().positive().nullable().optional(),
   approvalFlow: z.enum(['standard', 'auto_approve', 'hr_required', 'multi_level']).default('standard'),
   minNoticeDays: z.number().int().min(0).default(0),
   maxConsecutiveDays: z.number().int().positive().nullable().optional(),
+  dayCalculation: z.enum(['working_days', 'calendar_days']).default('working_days'),
+  staffRestriction: z.string().nullable().optional(),
 })
 
 router.get('/leave-types', async (req, res, next) => {
@@ -114,6 +117,27 @@ router.patch('/leave-types/:id', validate(createLeaveTypeSchema.partial()), asyn
   }
 })
 
+router.delete('/leave-types/:id', requireRole('super_admin'), async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id as string, 10)
+    // Check for leave request references
+    const [{ count: refCount }] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(leaveRequests)
+      .where(eq(leaveRequests.leaveTypeId, id))
+    if (refCount > 0) {
+      // Soft delete — preserve history
+      await db.update(leaveTypes).set({ isActive: false }).where(eq(leaveTypes.id, id))
+      res.json({ success: true, data: { deleted: false, deactivated: true, reason: 'Has existing leave requests — deactivated instead' } })
+    } else {
+      await db.delete(leaveTypes).where(eq(leaveTypes.id, id))
+      res.json({ success: true, data: { deleted: true, deactivated: false } })
+    }
+  } catch (err) {
+    next(err)
+  }
+})
+
 // ============================================================
 // Leave Policies
 // ============================================================
@@ -122,7 +146,9 @@ const createPolicySchema = z.object({
   leaveTypeId: z.number().int().positive(),
   regionId: z.number().int().positive(),
   entitlementDays: z.string().regex(/^\d+(\.\d)?$/),
+  entitlementUnlimited: z.boolean().default(false),
   carryOverMax: z.string().regex(/^\d+(\.\d)?$/).default('0'),
+  carryoverUnlimited: z.boolean().default(false),
   accrualRate: z.string().regex(/^\d+(\.\d{1,4})?$/).nullable().optional(),
   probationMonths: z.number().int().min(0).default(0),
 })
@@ -162,6 +188,16 @@ router.patch('/policies/:id', validate(createPolicySchema.partial()), async (req
     if (!policy) throw new NotFoundError('Policy')
     const response: ApiResponse<typeof policy> = { success: true, data: policy }
     res.json(response)
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.delete('/policies/:id', requireRole('super_admin'), async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id as string, 10)
+    await db.delete(leavePolicies).where(eq(leavePolicies.id, id))
+    res.json({ success: true, data: { deleted: true } })
   } catch (err) {
     next(err)
   }

@@ -68,6 +68,16 @@ export function monthsBetween(from: Date, to: Date): number {
 }
 
 /**
+ * Count calendar days between two dates (inclusive), including weekends and holidays.
+ */
+export function calculateCalendarDays(startDate: string, endDate: string): number {
+  const start = parseDate(startDate)
+  const end = parseDate(endDate)
+  if (start > end) return 0
+  return Math.floor((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1
+}
+
+/**
  * Parse a Drizzle numeric column (returned as string) to a float.
  */
 export function parseDecimal(value: string | null | undefined): number {

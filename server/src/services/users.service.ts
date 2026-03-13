@@ -16,6 +16,7 @@ const safeUserFields = {
   managerId: users.managerId,
   isActive: users.isActive,
   isOnProbation: users.isOnProbation,
+  joinedDate: users.joinedDate,
   avatarUrl: users.avatarUrl,
   createdAt: users.createdAt,
   updatedAt: users.updatedAt,
@@ -94,6 +95,7 @@ export async function createUser(data: {
   departmentId?: number
   managerId?: number
   isOnProbation?: boolean
+  joinedDate?: string | null
 }) {
   const [existing] = await db
     .select({ id: users.id })
@@ -115,6 +117,7 @@ export async function createUser(data: {
       departmentId: data.departmentId,
       managerId: data.managerId,
       isOnProbation: data.isOnProbation ?? false,
+      joinedDate: data.joinedDate ?? null,
     })
     .returning(safeUserFields)
 
@@ -140,6 +143,7 @@ export async function updateUser(
     managerId?: number | null
     isActive?: boolean
     isOnProbation?: boolean
+    joinedDate?: string | null
     slackUserId?: string | null
     avatarUrl?: string | null
   }

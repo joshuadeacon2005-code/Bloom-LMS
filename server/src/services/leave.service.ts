@@ -11,6 +11,7 @@ import {
 } from '../db/schema'
 import {
   calculateWorkingDays,
+  calculateCalendarDays,
   parseDecimal,
   getTodayString,
   monthsBetween,
@@ -197,6 +198,14 @@ export async function createLeaveRequest(
 
   if (!leaveType) throw new ValidationError('This leave type is not available in your region')
 
+  // Check staff restriction
+  if (leaveType.staffRestriction) {
+    const allowedIds = leaveType.staffRestriction.split(',').map((s) => parseInt(s.trim(), 10))
+    if (!allowedIds.includes(userId)) {
+      throw new ValidationError('This leave type is not available for your account')
+    }
+  }
+
   const approvalFlow = (leaveType.approvalFlow ?? 'standard') as string
   const minNoticeDays = leaveType.minNoticeDays ?? 0
   const maxConsecutiveDays = leaveType.maxConsecutiveDays ?? null
@@ -209,15 +218,21 @@ export async function createLeaveRequest(
   // 4. Fetch public holidays in range
   const holidays = await getHolidaysInRange(user.regionId, data.startDate, data.endDate)
 
-  // 5. Calculate working days (half-day override when same-day + period specified)
-  let totalDays = calculateWorkingDays(data.startDate, data.endDate, holidays)
-  if (data.halfDayPeriod && data.startDate === data.endDate && totalDays === 1) {
-    totalDays = 0.5
-  }
-  if (totalDays === 0) {
-    throw new ValidationError(
-      'The selected date range contains no working days (weekends and public holidays are excluded)'
-    )
+  // 5. Calculate days based on leave type's day calculation mode
+  const dayCalc = leaveType.dayCalculation ?? 'working_days'
+  let totalDays: number
+  if (dayCalc === 'calendar_days') {
+    totalDays = calculateCalendarDays(data.startDate, data.endDate)
+  } else {
+    totalDays = calculateWorkingDays(data.startDate, data.endDate, holidays)
+    if (data.halfDayPeriod && data.startDate === data.endDate && totalDays === 1) {
+      totalDays = 0.5
+    }
+    if (totalDays === 0) {
+      throw new ValidationError(
+        'The selected date range contains no working days (weekends and public holidays are excluded)'
+      )
+    }
   }
 
   // Notice period validation
