@@ -81,7 +81,7 @@ async function getHrResponsibleRegionIds(userId: number): Promise<number[] | nul
   if (user.email === 'rina.juwita@bloomandgrowgroup.com') {
     responsibleCodes = ['ID']
   } else if (user.email === 'michelle.su@bloomandgrow.com.cn') {
-    responsibleCodes = ['CN']
+    responsibleCodes = ['CN', 'CN-GZ', 'CN-SH']
   } else if (user.email === 'elaine@bloomandgrowgroup.com') {
     responsibleCodes = ['HK', 'SG', 'MY', 'AU', 'NZ']
   } else {

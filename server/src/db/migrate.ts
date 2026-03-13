@@ -786,6 +786,89 @@ export async function runMigrations(): Promise<void> {
     // Fix 8: Deactivate "Unpaid Leave" if it still exists (replaced by No Pay Leave)
     await client.query(`UPDATE leave_types SET is_active = false WHERE name = 'Unpaid Leave' AND is_active = true`)
 
+    // ── Phase 4: CN sub-regions — Guangzhou & Shanghai ───────────────────────
+    // Insert the two sub-regions (idempotent — regions table has unique index on code)
+    await client.query(`
+      INSERT INTO regions (name, code, timezone, currency) VALUES
+        ('China - Guangzhou', 'CN-GZ', 'Asia/Shanghai', 'CNY'),
+        ('China - Shanghai',  'CN-SH', 'Asia/Shanghai', 'CNY')
+      ON CONFLICT (code) DO NOTHING
+    `)
+
+    // Copy departments from CN to each sub-region (skip if already present)
+    for (const rCode of ['CN-GZ', 'CN-SH']) {
+      await client.query(`
+        INSERT INTO departments (name, region_id)
+        SELECT d.name, r.id
+        FROM departments d
+        JOIN regions cn ON cn.code = 'CN' AND cn.id = d.region_id
+        JOIN regions r ON r.code = $1
+        WHERE NOT EXISTS (
+          SELECT 1 FROM departments d2
+          WHERE d2.name = d.name AND d2.region_id = r.id
+        )
+      `, [rCode])
+    }
+
+    // Copy ALL leave policies from CN to each sub-region (HR can adjust per-city after)
+    for (const rCode of ['CN-GZ', 'CN-SH']) {
+      await client.query(`
+        INSERT INTO leave_policies
+          (leave_type_id, region_id, entitlement_days, carry_over_max, probation_months,
+           entitlement_unlimited, carryover_unlimited)
+        SELECT lp.leave_type_id, r.id, lp.entitlement_days, lp.carry_over_max, lp.probation_months,
+               lp.entitlement_unlimited, lp.carryover_unlimited
+        FROM leave_policies lp
+        JOIN regions cn ON cn.code = 'CN' AND cn.id = lp.region_id
+        JOIN regions r ON r.code = $1
+        WHERE NOT EXISTS (
+          SELECT 1 FROM leave_policies lp2
+          WHERE lp2.leave_type_id = lp.leave_type_id AND lp2.region_id = r.id
+        )
+      `, [rCode])
+    }
+
+    // Copy public holidays from CN to each sub-region
+    for (const rCode of ['CN-GZ', 'CN-SH']) {
+      await client.query(`
+        INSERT INTO public_holidays (name, date, region_id, is_recurring)
+        SELECT ph.name, ph.date, r.id, ph.is_recurring
+        FROM public_holidays ph
+        JOIN regions cn ON cn.code = 'CN' AND cn.id = ph.region_id
+        JOIN regions r ON r.code = $1
+        WHERE NOT EXISTS (
+          SELECT 1 FROM public_holidays ph2
+          WHERE ph2.date = ph.date AND ph2.region_id = r.id
+        )
+      `, [rCode])
+    }
+
+    // Copy comp_leave_rules from CN (if any) to each sub-region
+    for (const rCode of ['CN-GZ', 'CN-SH']) {
+      await client.query(`
+        INSERT INTO comp_leave_rules
+          (region_id, hours_per_day, max_accumulation_days, expiry_days,
+           requires_approval, min_hours_per_entry, max_hours_per_entry)
+        SELECT r.id, clr.hours_per_day, clr.max_accumulation_days, clr.expiry_days,
+               clr.requires_approval, clr.min_hours_per_entry, clr.max_hours_per_entry
+        FROM comp_leave_rules clr
+        JOIN regions cn ON cn.code = 'CN' AND cn.id = clr.region_id
+        JOIN regions r ON r.code = $1
+        WHERE NOT EXISTS (
+          SELECT 1 FROM comp_leave_rules clr2
+          WHERE clr2.region_id = r.id
+        )
+      `, [rCode])
+    }
+
+    // Expand regionRestriction for CN-specific leave types to cover both sub-regions.
+    // Must run AFTER the fix 6 block above which sets restriction to 'CN'.
+    await client.query(`
+      UPDATE leave_types
+      SET region_restriction = 'CN,CN-GZ,CN-SH'
+      WHERE code IN ('BFL_CN', 'CARE_CN', 'CL_CN', 'PARL_CN', 'PEL_CN', 'SPL_CN')
+    `)
+
     console.log('[migrate] Migrations complete')
   } catch (err) {
     console.error('[migrate] Migration error:', err)
