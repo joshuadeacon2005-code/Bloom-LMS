@@ -90,6 +90,7 @@ export const regions = pgTable('regions', {
   code: varchar('code', { length: 5 }).notNull().unique(),
   timezone: varchar('timezone', { length: 50 }).notNull(),
   currency: varchar('currency', { length: 3 }).notNull(),
+  isActive: boolean('is_active').notNull().default(true),
 })
 
 export const departments = pgTable(

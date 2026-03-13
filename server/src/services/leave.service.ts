@@ -1,4 +1,4 @@
-import { eq, and, or, lte, gte, desc, count, isNull, ne, sql } from 'drizzle-orm'
+import { eq, and, or, lte, gte, desc, count, isNull, ne, sql, inArray } from 'drizzle-orm'
 import { db } from '../db/index'
 import {
   leaveRequests,
@@ -105,6 +105,9 @@ async function getEffectiveApprover(managerId: number, regionId: number): Promis
   return hr ?? managerId
 }
 
+// CN-GZ and CN-SH are sibling regions — HR from either city covers both
+const CN_CITY_CODES = ['CN-GZ', 'CN-SH'] as const
+
 async function getHrAdminForRegion(regionId: number): Promise<number | null> {
   const [hr] = await db
     .select({ id: users.id })
@@ -119,7 +122,38 @@ async function getHrAdminForRegion(regionId: number): Promise<number | null> {
     )
     .limit(1)
 
-  return hr?.id ?? null
+  if (hr) return hr.id
+
+  // If this is a CN city and no local HR exists, fall back to any HR in the other CN city
+  const [regionRow] = await db
+    .select({ code: regions.code })
+    .from(regions)
+    .where(eq(regions.id, regionId))
+    .limit(1)
+
+  if (regionRow && (CN_CITY_CODES as readonly string[]).includes(regionRow.code)) {
+    const cnCityRegionRows = await db
+      .select({ id: regions.id })
+      .from(regions)
+      .where(inArray(regions.code, [...CN_CITY_CODES]))
+
+    const [siblingHr] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(
+        and(
+          inArray(users.regionId, cnCityRegionRows.map((r) => r.id)),
+          or(eq(users.role, 'hr_admin'), eq(users.role, 'super_admin')),
+          eq(users.isActive, true),
+          isNull(users.deletedAt)
+        )
+      )
+      .limit(1)
+
+    if (siblingHr) return siblingHr.id
+  }
+
+  return null
 }
 
 async function buildApprovalChain(

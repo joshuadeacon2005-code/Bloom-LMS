@@ -787,12 +787,30 @@ export async function runMigrations(): Promise<void> {
     await client.query(`UPDATE leave_types SET is_active = false WHERE name = 'Unpaid Leave' AND is_active = true`)
 
     // ── Phase 4: CN sub-regions — Guangzhou & Shanghai ───────────────────────
+    // Add is_active column to regions (idempotent)
+    await client.query(`
+      ALTER TABLE regions ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true
+    `)
+
     // Insert the two sub-regions (idempotent — regions table has unique index on code)
     await client.query(`
       INSERT INTO regions (name, code, timezone, currency) VALUES
         ('China - Guangzhou', 'CN-GZ', 'Asia/Shanghai', 'CNY'),
         ('China - Shanghai',  'CN-SH', 'Asia/Shanghai', 'CNY')
       ON CONFLICT (code) DO NOTHING
+    `)
+
+    // Move any remaining users still assigned to the base CN region → CN-GZ
+    await client.query(`
+      UPDATE users
+      SET region_id = (SELECT id FROM regions WHERE code = 'CN-GZ')
+      WHERE region_id = (SELECT id FROM regions WHERE code = 'CN')
+        AND deleted_at IS NULL
+    `)
+
+    // Retire base CN region so it no longer appears in dropdowns
+    await client.query(`
+      UPDATE regions SET is_active = false WHERE code = 'CN'
     `)
 
     // Copy departments from CN to each sub-region (skip if already present)

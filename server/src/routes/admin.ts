@@ -30,7 +30,7 @@ router.use(authenticate, requireRole('hr_admin'))
 
 router.get('/regions', async (_req, res, next) => {
   try {
-    const rows = await db.select().from(regions).orderBy(regions.name)
+    const rows = await db.select().from(regions).where(eq(regions.isActive, true)).orderBy(regions.name)
     const response: ApiResponse<typeof rows> = { success: true, data: rows }
     res.json(response)
   } catch (err) {

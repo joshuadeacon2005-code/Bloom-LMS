@@ -70,7 +70,7 @@ async function getLocalHrUserId(regionId: number): Promise<number | null> {
 
 async function getHrResponsibleRegionIds(userId: number): Promise<number[] | null> {
   const [user] = await db
-    .select({ email: users.email, role: users.role })
+    .select({ email: users.email, role: users.role, regionId: users.regionId })
     .from(users)
     .where(eq(users.id, userId))
     .limit(1)
@@ -84,6 +84,18 @@ async function getHrResponsibleRegionIds(userId: number): Promise<number[] | nul
     responsibleCodes = ['CN', 'CN-GZ', 'CN-SH']
   } else if (user.email === 'elaine@bloomandgrowgroup.com') {
     responsibleCodes = ['HK', 'SG', 'MY', 'AU', 'NZ']
+  } else if (user.role === 'hr_admin' && user.regionId) {
+    // Any HR admin based in a CN city sees both CN cities (+ legacy CN for historical records)
+    const [regionRow] = await db
+      .select({ code: regions.code })
+      .from(regions)
+      .where(eq(regions.id, user.regionId))
+      .limit(1)
+    if (regionRow && ['CN-GZ', 'CN-SH'].includes(regionRow.code)) {
+      responsibleCodes = ['CN', 'CN-GZ', 'CN-SH']
+    } else {
+      return []
+    }
   } else {
     return []
   }
