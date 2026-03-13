@@ -15,6 +15,8 @@ import {
   Send,
   Wifi,
   WifiOff,
+  History,
+  CheckSquare,
 } from 'lucide-react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
@@ -47,10 +49,12 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
+import { Textarea } from '@/components/ui/textarea'
+import { Checkbox } from '@/components/ui/checkbox'
+import { format } from 'date-fns'
 import { useAuthStore } from '@/stores/authStore'
 import {
   useRegions,
-  useDepartments,
   useAdminUsers,
   useManagers,
   useCreateUser,
@@ -69,11 +73,18 @@ import {
   useSlackSync,
   useSlackCommandsEnabled,
   useToggleSlackCommands,
+  useEntitlements,
+  useUpdateEntitlement,
+  useBulkUpdateEntitlements,
+  useEntitlementAudit,
   type SlackSyncResult,
   type AdminUser,
   type LeaveType,
   type LeavePolicy,
   type PublicHoliday,
+  type ManagerOption,
+  type EntitlementRow,
+  type AuditLogEntry,
 } from '@/hooks/useAdmin'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -108,7 +119,6 @@ const createUserSchema = z.object({
   password: z.string().min(8, 'At least 8 characters').optional().or(z.literal('')),
   role: z.enum(['employee', 'manager', 'hr_admin', 'super_admin']),
   regionId: z.string().min(1, 'Region required'),
-  departmentId: z.string().optional(),
   managerId: z.string().optional(),
   isActive: z.boolean().optional(),
 })
@@ -142,7 +152,6 @@ function UserDialog({
           email: editing.email,
           role: editing.role,
           regionId: String(editing.regionId),
-          departmentId: editing.departmentId ? String(editing.departmentId) : '',
           managerId: editing.managerId ? String(editing.managerId) : '',
           isActive: editing.isActive,
         }
@@ -158,7 +167,6 @@ function UserDialog({
               email: editing.email,
               role: editing.role,
               regionId: String(editing.regionId),
-              departmentId: editing.departmentId ? String(editing.departmentId) : '',
               managerId: editing.managerId ? String(editing.managerId) : '',
               isActive: editing.isActive,
             }
@@ -167,13 +175,9 @@ function UserDialog({
     }
   }, [open, editing, reset])
 
-  const selectedRegionId = watch('regionId')
-  const { data: departments } = useDepartments(
-    selectedRegionId ? Number(selectedRegionId) : undefined
-  )
-  const { data: managers } = useManagers(
-    selectedRegionId ? Number(selectedRegionId) : undefined
-  )
+  const selectedRole = watch('role')
+  // Load ALL managers across all regions (cross-region reporting exists)
+  const { data: managers } = useManagers()
 
   async function onSubmit(data: UserFormData) {
     const payload = {
@@ -181,7 +185,6 @@ function UserDialog({
       email: data.email,
       role: data.role,
       regionId: Number(data.regionId),
-      departmentId: data.departmentId && data.departmentId !== '__none__' ? Number(data.departmentId) : undefined,
       managerId: data.managerId && data.managerId !== '__none__' ? Number(data.managerId) : undefined,
       isActive: data.isActive,
     }
@@ -263,43 +266,32 @@ function UserDialog({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <Label>Department <span className="text-muted-foreground text-xs">(optional)</span></Label>
-              <Controller
-                name="departmentId"
-                control={control}
-                render={({ field }) => (
-                  <Select value={field.value || '__none__'} onValueChange={field.onChange}>
-                    <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">None</SelectItem>
-                      {departments?.map((d) => (
-                        <SelectItem key={d.id} value={String(d.id)}>{d.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Manager <span className="text-muted-foreground text-xs">(optional)</span></Label>
-              <Controller
-                name="managerId"
-                control={control}
-                render={({ field }) => (
-                  <Select value={field.value || '__none__'} onValueChange={field.onChange}>
-                    <SelectTrigger><SelectValue placeholder="None" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">None</SelectItem>
-                      {managers?.map((m) => (
-                        <SelectItem key={m.id} value={String(m.id)}>{m.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              />
-            </div>
+          <div className="space-y-1.5">
+            <Label>
+              Manager
+              {selectedRole !== 'super_admin' && (
+                <span className="ml-1 text-xs text-muted-foreground">(required for approval routing)</span>
+              )}
+            </Label>
+            <Controller
+              name="managerId"
+              control={control}
+              render={({ field }) => (
+                <Select value={field.value || '__none__'} onValueChange={field.onChange}>
+                  <SelectTrigger><SelectValue placeholder="Select manager…" /></SelectTrigger>
+                  <SelectContent>
+                    {selectedRole === 'super_admin' && (
+                      <SelectItem value="__none__">No manager</SelectItem>
+                    )}
+                    {(managers as ManagerOption[] | undefined)?.map((m) => (
+                      <SelectItem key={m.id} value={String(m.id)}>
+                        {m.name} — {m.regionName ?? ''}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            />
           </div>
 
           {editing && (
@@ -1340,6 +1332,457 @@ function HolidaysTab() {
   )
 }
 
+// ─── Entitlements Tab ─────────────────────────────────────────────────────────
+
+function EditEntitlementDialog({
+  row,
+  open,
+  onOpenChange,
+}: {
+  row: EntitlementRow
+  open: boolean
+  onOpenChange: (v: boolean) => void
+}) {
+  const update = useUpdateEntitlement()
+  const [field, setField] = useState<'entitled' | 'carried' | 'adjustments'>('entitled')
+  const [value, setValue] = useState('')
+  const [reason, setReason] = useState('')
+
+  useEffect(() => {
+    if (open) {
+      setField('entitled')
+      setValue(parseFloat(row.entitled).toString())
+      setReason('')
+    }
+  }, [open, row])
+
+  const currentVal = field === 'entitled' ? row.entitled : field === 'carried' ? row.carried : row.adjustments
+
+  const handleSave = async () => {
+    const num = parseFloat(value)
+    if (isNaN(num) || num < 0) return
+    if (!reason.trim()) return
+    await update.mutateAsync({
+      userId: row.userId,
+      leaveTypeId: row.leaveTypeId,
+      year: row.year,
+      field,
+      newValue: num,
+      reason: reason.trim(),
+    })
+    onOpenChange(false)
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Edit Entitlement</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="rounded-md bg-muted/40 px-3 py-2 text-sm">
+            <span className="font-medium">{row.userName}</span>
+            <span className="mx-1 text-muted-foreground">·</span>
+            <span>{row.leaveTypeName}</span>
+            <span className="mx-1 text-muted-foreground">·</span>
+            <span>{row.year}</span>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Field to edit</Label>
+            <Select value={field} onValueChange={(v) => {
+              const f = v as typeof field
+              setField(f)
+              setValue(parseFloat(f === 'entitled' ? row.entitled : f === 'carried' ? row.carried : row.adjustments).toString())
+            }}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="entitled">Entitled Days</SelectItem>
+                <SelectItem value="carried">Carried Over</SelectItem>
+                <SelectItem value="adjustments">Adjustments</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">Current: {parseFloat(currentVal).toFixed(1)} days</p>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>New value (days)</Label>
+            <Input
+              type="number"
+              step="0.5"
+              min="0"
+              max="365"
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Reason for change</Label>
+            <Textarea
+              rows={2}
+              placeholder="e.g. Annual entitlement correction"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              className="resize-none"
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button
+            onClick={handleSave}
+            disabled={update.isPending || !reason.trim() || isNaN(parseFloat(value))}
+          >
+            {update.isPending ? 'Saving...' : 'Save'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function BulkEditDialog({
+  rows,
+  open,
+  onOpenChange,
+  onClear,
+}: {
+  rows: EntitlementRow[]
+  open: boolean
+  onOpenChange: (v: boolean) => void
+  onClear: () => void
+}) {
+  const bulk = useBulkUpdateEntitlements()
+  const [field, setField] = useState<'entitled' | 'carried' | 'adjustments'>('entitled')
+  const [value, setValue] = useState('')
+  const [reason, setReason] = useState('')
+
+  useEffect(() => {
+    if (open) {
+      setField('entitled')
+      setValue('')
+      setReason('')
+    }
+  }, [open])
+
+  const handleSave = async () => {
+    const num = parseFloat(value)
+    if (isNaN(num) || num < 0) return
+    if (!reason.trim()) return
+    await bulk.mutateAsync({
+      updates: rows.map((r) => ({
+        userId: r.userId,
+        leaveTypeId: r.leaveTypeId,
+        year: r.year,
+        field,
+        newValue: num,
+      })),
+      reason: reason.trim(),
+    })
+    onClear()
+    onOpenChange(false)
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Bulk Update Entitlements</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <p className="text-sm text-muted-foreground">
+            Updating <span className="font-medium text-foreground">{rows.length}</span> entitlement{rows.length !== 1 ? 's' : ''}.
+          </p>
+          <div className="space-y-1.5">
+            <Label>Field to update</Label>
+            <Select value={field} onValueChange={(v) => setField(v as typeof field)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="entitled">Entitled Days</SelectItem>
+                <SelectItem value="carried">Carried Over</SelectItem>
+                <SelectItem value="adjustments">Adjustments</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>New value (days)</Label>
+            <Input
+              type="number"
+              step="0.5"
+              min="0"
+              max="365"
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              placeholder="e.g. 14"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Reason for change</Label>
+            <Textarea
+              rows={2}
+              placeholder="e.g. Annual entitlement reset"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              className="resize-none"
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button
+            onClick={handleSave}
+            disabled={bulk.isPending || !reason.trim() || isNaN(parseFloat(value))}
+          >
+            {bulk.isPending ? 'Updating...' : `Update ${rows.length}`}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function EntitlementsTab() {
+  const { data: regions } = useRegions()
+  const [regionId, setRegionId] = useState<number | undefined>()
+  const [year, setYear] = useState(new Date().getFullYear())
+  const [search, setSearch] = useState('')
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [editRow, setEditRow] = useState<EntitlementRow | null>(null)
+  const [bulkOpen, setBulkOpen] = useState(false)
+  const [showAudit, setShowAudit] = useState(false)
+
+  const { data: rows = [], isLoading } = useEntitlements(regionId, year)
+  const { data: auditLog = [] } = useEntitlementAudit()
+
+  const filtered = rows.filter(
+    (r) =>
+      !search ||
+      r.userName.toLowerCase().includes(search.toLowerCase()) ||
+      r.leaveTypeName.toLowerCase().includes(search.toLowerCase())
+  )
+
+  const rowKey = (r: EntitlementRow) => `${r.userId}-${r.leaveTypeId}`
+
+  const toggleSelect = (key: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  const toggleSelectAll = () => {
+    if (selected.size === filtered.length) setSelected(new Set())
+    else setSelected(new Set(filtered.map(rowKey)))
+  }
+
+  const selectedRows = filtered.filter((r) => selected.has(rowKey(r)))
+
+  const years = Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i)
+
+  return (
+    <div className="space-y-4">
+      {/* Filters */}
+      <div className="flex flex-wrap gap-3">
+        <Select
+          value={regionId?.toString() ?? 'all'}
+          onValueChange={(v) => setRegionId(v === 'all' ? undefined : parseInt(v))}
+        >
+          <SelectTrigger className="w-44">
+            <SelectValue placeholder="All Regions" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Regions</SelectItem>
+            {regions?.map((r) => (
+              <SelectItem key={r.id} value={r.id.toString()}>{r.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select value={year.toString()} onValueChange={(v) => setYear(parseInt(v))}>
+          <SelectTrigger className="w-28">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {years.map((y) => (
+              <SelectItem key={y} value={y.toString()}>{y}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <div className="relative flex-1 min-w-48">
+          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input
+            className="pl-8"
+            placeholder="Search employee or leave type..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+
+        {selected.size > 0 && (
+          <Button size="sm" onClick={() => setBulkOpen(true)}>
+            <CheckSquare className="mr-1.5 h-4 w-4" />
+            Bulk Edit ({selected.size})
+          </Button>
+        )}
+
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => setShowAudit((v) => !v)}
+        >
+          <History className="mr-1.5 h-4 w-4" />
+          {showAudit ? 'Hide' : 'Show'} Audit Log
+        </Button>
+      </div>
+
+      {/* Table */}
+      {isLoading ? (
+        <div className="space-y-2">
+          {Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
+        </div>
+      ) : (
+        <div className="rounded-md border overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-muted/40">
+                <th className="w-10 px-3 py-2 text-left">
+                  <Checkbox
+                    checked={filtered.length > 0 && selected.size === filtered.length}
+                    onCheckedChange={toggleSelectAll}
+                  />
+                </th>
+                <th className="px-3 py-2 text-left font-medium">Employee</th>
+                <th className="px-3 py-2 text-left font-medium">Leave Type</th>
+                <th className="px-3 py-2 text-right font-medium">Entitled</th>
+                <th className="px-3 py-2 text-right font-medium">Used</th>
+                <th className="px-3 py-2 text-right font-medium">Pending</th>
+                <th className="px-3 py-2 text-right font-medium">Carried</th>
+                <th className="px-3 py-2 text-right font-medium">Adj.</th>
+                <th className="px-3 py-2 text-right font-medium">Balance</th>
+                <th className="px-3 py-2"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.length === 0 ? (
+                <tr>
+                  <td colSpan={10} className="px-3 py-8 text-center text-muted-foreground">
+                    No entitlements found
+                  </td>
+                </tr>
+              ) : (
+                filtered.map((row) => {
+                  const key = rowKey(row)
+                  const balance = (
+                    parseFloat(row.entitled) +
+                    parseFloat(row.carried) +
+                    parseFloat(row.adjustments) -
+                    parseFloat(row.used) -
+                    parseFloat(row.pending)
+                  ).toFixed(1)
+                  return (
+                    <tr key={key} className={`border-b last:border-0 hover:bg-muted/20 ${selected.has(key) ? 'bg-primary/5' : ''}`}>
+                      <td className="px-3 py-2">
+                        <Checkbox
+                          checked={selected.has(key)}
+                          onCheckedChange={() => toggleSelect(key)}
+                        />
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="font-medium">{row.userName}</div>
+                        <div className="text-xs text-muted-foreground">{row.userEmail}</div>
+                      </td>
+                      <td className="px-3 py-2">{row.leaveTypeName}</td>
+                      <td className="px-3 py-2 text-right">{parseFloat(row.entitled).toFixed(1)}</td>
+                      <td className="px-3 py-2 text-right text-muted-foreground">{parseFloat(row.used).toFixed(1)}</td>
+                      <td className="px-3 py-2 text-right text-muted-foreground">{parseFloat(row.pending).toFixed(1)}</td>
+                      <td className="px-3 py-2 text-right text-muted-foreground">{parseFloat(row.carried).toFixed(1)}</td>
+                      <td className="px-3 py-2 text-right text-muted-foreground">{parseFloat(row.adjustments).toFixed(1)}</td>
+                      <td className="px-3 py-2 text-right font-semibold">
+                        <span className={parseFloat(balance) < 0 ? 'text-red-600' : ''}>
+                          {balance}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        <Button size="sm" variant="ghost" onClick={() => setEditRow(row)}>
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                      </td>
+                    </tr>
+                  )
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Audit Log */}
+      {showAudit && (
+        <div className="space-y-2">
+          <h3 className="font-semibold text-sm">Audit Log</h3>
+          {auditLog.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No audit entries yet.</p>
+          ) : (
+            <div className="rounded-md border overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/40">
+                    <th className="px-3 py-2 text-left font-medium">Date</th>
+                    <th className="px-3 py-2 text-left font-medium">Employee</th>
+                    <th className="px-3 py-2 text-left font-medium">Leave Type</th>
+                    <th className="px-3 py-2 text-left font-medium">Field</th>
+                    <th className="px-3 py-2 text-right font-medium">Old</th>
+                    <th className="px-3 py-2 text-right font-medium">New</th>
+                    <th className="px-3 py-2 text-left font-medium">Reason</th>
+                    <th className="px-3 py-2 text-left font-medium">By</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {auditLog.map((entry: AuditLogEntry) => (
+                    <tr key={entry.id} className="border-b last:border-0">
+                      <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">
+                        {format(new Date(entry.createdAt), 'd MMM yyyy HH:mm')}
+                      </td>
+                      <td className="px-3 py-2">{entry.employeeName}</td>
+                      <td className="px-3 py-2">{entry.leaveTypeName ?? '—'}</td>
+                      <td className="px-3 py-2 capitalize">{entry.fieldChanged}</td>
+                      <td className="px-3 py-2 text-right">{entry.oldValue ?? '—'}</td>
+                      <td className="px-3 py-2 text-right font-medium">{entry.newValue ?? '—'}</td>
+                      <td className="px-3 py-2 text-muted-foreground max-w-xs truncate">{entry.reason}</td>
+                      <td className="px-3 py-2 text-muted-foreground">{entry.changedByName}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Dialogs */}
+      {editRow && (
+        <EditEntitlementDialog
+          row={editRow}
+          open={!!editRow}
+          onOpenChange={(v) => !v && setEditRow(null)}
+        />
+      )}
+      <BulkEditDialog
+        rows={selectedRows}
+        open={bulkOpen}
+        onOpenChange={setBulkOpen}
+        onClear={() => setSelected(new Set())}
+      />
+    </div>
+  )
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export function AdminPage() {
@@ -1358,11 +1801,13 @@ export function AdminPage() {
           <TabsTrigger value="leave-types">Leave Types</TabsTrigger>
           <TabsTrigger value="policies">Policies</TabsTrigger>
           <TabsTrigger value="holidays">Public Holidays</TabsTrigger>
+          <TabsTrigger value="entitlements">Entitlements</TabsTrigger>
         </TabsList>
         <TabsContent value="users" className="mt-4"><UsersTab /></TabsContent>
         <TabsContent value="leave-types" className="mt-4"><LeaveTypesTab /></TabsContent>
         <TabsContent value="policies" className="mt-4"><PoliciesTab /></TabsContent>
         <TabsContent value="holidays" className="mt-4"><HolidaysTab /></TabsContent>
+        <TabsContent value="entitlements" className="mt-4"><EntitlementsTab /></TabsContent>
       </Tabs>
     </div>
   )

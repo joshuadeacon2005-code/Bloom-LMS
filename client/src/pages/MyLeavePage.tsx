@@ -54,6 +54,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { LeaveStatusBadge } from '@/components/leave/LeaveStatusBadge'
 import { RequestLeaveSheet } from '@/components/leave/RequestLeaveSheet'
 import { EmptyState } from '@/components/shared/EmptyState'
+import { useAuthStore } from '@/stores/authStore'
 import { useBalances } from '@/hooks/useBalances'
 import { useLeaveRequests, useCancelLeaveRequest, type LeaveRequest } from '@/hooks/useLeaveRequests'
 import {
@@ -76,6 +77,7 @@ const OT_STATUS_BADGE: Record<string, { label: string; variant: 'default' | 'sec
 }
 
 export function MyLeavePage() {
+  const { user } = useAuthStore()
   const [requestSheetOpen, setRequestSheetOpen] = useState(false)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [otStatusFilter, setOTStatusFilter] = useState<OTStatusFilter>('all')
@@ -85,10 +87,12 @@ export function MyLeavePage() {
   const [otSorting, setOTSorting] = useState<SortingState>([])
   const [submitOTOpen, setSubmitOTOpen] = useState(false)
 
-  // Leave data
+  // Leave data — always filter to current user regardless of role
   const { data: balances, isLoading: loadingBalances } = useBalances()
   const { data: requests, isLoading: loadingRequests } = useLeaveRequests(
-    statusFilter !== 'all' ? { status: statusFilter, pageSize: 50 } : { pageSize: 50 }
+    statusFilter !== 'all'
+      ? { status: statusFilter, userId: user?.id, pageSize: 50 }
+      : { userId: user?.id, pageSize: 50 }
   )
   const cancelLeave = useCancelLeaveRequest()
 
@@ -100,7 +104,9 @@ export function MyLeavePage() {
   const submitOvertime = useSubmitOvertime()
   const cancelOvertime = useCancelOvertime()
 
-  // Overtime form state
+  const isAUNZ = user?.regionCode === 'AU' || user?.regionCode === 'NZ'
+
+  // Overtime form state — AU/NZ always use Time In Lieu; other regions choose
   const [otForm, setOTForm] = useState({ date: '', hoursWorked: '', daysRequested: '1', reason: '', compensationType: 'time_off' as 'time_off' | 'cash' })
 
   // Leave history columns
@@ -436,7 +442,8 @@ export function MyLeavePage() {
                 </div>
               </div>
               <p className="mt-4 text-xs text-muted-foreground">
-                When a manager approves your compensation request, the days are credited to your Compensatory Leave (or Time In Lieu for AU/NZ) balance — not annual leave.
+                When a manager approves your compensation request, the days are credited to your{' '}
+                {isAUNZ ? 'Time In Lieu (TIL)' : 'Compensatory Leave'} balance — not annual leave.
               </p>
             </CardContent>
           </Card>
@@ -545,32 +552,40 @@ export function MyLeavePage() {
             </div>
             <div className="space-y-1.5">
               <Label>Compensation Type</Label>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setOTForm({ ...otForm, compensationType: 'time_off' })}
-                  className={`rounded-md border px-3 py-2 text-sm font-medium transition-colors ${
-                    otForm.compensationType === 'time_off'
-                      ? 'border-primary bg-primary/10 text-primary'
-                      : 'border-input bg-background text-muted-foreground hover:bg-accent'
-                  }`}
-                >
-                  Time Off
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setOTForm({ ...otForm, compensationType: 'cash', daysRequested: '1' })}
-                  className={`rounded-md border px-3 py-2 text-sm font-medium transition-colors ${
-                    otForm.compensationType === 'cash'
-                      ? 'border-amber-500 bg-amber-50 text-amber-700'
-                      : 'border-input bg-background text-muted-foreground hover:bg-accent'
-                  }`}
-                >
-                  Cash Payment
-                </button>
-              </div>
-              {otForm.compensationType === 'cash' && (
-                <p className="text-xs text-muted-foreground">Cash payment will be processed by HR/Payroll after approval.</p>
+              {isAUNZ ? (
+                <div className="rounded-md border border-primary bg-primary/5 px-3 py-2 text-sm font-medium text-primary">
+                  Time In Lieu (TIL)
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setOTForm({ ...otForm, compensationType: 'time_off' })}
+                      className={`rounded-md border px-3 py-2 text-sm font-medium transition-colors ${
+                        otForm.compensationType === 'time_off'
+                          ? 'border-primary bg-primary/10 text-primary'
+                          : 'border-input bg-background text-muted-foreground hover:bg-accent'
+                      }`}
+                    >
+                      Compensatory Leave
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setOTForm({ ...otForm, compensationType: 'cash', daysRequested: '1' })}
+                      className={`rounded-md border px-3 py-2 text-sm font-medium transition-colors ${
+                        otForm.compensationType === 'cash'
+                          ? 'border-amber-500 bg-amber-50 text-amber-700'
+                          : 'border-input bg-background text-muted-foreground hover:bg-accent'
+                      }`}
+                    >
+                      Cash Payment
+                    </button>
+                  </div>
+                  {otForm.compensationType === 'cash' && (
+                    <p className="text-xs text-muted-foreground">Cash payment will be processed by HR/Payroll after approval.</p>
+                  )}
+                </>
               )}
             </div>
             <div className="space-y-1.5">

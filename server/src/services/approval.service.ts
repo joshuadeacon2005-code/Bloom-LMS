@@ -369,6 +369,7 @@ export async function getPendingApprovals(
         name: users.name,
         email: users.email,
         avatarUrl: users.avatarUrl,
+        createdAt: users.createdAt,
       },
       leaveType: {
         id: leaveTypes.id,

@@ -12,7 +12,7 @@ export interface PendingApproval {
   reason: string | null
   attachmentUrl: string | null
   submittedAt: string
-  employee: { id: number; name: string; email: string; avatarUrl: string | null }
+  employee: { id: number; name: string; email: string; avatarUrl: string | null; createdAt: string | null }
   leaveType: { id: number; name: string; code: string; isPaid: boolean }
 }
 

@@ -1,7 +1,7 @@
-import { eq, and, ilike, isNull, sql, count } from 'drizzle-orm'
+import { eq, and, ilike, isNull, sql, count, asc } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
 import { db } from '../db/index'
-import { users, regions, departments } from '../db/schema'
+import { users, regions, departments, leavePolicies, leaveBalances, leaveTypes } from '../db/schema'
 import { hashPassword } from '../utils/password'
 import { NotFoundError, ConflictError, AppError } from '../utils/errors'
 
@@ -116,6 +116,13 @@ export async function createUser(data: {
     .returning(safeUserFields)
 
   if (!user) throw new AppError(500, 'Failed to create user')
+
+  // Auto-generate leave balances for the current year
+  await autoGenerateLeaveBalances(user.id, data.regionId).catch((err) => {
+    console.error('[users.service] Failed to auto-generate leave balances:', err)
+    // Non-fatal — HR can add manually if needed
+  })
+
   return user
 }
 
@@ -183,13 +190,14 @@ export async function getUsersForSelect(regionId?: number) {
     .orderBy(users.name)
 }
 
-export async function getManagers(regionId?: number) {
+export async function getManagers(_regionId?: number) {
+  // Always return ALL active managers/HR/super_admin across all regions.
+  // regionId param is intentionally ignored — cross-region reporting exists.
   const conditions = [
     isNull(users.deletedAt),
     eq(users.isActive, true),
     sql`${users.role} IN ('manager', 'hr_admin', 'super_admin')`,
   ]
-  if (regionId !== undefined) conditions.push(eq(users.regionId, regionId))
 
   return db
     .select({
@@ -197,8 +205,41 @@ export async function getManagers(regionId?: number) {
       name: users.name,
       email: users.email,
       role: users.role,
+      regionId: users.regionId,
+      regionName: regions.name,
     })
     .from(users)
+    .leftJoin(regions, eq(users.regionId, regions.id))
     .where(and(...conditions))
-    .orderBy(users.name)
+    .orderBy(asc(users.name))
+}
+
+export async function autoGenerateLeaveBalances(userId: number, regionId: number): Promise<void> {
+  const year = new Date().getFullYear()
+
+  // Get all leave policies for this region
+  const policies = await db
+    .select({
+      leaveTypeId: leavePolicies.leaveTypeId,
+      entitlementDays: leavePolicies.entitlementDays,
+    })
+    .from(leavePolicies)
+    .innerJoin(leaveTypes, eq(leavePolicies.leaveTypeId, leaveTypes.id))
+    .where(and(eq(leavePolicies.regionId, regionId), eq(leaveTypes.isActive, true)))
+
+  for (const policy of policies) {
+    await db
+      .insert(leaveBalances)
+      .values({
+        userId,
+        leaveTypeId: policy.leaveTypeId,
+        year,
+        entitled: policy.entitlementDays,
+        used: '0.0',
+        pending: '0.0',
+        carried: '0.0',
+        adjustments: '0.0',
+      })
+      .onConflictDoNothing()
+  }
 }

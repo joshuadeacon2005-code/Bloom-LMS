@@ -1,7 +1,7 @@
 import crypto from 'crypto'
 import { eq, and } from 'drizzle-orm'
 import { db } from '../db/index'
-import { users, refreshTokens } from '../db/schema'
+import { users, refreshTokens, regions } from '../db/schema'
 import { hashPassword, verifyPassword } from '../utils/password'
 import {
   signAccessToken,
@@ -46,25 +46,41 @@ export async function changePassword(userId: number, currentPassword: string, ne
 }
 
 export async function login(email: string, password: string) {
-  const [user] = await db
-    .select()
+  const [row] = await db
+    .select({
+      id: users.id,
+      email: users.email,
+      name: users.name,
+      passwordHash: users.passwordHash,
+      slackUserId: users.slackUserId,
+      role: users.role,
+      regionId: users.regionId,
+      departmentId: users.departmentId,
+      managerId: users.managerId,
+      isActive: users.isActive,
+      avatarUrl: users.avatarUrl,
+      createdAt: users.createdAt,
+      updatedAt: users.updatedAt,
+      regionCode: regions.code,
+    })
     .from(users)
+    .leftJoin(regions, eq(users.regionId, regions.id))
     .where(and(eq(users.email, email.toLowerCase()), eq(users.isActive, true)))
     .limit(1)
 
-  if (!user) {
+  if (!row) {
     throw new UnauthorizedError('Invalid email or password')
   }
 
-  const valid = await verifyPassword(password, user.passwordHash)
+  const valid = await verifyPassword(password, row.passwordHash)
   if (!valid) {
     throw new UnauthorizedError('Invalid email or password')
   }
 
-  const { accessToken, refreshToken } = buildTokens(user)
-  await storeRefreshToken(user.id, refreshToken)
+  const { accessToken, refreshToken } = buildTokens(row)
+  await storeRefreshToken(row.id, refreshToken)
 
-  const { passwordHash: _, ...safeUser } = user
+  const { passwordHash: _, ...safeUser } = row
   return { user: safeUser, accessToken, refreshToken }
 }
 
@@ -183,8 +199,10 @@ export async function getMe(userId: number) {
       isActive: users.isActive,
       avatarUrl: users.avatarUrl,
       createdAt: users.createdAt,
+      regionCode: regions.code,
     })
     .from(users)
+    .leftJoin(regions, eq(users.regionId, regions.id))
     .where(eq(users.id, userId))
     .limit(1)
 

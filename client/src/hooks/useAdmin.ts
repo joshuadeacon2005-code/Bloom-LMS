@@ -113,14 +113,21 @@ export function useAdminUsers(filters: UserFilters = {}) {
   })
 }
 
-export function useManagers(regionId?: number) {
+export interface ManagerOption {
+  id: number
+  name: string
+  email: string
+  role: string
+  regionId: number
+  regionName: string | null
+}
+
+export function useManagers() {
   return useQuery({
-    queryKey: ['managers', regionId],
+    queryKey: ['managers'],
     queryFn: () =>
       api
-        .get<{ data: AdminUser[] }>('/users/managers', {
-          params: regionId ? { regionId } : {},
-        })
+        .get<{ data: ManagerOption[] }>('/users/managers')
         .then((r) => r.data.data),
   })
 }
@@ -393,5 +400,112 @@ export function useToggleSlackCommands() {
     onError: () => {
       toast.error('Failed to update Slack commands setting')
     },
+  })
+}
+
+// ─── Entitlements ─────────────────────────────────────────────────────────────
+
+export interface EntitlementRow {
+  balanceId: number
+  userId: number
+  userName: string
+  userEmail: string
+  leaveTypeId: number
+  leaveTypeName: string
+  leaveTypeCode: string
+  year: number
+  entitled: string
+  used: string
+  pending: string
+  carried: string
+  adjustments: string
+}
+
+export interface AuditLogEntry {
+  id: number
+  employeeId: number
+  employeeName: string
+  leaveTypeId: number
+  leaveTypeName: string | null
+  fieldChanged: string
+  oldValue: string | null
+  newValue: string | null
+  reason: string
+  changedById: number
+  changedByName: string
+  createdAt: string
+}
+
+export function useEntitlements(regionId?: number, year?: number) {
+  return useQuery({
+    queryKey: ['admin-entitlements', regionId, year],
+    queryFn: () =>
+      api
+        .get<{ data: EntitlementRow[] }>('/admin/entitlements', {
+          params: { ...(regionId ? { regionId } : {}), ...(year ? { year } : {}) },
+        })
+        .then((r) => r.data.data),
+  })
+}
+
+export function useUpdateEntitlement() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (payload: {
+      userId: number
+      leaveTypeId: number
+      year: number
+      field: 'entitled' | 'carried' | 'adjustments'
+      newValue: number
+      reason: string
+    }) =>
+      api
+        .patch<{ data: EntitlementRow }>(`/admin/entitlements/${payload.userId}`, payload)
+        .then((r) => r.data.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin-entitlements'] })
+      toast.success('Entitlement updated')
+    },
+    onError: (e: { response?: { data?: { error?: string } } }) => {
+      toast.error(e.response?.data?.error ?? 'Failed to update entitlement')
+    },
+  })
+}
+
+export function useBulkUpdateEntitlements() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (payload: {
+      updates: Array<{
+        userId: number
+        leaveTypeId: number
+        year: number
+        field: 'entitled' | 'carried' | 'adjustments'
+        newValue: number
+      }>
+      reason: string
+    }) =>
+      api
+        .post<{ data: { updated: number } }>('/admin/entitlements/bulk', payload)
+        .then((r) => r.data.data),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['admin-entitlements'] })
+      toast.success(`${data.updated} entitlement${data.updated === 1 ? '' : 's'} updated`)
+    },
+    onError: (e: { response?: { data?: { error?: string } } }) => {
+      toast.error(e.response?.data?.error ?? 'Failed to bulk update entitlements')
+    },
+  })
+}
+
+export function useEntitlementAudit(employeeId?: number) {
+  return useQuery({
+    queryKey: ['entitlement-audit', employeeId],
+    queryFn: () =>
+      api
+        .get<{ data: AuditLogEntry[] }>('/admin/entitlements/audit', {
+          params: employeeId ? { employeeId } : {},
+        })
+        .then((r) => r.data.data),
   })
 }

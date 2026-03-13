@@ -2,8 +2,8 @@ import { useState } from 'react'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { format, isSameDay } from 'date-fns'
-import { CalendarIcon, Upload } from 'lucide-react'
+import { format, isSameDay, addMonths, parseISO } from 'date-fns'
+import { CalendarIcon, Upload, Info } from 'lucide-react'
 import type { DateRange } from 'react-day-picker'
 import {
   Sheet,
@@ -72,6 +72,12 @@ export function RequestLeaveSheet({ open, onOpenChange }: RequestLeaveSheetProps
   const selectedType = leaveTypes?.find((lt) => lt.id.toString() === selectedTypeId)
   const dateRange = watch('dateRange')
   const halfDay = watch('halfDay')
+
+  const probationEnd = (() => {
+    if (!user?.createdAt || !selectedType?.policy?.probationMonths) return null
+    const end = addMonths(parseISO(user.createdAt), selectedType.policy.probationMonths)
+    return end > new Date() ? end : null
+  })()
 
   const isSingleDay =
     dateRange?.from && (!dateRange.to || isSameDay(dateRange.from, dateRange.to))
@@ -274,6 +280,17 @@ export function RequestLeaveSheet({ open, onOpenChange }: RequestLeaveSheetProps
               )}
             />
           </div>
+
+          {/* Probation notice */}
+          {probationEnd && (
+            <div className="flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800">
+              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>
+                You are currently in your probation period (ends{' '}
+                {format(probationEnd, 'd MMM yyyy')}). Your manager will be informed.
+              </span>
+            </div>
+          )}
 
           {/* Attachment note */}
           {selectedType?.requiresAttachment && (

@@ -7,11 +7,13 @@ import {
   approvalWorkflows,
   publicHolidays,
   users,
+  regions,
 } from '../db/schema'
 import {
   calculateWorkingDays,
   parseDecimal,
   getTodayString,
+  monthsBetween,
 } from '../utils/workingDays'
 import {
   getOrCreateBalance,
@@ -303,6 +305,31 @@ export async function createLeaveRequest(
     )
   }
 
+  // 8b. Check if employee is on probation (for notification purposes only — does NOT block)
+  let probationNotice: string | null = null
+  const [userForProbation] = await db
+    .select({ createdAt: users.createdAt })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1)
+  if (userForProbation) {
+    const monthsEmployed = monthsBetween(new Date(userForProbation.createdAt), new Date())
+    // Check against any relevant policy probation months
+    const [policy] = await db
+      .select({ probationMonths: leavePolicies.probationMonths })
+      .from(leavePolicies)
+      .where(
+        and(eq(leavePolicies.leaveTypeId, data.leaveTypeId), eq(leavePolicies.regionId, user.regionId))
+      )
+      .limit(1)
+    if (policy && policy.probationMonths > 0 && monthsEmployed < policy.probationMonths) {
+      const endDate = new Date(userForProbation.createdAt)
+      endDate.setMonth(endDate.getMonth() + policy.probationMonths)
+      const endStr = endDate.toISOString().split('T')[0]
+      probationNotice = `⚠️ PROBATION NOTICE: This employee is currently in their probation period (ends ${endStr}). Please review accordingly.`
+    }
+  }
+
   // 9. Build approval chain first to get level-1 approver
   const approverChain = await buildApprovalChain(userId, user.regionId, totalDays)
   const level1ApproverId = approverChain[0]?.approverId ?? null
@@ -362,12 +389,22 @@ export async function createLeaveRequest(
         data.endDate
       )
     } else {
+      const notifTitle = overBalanceWarning
+        ? '⚠️ New Leave Request — Insufficient Balance'
+        : probationNotice
+          ? '⚠️ New Leave Request — Probation Employee'
+          : 'New Leave Request Pending Approval'
+      const notifParts = [
+        `${requester?.name ?? 'An employee'} has submitted a ${leaveType.name} request from ${data.startDate} to ${data.endDate} (${totalDays} day${totalDays !== 1 ? 's' : ''}).`,
+        ...(probationNotice ? [`\n${probationNotice}`] : []),
+        ...(overBalanceWarning ? [`\n${overBalanceWarning}`] : []),
+      ]
       await createNotification({
         userId: level1.approverId,
         type: 'leave_submitted',
-        title: overBalanceWarning ? '⚠️ New Leave Request — Insufficient Balance' : 'New Leave Request Pending Approval',
-        message: `${requester?.name ?? 'An employee'} has submitted a ${leaveType.name} request from ${data.startDate} to ${data.endDate} (${totalDays} day${totalDays !== 1 ? 's' : ''}).${overBalanceWarning ? `\n\n${overBalanceWarning}` : ''}`,
-        metadata: { leaveRequestId: request.id, requesterId: userId, overBalance: !!overBalanceWarning },
+        title: notifTitle,
+        message: notifParts.join(''),
+        metadata: { leaveRequestId: request.id, requesterId: userId, overBalance: !!overBalanceWarning, onProbation: !!probationNotice },
       })
     }
   }
@@ -652,25 +689,48 @@ export async function cancelLeaveRequest(
 
 export async function getLeaveTypes(regionId?: number) {
   if (regionId === undefined) {
-    return db.select().from(leaveTypes).orderBy(leaveTypes.name)
+    return db
+      .select()
+      .from(leaveTypes)
+      .where(eq(leaveTypes.isActive, true))
+      .orderBy(leaveTypes.name)
   }
 
+  // Get the region code so we can check regionRestriction
+  const [region] = await db
+    .select({ code: regions.code })
+    .from(regions)
+    .where(eq(regions.id, regionId))
+    .limit(1)
+
+  const regionCode = region?.code ?? ''
+
   // Show a leave type if:
-  //  (a) it is region-specific for this region, OR
-  //  (b) it is global (region_id IS NULL) AND a policy exists for this region
+  //  (a) it is region-specific for this region (legacy regionId field), OR
+  //  (b) it is global (region_id IS NULL) AND:
+  //      - its regionRestriction is NULL (available to all), OR
+  //      - its regionRestriction contains the user's region code
+  //      AND a policy exists for this region
   return db
     .select()
     .from(leaveTypes)
     .where(
-      or(
-        eq(leaveTypes.regionId, regionId),
-        and(
-          isNull(leaveTypes.regionId),
-          sql`EXISTS (
-            SELECT 1 FROM leave_policies lp
-            WHERE lp.leave_type_id = ${leaveTypes.id}
-            AND lp.region_id = ${regionId}
-          )`
+      and(
+        eq(leaveTypes.isActive, true),
+        or(
+          eq(leaveTypes.regionId, regionId),
+          and(
+            isNull(leaveTypes.regionId),
+            or(
+              isNull(leaveTypes.regionRestriction),
+              sql`${leaveTypes.regionRestriction} LIKE ${'%' + regionCode + '%'}`
+            ),
+            sql`EXISTS (
+              SELECT 1 FROM leave_policies lp
+              WHERE lp.leave_type_id = ${leaveTypes.id}
+              AND lp.region_id = ${regionId}
+            )`
+          )
         )
       )
     )

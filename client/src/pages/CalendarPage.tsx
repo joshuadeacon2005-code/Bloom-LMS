@@ -94,7 +94,7 @@ function CalendarDayCell({
           !isCurrentMonth
             ? 'bg-muted/30'
             : isHoliday
-              ? 'bg-amber-50/60 dark:bg-amber-950/20'
+              ? 'bg-red-50/60 dark:bg-red-950/20'
               : weekend
                 ? 'bg-muted/10'
                 : ''
@@ -121,7 +121,7 @@ function CalendarDayCell({
           {dayHolidays.map((h) => (
             <Tooltip key={h.id}>
               <TooltipTrigger asChild>
-                <div className="truncate rounded bg-amber-200/80 px-1 py-0.5 text-xs font-medium text-amber-900 dark:bg-amber-800/60 dark:text-amber-100">
+                <div className="truncate rounded bg-red-200/80 px-1 py-0.5 text-xs font-medium text-red-900 dark:bg-red-800/60 dark:text-red-100">
                   {h.name}
                 </div>
               </TooltipTrigger>
@@ -344,7 +344,7 @@ export function CalendarPage() {
           <div className="flex flex-wrap gap-3 pt-2">
             {monthHolidays.length > 0 && (
               <div className="flex items-center gap-1.5">
-                <div className="h-2.5 w-2.5 rounded-sm bg-amber-400" />
+                <div className="h-2.5 w-2.5 rounded-sm bg-red-500" />
                 <span className="text-xs text-muted-foreground">Public holiday</span>
               </div>
             )}
@@ -416,7 +416,7 @@ export function CalendarPage() {
             <div className="space-y-2">
               {monthHolidays.map((h) => (
                 <div key={h.id} className="flex items-center gap-3">
-                  <div className="min-w-[48px] text-sm font-medium text-amber-700 dark:text-amber-400">
+                  <div className="min-w-[48px] text-sm font-medium text-red-700 dark:text-red-400">
                     {format(new Date(h.date), 'd MMM')}
                   </div>
                   <span className="text-sm">{h.name}</span>

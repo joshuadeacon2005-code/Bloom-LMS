@@ -147,6 +147,17 @@ export const leaveTypes = pgTable(
     maxConsecutiveDays: integer('max_consecutive_days'),
     // null = applies to all regions; set to regionId for region-specific types
     regionId: integer('region_id').references(() => regions.id),
+    // Whether this leave type is visible/usable (soft-disable without deleting)
+    isActive: boolean('is_active').notNull().default(true),
+    // Comma-separated region codes that can use this type, e.g. "AU,NZ" or "CN"
+    // If NULL, available to all regions (in conjunction with leave policies)
+    regionRestriction: varchar('region_restriction', { length: 50 }),
+    // 'days' or 'hours' — hour-based types show hours input
+    unit: varchar('unit', { length: 10 }).notNull().default('days'),
+    // Hex colour for calendar display
+    color: varchar('color', { length: 7 }),
+    // Whether leave deducts from balance (false for WFH, Business Trip, etc.)
+    deductsBalance: boolean('deducts_balance').notNull().default(true),
   },
   (table) => [
     index('leave_types_region_id_idx').on(table.regionId),
@@ -366,6 +377,31 @@ export const overtimeEntries = pgTable(
     index('overtime_entries_date_idx').on(table.date),
     index('overtime_entries_status_idx').on(table.status),
     index('overtime_entries_region_id_idx').on(table.regionId),
+  ]
+)
+
+export const entitlementAuditLog = pgTable(
+  'entitlement_audit_log',
+  {
+    id: integer('id').generatedAlwaysAsIdentity().primaryKey(),
+    employeeId: integer('employee_id')
+      .notNull()
+      .references(() => users.id),
+    leaveTypeId: integer('leave_type_id')
+      .notNull()
+      .references(() => leaveTypes.id),
+    fieldChanged: varchar('field_changed', { length: 20 }).notNull(),
+    oldValue: numeric('old_value', { precision: 5, scale: 1 }),
+    newValue: numeric('new_value', { precision: 5, scale: 1 }),
+    reason: text('reason').notNull(),
+    changedById: integer('changed_by_id')
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('entitlement_audit_log_employee_idx').on(table.employeeId),
+    index('entitlement_audit_log_created_at_idx').on(table.createdAt),
   ]
 )
 

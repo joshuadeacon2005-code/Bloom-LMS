@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { z } from 'zod'
-import { eq, and, isNull } from 'drizzle-orm'
+import { eq, and, isNull, desc } from 'drizzle-orm'
 import { isSlackCommandsEnabled, setSlackCommandsEnabled } from '../slack/settings'
 import { db } from '../db/index'
 import {
@@ -10,6 +10,8 @@ import {
   leavePolicies,
   publicHolidays,
   users,
+  leaveBalances,
+  entitlementAuditLog,
 } from '../db/schema'
 import { authenticate } from '../middleware/auth'
 import { requireRole } from '../middleware/rbac'
@@ -231,7 +233,7 @@ router.delete('/holidays/:id', requireRole('super_admin'), async (req, res, next
 // Slack: bot connection status
 // ============================================================
 
-router.get('/slack/status', requireRole('hr_admin'), async (_req, res, next) => {
+router.get('/slack/status', requireRole('hr_admin'), async (_req, res, _next) => {
   try {
     const slack = getSlackWebClient()
     if (!slack) {
@@ -268,7 +270,7 @@ router.post('/slack/test-dm/:userId', requireRole('hr_admin'), async (req, res, 
       return
     }
 
-    const userId = parseInt(req.params.userId, 10)
+    const userId = parseInt(req.params.userId as string, 10)
     const [user] = await db
       .select({ id: users.id, name: users.name, slackUserId: users.slackUserId })
       .from(users)
@@ -360,6 +362,226 @@ router.post('/slack/commands-enabled', requireRole('super_admin'), (req, res) =>
   setSlackCommandsEnabled(enabled)
   console.log(`[admin] Slack commands ${enabled ? 'enabled' : 'disabled'} by admin`)
   res.json({ success: true, data: { enabled } })
+})
+
+// ============================================================
+// Entitlements
+// ============================================================
+
+// GET /admin/entitlements?regionId=&year=
+router.get('/entitlements', async (req, res, next) => {
+  try {
+    const regionId = req.query.regionId ? parseInt(req.query.regionId as string, 10) : undefined
+    const year = req.query.year ? parseInt(req.query.year as string, 10) : new Date().getFullYear()
+
+    const rows = await db
+      .select({
+        balanceId: leaveBalances.id,
+        userId: users.id,
+        userName: users.name,
+        userEmail: users.email,
+        leaveTypeId: leaveTypes.id,
+        leaveTypeName: leaveTypes.name,
+        leaveTypeCode: leaveTypes.code,
+        year: leaveBalances.year,
+        entitled: leaveBalances.entitled,
+        used: leaveBalances.used,
+        pending: leaveBalances.pending,
+        carried: leaveBalances.carried,
+        adjustments: leaveBalances.adjustments,
+      })
+      .from(leaveBalances)
+      .innerJoin(users, eq(leaveBalances.userId, users.id))
+      .innerJoin(leaveTypes, eq(leaveBalances.leaveTypeId, leaveTypes.id))
+      .where(
+        and(
+          eq(leaveBalances.year, year),
+          ...(regionId ? [eq(users.regionId, regionId)] : []),
+          isNull(users.deletedAt),
+          eq(users.isActive, true),
+          eq(leaveTypes.isActive, true)
+        )
+      )
+      .orderBy(users.name, leaveTypes.name)
+
+    const response: ApiResponse<typeof rows> = { success: true, data: rows }
+    res.json(response)
+  } catch (err) {
+    next(err)
+  }
+})
+
+const updateEntitlementSchema = z.object({
+  leaveTypeId: z.number().int().positive(),
+  year: z.number().int().min(2020).max(2030),
+  field: z.enum(['entitled', 'carried', 'adjustments']),
+  newValue: z.number().min(0).max(365),
+  reason: z.string().min(1).max(500),
+})
+
+// PATCH /admin/entitlements/:userId
+router.patch('/entitlements/:userId', validate(updateEntitlementSchema), async (req, res, next) => {
+  try {
+    const userId = parseInt(req.params.userId as string, 10)
+    const { leaveTypeId, year, field, newValue, reason } = req.body as z.infer<typeof updateEntitlementSchema>
+    const changedById = req.user!.userId
+
+    const [existing] = await db
+      .select({ id: leaveBalances.id, entitled: leaveBalances.entitled, carried: leaveBalances.carried, adjustments: leaveBalances.adjustments })
+      .from(leaveBalances)
+      .where(and(eq(leaveBalances.userId, userId), eq(leaveBalances.leaveTypeId, leaveTypeId), eq(leaveBalances.year, year)))
+      .limit(1)
+
+    if (!existing) {
+      // Create balance row if it doesn't exist
+      await db.insert(leaveBalances).values({
+        userId,
+        leaveTypeId,
+        year,
+        entitled: '0.0',
+        used: '0.0',
+        pending: '0.0',
+        carried: '0.0',
+        adjustments: '0.0',
+      })
+    }
+
+    const oldValue = existing ? parseFloat(existing[field as keyof typeof existing] as string) : 0
+    await db
+      .update(leaveBalances)
+      .set({ [field]: newValue.toFixed(1) })
+      .where(and(eq(leaveBalances.userId, userId), eq(leaveBalances.leaveTypeId, leaveTypeId), eq(leaveBalances.year, year)))
+
+    await db.insert(entitlementAuditLog).values({
+      employeeId: userId,
+      leaveTypeId,
+      fieldChanged: field,
+      oldValue: oldValue.toFixed(1),
+      newValue: newValue.toFixed(1),
+      reason,
+      changedById,
+    })
+
+    const [updated] = await db
+      .select()
+      .from(leaveBalances)
+      .where(and(eq(leaveBalances.userId, userId), eq(leaveBalances.leaveTypeId, leaveTypeId), eq(leaveBalances.year, year)))
+      .limit(1)
+
+    const response: ApiResponse<typeof updated> = { success: true, data: updated }
+    res.json(response)
+  } catch (err) {
+    next(err)
+  }
+})
+
+// POST /admin/entitlements/bulk
+const bulkUpdateSchema = z.object({
+  updates: z.array(z.object({
+    userId: z.number().int().positive(),
+    leaveTypeId: z.number().int().positive(),
+    year: z.number().int().min(2020).max(2030),
+    field: z.enum(['entitled', 'carried', 'adjustments']),
+    newValue: z.number().min(0).max(365),
+  })).min(1).max(200),
+  reason: z.string().min(1).max(500),
+})
+
+router.post('/entitlements/bulk', validate(bulkUpdateSchema), async (req, res, next) => {
+  try {
+    const { updates, reason } = req.body as z.infer<typeof bulkUpdateSchema>
+    const changedById = req.user!.userId
+    let count = 0
+
+    for (const u of updates) {
+      const [existing] = await db
+        .select({ id: leaveBalances.id, entitled: leaveBalances.entitled, carried: leaveBalances.carried, adjustments: leaveBalances.adjustments })
+        .from(leaveBalances)
+        .where(and(eq(leaveBalances.userId, u.userId), eq(leaveBalances.leaveTypeId, u.leaveTypeId), eq(leaveBalances.year, u.year)))
+        .limit(1)
+
+      if (!existing) {
+        await db.insert(leaveBalances).values({
+          userId: u.userId,
+          leaveTypeId: u.leaveTypeId,
+          year: u.year,
+          entitled: '0.0',
+          used: '0.0',
+          pending: '0.0',
+          carried: '0.0',
+          adjustments: '0.0',
+        })
+      }
+
+      const oldValue = existing ? parseFloat(existing[u.field as keyof typeof existing] as string) : 0
+      await db
+        .update(leaveBalances)
+        .set({ [u.field]: u.newValue.toFixed(1) })
+        .where(and(eq(leaveBalances.userId, u.userId), eq(leaveBalances.leaveTypeId, u.leaveTypeId), eq(leaveBalances.year, u.year)))
+
+      await db.insert(entitlementAuditLog).values({
+        employeeId: u.userId,
+        leaveTypeId: u.leaveTypeId,
+        fieldChanged: u.field,
+        oldValue: oldValue.toFixed(1),
+        newValue: u.newValue.toFixed(1),
+        reason,
+        changedById,
+      })
+      count++
+    }
+
+    const response: ApiResponse<{ updated: number }> = { success: true, data: { updated: count } }
+    res.json(response)
+  } catch (err) {
+    next(err)
+  }
+})
+
+// GET /admin/entitlements/audit?employeeId=&page=&pageSize=
+router.get('/entitlements/audit', async (req, res, next) => {
+  try {
+    const employeeId = req.query.employeeId ? parseInt(req.query.employeeId as string, 10) : undefined
+    const page = req.query.page ? parseInt(req.query.page as string, 10) : 1
+    const pageSize = Math.min(req.query.pageSize ? parseInt(req.query.pageSize as string, 10) : 50, 100)
+    const offset = (page - 1) * pageSize
+
+    const rows = await db
+      .select({
+        id: entitlementAuditLog.id,
+        fieldChanged: entitlementAuditLog.fieldChanged,
+        oldValue: entitlementAuditLog.oldValue,
+        newValue: entitlementAuditLog.newValue,
+        reason: entitlementAuditLog.reason,
+        createdAt: entitlementAuditLog.createdAt,
+        employeeId: entitlementAuditLog.employeeId,
+        leaveTypeId: entitlementAuditLog.leaveTypeId,
+        leaveTypeName: leaveTypes.name,
+        changedById: entitlementAuditLog.changedById,
+      })
+      .from(entitlementAuditLog)
+      .leftJoin(leaveTypes, eq(entitlementAuditLog.leaveTypeId, leaveTypes.id))
+      .where(employeeId ? eq(entitlementAuditLog.employeeId, employeeId) : undefined)
+      .orderBy(desc(entitlementAuditLog.createdAt))
+      .limit(pageSize)
+      .offset(offset)
+
+    // Build id→name map from all users (small table)
+    const userMap: Record<number, string> = {}
+    const nameRows = await db.select({ id: users.id, name: users.name }).from(users)
+    nameRows.forEach(u => { userMap[u.id] = u.name })
+
+    const enriched = rows.map(r => ({
+      ...r,
+      employeeName: userMap[r.employeeId] ?? 'Unknown',
+      changedByName: userMap[r.changedById] ?? 'Unknown',
+    }))
+
+    const response: ApiResponse<typeof enriched> = { success: true, data: enriched }
+    res.json(response)
+  } catch (err) {
+    next(err)
+  }
 })
 
 export default router

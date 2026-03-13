@@ -1,8 +1,8 @@
 import { eq, and, sql } from 'drizzle-orm'
 import { db } from '../db/index'
-import { leaveBalances, leavePolicies, users, leaveTypes } from '../db/schema'
-import { parseDecimal, monthsBetween } from '../utils/workingDays'
-import { AppError, ValidationError } from '../utils/errors'
+import { leaveBalances, leavePolicies, leaveTypes, users } from '../db/schema'
+import { parseDecimal } from '../utils/workingDays'
+import { AppError } from '../utils/errors'
 
 // ============================================================
 // Types
@@ -168,28 +168,7 @@ export async function getOrCreateBalance(
     )
   }
 
-  // Probation check
-  if (policy.probationMonths > 0) {
-    const [user] = await db
-      .select({ createdAt: users.createdAt })
-      .from(users)
-      .where(eq(users.id, userId))
-      .limit(1)
-
-    if (user) {
-      const months = monthsBetween(new Date(user.createdAt), new Date())
-      if (months < policy.probationMonths) {
-        const [lt] = await db
-          .select({ name: leaveTypes.name })
-          .from(leaveTypes)
-          .where(eq(leaveTypes.id, leaveTypeId))
-          .limit(1)
-        throw new ValidationError(
-          `You are in your probation period. ${lt?.name ?? 'This leave type'} is available after ${policy.probationMonths} months of employment.`
-        )
-      }
-    }
-  }
+  // Note: probation is no longer blocking — it's handled as a warning in the approval notification.
 
   // Pro-rata entitlement for the current year
   let entitlement = parseDecimal(policy.entitlementDays)
