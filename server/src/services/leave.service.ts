@@ -14,7 +14,6 @@ import {
   calculateCalendarDays,
   parseDecimal,
   getTodayString,
-  monthsBetween,
 } from '../utils/workingDays'
 import {
   getOrCreateBalance,

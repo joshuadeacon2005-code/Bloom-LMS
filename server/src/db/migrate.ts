@@ -887,6 +887,48 @@ export async function runMigrations(): Promise<void> {
       WHERE code IN ('BFL_CN', 'CARE_CN', 'CL_CN', 'PARL_CN', 'PEL_CN', 'SPL_CN')
     `)
 
+    // ── Phase 5: New features from commit 1ac7036 ────────────────────────────
+    // min_unit column on leave_types (minimum booking unit: 1_day/half_day/2_hours/1_hour)
+    await client.query(`ALTER TABLE leave_types ADD COLUMN IF NOT EXISTS min_unit VARCHAR(10) NOT NULL DEFAULT '1_day'`)
+
+    // start_time / end_time on leave_requests (for hourly/sub-day bookings)
+    await client.query(`ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS start_time TIME`)
+    await client.query(`ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS end_time TIME`)
+
+    // Entitlement tiers — per-policy tiered entitlements for named staff
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS policy_entitlement_tiers (
+        id INTEGER PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+        leave_policy_id INTEGER NOT NULL REFERENCES leave_policies(id) ON DELETE CASCADE,
+        entitlement_days NUMERIC(5,1) NOT NULL,
+        label TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS policy_tier_assignments (
+        id INTEGER PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+        tier_id INTEGER NOT NULL REFERENCES policy_entitlement_tiers(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (tier_id, user_id)
+      )
+    `)
+
+    // Unique constraint on public_holidays (region_id, date) — idempotent check before adding
+    await client.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'public_holidays_region_date_unique'
+            AND conrelid = 'public_holidays'::regclass
+        ) THEN
+          ALTER TABLE public_holidays ADD CONSTRAINT public_holidays_region_date_unique UNIQUE (region_id, date);
+        END IF;
+      END $$;
+    `)
+
     console.log('[migrate] Migrations complete')
   } catch (err) {
     console.error('[migrate] Migration error:', err)

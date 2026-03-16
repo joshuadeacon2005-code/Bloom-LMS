@@ -3,7 +3,7 @@ import pg from 'pg'
   const employeeData: Array<{
     name: string
     email: string
-    role: 'employee' | 'manager' | 'hr_admin'
+    role: 'employee' | 'manager' | 'hr_admin' | 'super_admin'
     regionCode: string
     managerEmail: string | null
   }> = [

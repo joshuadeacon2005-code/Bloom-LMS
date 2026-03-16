@@ -6,12 +6,11 @@ import {
   users,
   regions,
   compLeaveRules,
-  publicHolidays,
 } from '../db/schema'
 import { addAdjustment } from './balance.service'
 import { createNotification } from './notification.service'
 import { ValidationError, NotFoundError, ForbiddenError } from '../utils/errors'
-import { parseDecimal, parseDate, formatDate } from '../utils/workingDays'
+import { parseDecimal, formatDate } from '../utils/workingDays'
 
 // ============================================================
 // Types
@@ -35,15 +34,6 @@ async function getUserRegionCode(userId: number): Promise<string> {
     .where(eq(users.id, userId))
     .limit(1)
   return u?.code ?? ''
-}
-
-async function isPublicHoliday(regionId: number, dateStr: string): Promise<boolean> {
-  const [row] = await db
-    .select({ id: publicHolidays.id })
-    .from(publicHolidays)
-    .where(and(eq(publicHolidays.regionId, regionId), eq(publicHolidays.date, dateStr)))
-    .limit(1)
-  return !!row
 }
 
 // Local HR reps by region code. Stable across environments (matched by email).
