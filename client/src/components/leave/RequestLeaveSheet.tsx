@@ -3,7 +3,7 @@ import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { format, isSameDay } from 'date-fns'
-import { CalendarIcon, Upload, Info } from 'lucide-react'
+import { CalendarIcon, Upload, Info, Clock } from 'lucide-react'
 import type { DateRange } from 'react-day-picker'
 import {
   Sheet,
@@ -25,10 +25,18 @@ import {
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
+import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
-import { useLeaveTypes } from '@/hooks/useLeaveTypes'
+import { useLeaveTypes, useCalculateDays } from '@/hooks/useLeaveTypes'
 import { useCreateLeaveRequest } from '@/hooks/useLeaveRequests'
 import { useAuthStore } from '@/stores/authStore'
+
+// Half-hour time slots from 07:30 to 19:00
+const TIME_SLOTS: string[] = []
+for (let h = 7; h <= 19; h++) {
+  TIME_SLOTS.push(`${String(h).padStart(2, '0')}:00`)
+  if (h < 19) TIME_SLOTS.push(`${String(h).padStart(2, '0')}:30`)
+}
 
 const schema = z.object({
   leaveTypeId: z.string().min(1, 'Please select a leave type'),
@@ -40,6 +48,8 @@ const schema = z.object({
     .refine((d) => d.from, { message: 'Please select a start date' }),
   halfDay: z.boolean().default(false),
   halfDayPeriod: z.enum(['AM', 'PM']).optional(),
+  startTime: z.string().optional(),
+  endTime: z.string().optional(),
   reason: z.string().max(1000).optional(),
 })
 
@@ -65,18 +75,43 @@ export function RequestLeaveSheet({ open, onOpenChange }: RequestLeaveSheetProps
     setValue,
   } = useForm<FormData>({
     resolver: zodResolver(schema),
-    defaultValues: { reason: '', halfDay: false, halfDayPeriod: 'AM' },
+    defaultValues: { reason: '', halfDay: false, halfDayPeriod: 'AM', startTime: '09:00', endTime: '10:00' },
   })
 
   const selectedTypeId = watch('leaveTypeId')
   const selectedType = leaveTypes?.find((lt) => lt.id.toString() === selectedTypeId)
   const dateRange = watch('dateRange')
   const halfDay = watch('halfDay')
+  const startTime = watch('startTime')
+  const endTime = watch('endTime')
 
   const isOnProbation = user?.isOnProbation ?? false
 
   const isSingleDay =
     dateRange?.from && (!dateRange.to || isSameDay(dateRange.from, dateRange.to))
+
+  // Determine if this leave type uses hourly booking
+  const minUnit = selectedType?.minUnit ?? '1_day'
+  const isHourly = minUnit === '1_hour' || minUnit === '2_hours'
+  const isHalfDayUnit = minUnit === 'half_day'
+
+  // Build date strings for the API
+  const startDateStr = dateRange?.from ? format(dateRange.from, 'yyyy-MM-dd') : undefined
+  const endDateStr = dateRange?.to
+    ? format(dateRange.to, 'yyyy-MM-dd')
+    : startDateStr
+
+  const halfDayPeriodWatch = watch('halfDayPeriod')
+  const halfDayPeriodForCalc = (halfDay && isSingleDay) ? halfDayPeriodWatch : undefined
+
+  // Live day count
+  const { data: dayCalc, isFetching: calcFetching } = useCalculateDays({
+    startDate: startDateStr,
+    endDate: endDateStr,
+    leaveTypeId: selectedType?.id,
+    halfDayPeriod: halfDayPeriodForCalc,
+    regionId: user?.regionId,
+  })
 
   const onSubmit = async (data: FormData) => {
     const startDate = format(data.dateRange.from, 'yyyy-MM-dd')
@@ -85,7 +120,7 @@ export function RequestLeaveSheet({ open, onOpenChange }: RequestLeaveSheetProps
       : startDate
 
     const halfDayPeriod =
-      data.halfDay && isSingleDay ? (data.halfDayPeriod ?? 'AM') : undefined
+      (data.halfDay || isHalfDayUnit) && isSingleDay ? (data.halfDayPeriod ?? 'AM') : undefined
 
     await createRequest.mutateAsync({
       leaveTypeId: parseInt(data.leaveTypeId, 10),
@@ -93,6 +128,7 @@ export function RequestLeaveSheet({ open, onOpenChange }: RequestLeaveSheetProps
       endDate,
       halfDayPeriod: halfDayPeriod ?? null,
       reason: data.reason || undefined,
+      ...(isHourly ? { startTime: data.startTime ?? null, endTime: data.endTime ?? null } : {}),
     })
 
     reset()
@@ -149,7 +185,7 @@ export function RequestLeaveSheet({ open, onOpenChange }: RequestLeaveSheetProps
 
           {/* Date Range */}
           <div className="space-y-1.5">
-            <Label>Dates</Label>
+            <Label>{isHourly ? 'Date period' : 'Dates'}</Label>
             <Controller
               name="dateRange"
               control={control}
@@ -203,26 +239,77 @@ export function RequestLeaveSheet({ open, onOpenChange }: RequestLeaveSheetProps
             )}
           </div>
 
-          {/* Half-day option — only when a single day is selected */}
-          {isSingleDay && (
+          {/* Hourly time slot — shown when minUnit is 1_hour or 2_hours */}
+          {isHourly && (
+            <div className="rounded-md border bg-muted/30 p-3 space-y-3">
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <Clock className="h-4 w-4 text-muted-foreground" />
+                Daily time slot
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Start time</Label>
+                  <Controller
+                    name="startTime"
+                    control={control}
+                    render={({ field }) => (
+                      <Select value={field.value} onValueChange={field.onChange}>
+                        <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+                        <SelectContent className="max-h-48">
+                          {TIME_SLOTS.map((t) => (
+                            <SelectItem key={t} value={t}>{t}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">End time</Label>
+                  <Controller
+                    name="endTime"
+                    control={control}
+                    render={({ field }) => (
+                      <Select value={field.value} onValueChange={field.onChange}>
+                        <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+                        <SelectContent className="max-h-48">
+                          {TIME_SLOTS.filter((t) => !startTime || t > startTime).map((t) => (
+                            <SelectItem key={t} value={t}>{t}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                This daily time slot applies to each day in the period selected above.
+              </p>
+            </div>
+          )}
+
+          {/* Half-day option — shown when minUnit is half_day, or 1_day with a single day selected */}
+          {!isHourly && isSingleDay && (isHalfDayUnit || minUnit === '1_day') && (
             <div className="space-y-2 rounded-md border bg-muted/30 p-3">
-              <Controller
-                name="halfDay"
-                control={control}
-                render={({ field }) => (
-                  <div className="flex items-center gap-2">
-                    <Switch
-                      checked={field.value}
-                      onCheckedChange={field.onChange}
-                      id="half-day-toggle"
-                    />
-                    <Label htmlFor="half-day-toggle" className="cursor-pointer">
-                      Half day only
-                    </Label>
-                  </div>
-                )}
-              />
-              {halfDay && (
+              {!isHalfDayUnit && (
+                <Controller
+                  name="halfDay"
+                  control={control}
+                  render={({ field }) => (
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                        id="half-day-toggle"
+                      />
+                      <Label htmlFor="half-day-toggle" className="cursor-pointer">
+                        Half day only
+                      </Label>
+                    </div>
+                  )}
+                />
+              )}
+              {(halfDay || isHalfDayUnit) && (
                 <Controller
                   name="halfDayPeriod"
                   control={control}
@@ -254,6 +341,33 @@ export function RequestLeaveSheet({ open, onOpenChange }: RequestLeaveSheetProps
                   )}
                 />
               )}
+            </div>
+          )}
+
+          {/* Live day count */}
+          {startDateStr && endDateStr && selectedType && (
+            <div className="rounded-md border bg-blue-50 border-blue-200 px-3 py-2.5 text-sm">
+              {calcFetching ? (
+                <div className="flex items-center gap-2">
+                  <Skeleton className="h-4 w-4 rounded-full" />
+                  <Skeleton className="h-4 w-32" />
+                </div>
+              ) : dayCalc ? (
+                <div className="space-y-1">
+                  <div className="flex items-center gap-1.5 font-medium text-blue-800">
+                    <CalendarIcon className="h-3.5 w-3.5" />
+                    {dayCalc.totalDays === 0.5
+                      ? '0.5 days (half day)'
+                      : `${dayCalc.totalDays} ${selectedType.dayCalculation === 'calendar_days' ? 'calendar' : 'working'} day${dayCalc.totalDays !== 1 ? 's' : ''}`}
+                  </div>
+                  {dayCalc.excludedDates.length > 0 && (
+                    <p className="text-xs text-blue-700">
+                      Excludes: {dayCalc.excludedDates.slice(0, 4).join(', ')}
+                      {dayCalc.excludedDates.length > 4 && ` +${dayCalc.excludedDates.length - 4} more`}
+                    </p>
+                  )}
+                </div>
+              ) : null}
             </div>
           )}
 

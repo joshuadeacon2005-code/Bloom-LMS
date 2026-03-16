@@ -4,6 +4,7 @@ import { authenticate } from '../middleware/auth'
 import { requireRole } from '../middleware/rbac'
 import { validate } from '../middleware/validate'
 import { db } from '../db'
+import { generateXlsx } from '../utils/xlsx'
 import {
   leaveRequests,
   leaveBalances,
@@ -28,6 +29,7 @@ const payrollQuerySchema = z.object({
   year: z.coerce.number().int().min(2020).max(2100).default(new Date().getFullYear()),
   month: z.coerce.number().int().min(1).max(12).optional(),
   regionId: z.coerce.number().int().positive().optional(),
+  format: z.enum(['csv', 'xlsx']).default('csv'),
 })
 
 // GET /api/reports/utilisation
@@ -218,7 +220,7 @@ router.get(
   validate(payrollQuerySchema, 'query'),
   async (req, res, next) => {
     try {
-      const { year, month, regionId } = req.query as unknown as z.infer<typeof payrollQuerySchema>
+      const { year, month, regionId, format } = req.query as unknown as z.infer<typeof payrollQuerySchema>
 
       const userFilters = [eq(users.isActive, true)]
       if (regionId) userFilters.push(eq(users.regionId, regionId))
@@ -229,9 +231,20 @@ router.get(
         .where(and(...userFilters))
 
       const userIds = filteredUsers.map((u) => u.id)
+
+      const baseName = month
+        ? `payroll-${year}-${String(month).padStart(2, '0')}`
+        : `payroll-${year}`
+
       if (userIds.length === 0) {
+        if (format === 'xlsx') {
+          const buf = generateXlsx([], 'Payroll')
+          res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+          res.setHeader('Content-Disposition', `attachment; filename="${baseName}.xlsx"`)
+          return res.send(buf)
+        }
         res.setHeader('Content-Type', 'text/csv')
-        res.setHeader('Content-Disposition', 'attachment; filename="payroll.csv"')
+        res.setHeader('Content-Disposition', `attachment; filename="${baseName}.csv"`)
         return res.send('Employee,Email,Department,Region,Leave Type,Start Date,End Date,Days\n')
       }
 
@@ -268,6 +281,23 @@ router.get(
         )
         .orderBy(users.name, leaveRequests.startDate)
 
+      if (format === 'xlsx') {
+        const xlsxData = rows.map((r) => ({
+          Employee: r.employeeName,
+          Email: r.employeeEmail,
+          Department: r.departmentName ?? '',
+          Region: r.regionCode,
+          'Leave Type': r.leaveTypeName,
+          'Start Date': r.startDate,
+          'End Date': r.endDate,
+          Days: Number(r.totalDays),
+        }))
+        const buf = generateXlsx(xlsxData, 'Payroll')
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        res.setHeader('Content-Disposition', `attachment; filename="${baseName}.xlsx"`)
+        return res.send(buf)
+      }
+
       const header = 'Employee,Email,Department,Region,Leave Type,Start Date,End Date,Days\n'
       const csvRows = rows
         .map((r) =>
@@ -284,12 +314,8 @@ router.get(
         )
         .join('\n')
 
-      const filename = month
-        ? `payroll-${year}-${String(month).padStart(2, '0')}.csv`
-        : `payroll-${year}.csv`
-
       res.setHeader('Content-Type', 'text/csv')
-      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
+      res.setHeader('Content-Disposition', `attachment; filename="${baseName}.csv"`)
       res.send(header + csvRows)
     } catch (err) {
       next(err)
@@ -303,11 +329,12 @@ const leaveRequestExportSchema = z.object({
   regionId: z.coerce.number().int().positive().optional(),
   leaveTypeId: z.coerce.number().int().positive().optional(),
   status: z.enum(['all', 'pending', 'approved', 'rejected', 'cancelled']).default('all'),
+  format: z.enum(['csv', 'xlsx']).default('csv'),
 })
 
 router.get('/export/leave-requests', validate(leaveRequestExportSchema, 'query'), async (req, res, next) => {
   try {
-    const { year, regionId, leaveTypeId, status } = req.query as unknown as z.infer<typeof leaveRequestExportSchema>
+    const { year, regionId, leaveTypeId, status, format } = req.query as unknown as z.infer<typeof leaveRequestExportSchema>
 
     const startDate = `${year}-01-01`
     const endDate = `${year}-12-31`
@@ -320,8 +347,6 @@ router.get('/export/leave-requests', validate(leaveRequestExportSchema, 'query')
     if (regionId) conditions.push(eq(users.regionId, regionId))
     if (leaveTypeId) conditions.push(eq(leaveRequests.leaveTypeId, leaveTypeId))
 
-    // approvedBy alias
-    const approvedByUsers = users as typeof users
     const rows = await db
       .select({
         employeeName: users.name,
@@ -340,6 +365,26 @@ router.get('/export/leave-requests', validate(leaveRequestExportSchema, 'query')
       .where(and(...conditions))
       .orderBy(users.name, leaveRequests.startDate)
 
+    const regionSuffix = regionId ? `_region${regionId}` : '_all_regions'
+    const baseName = `leave_requests_${year}${regionSuffix}`
+
+    if (format === 'xlsx') {
+      const xlsxData = rows.map((r) => ({
+        Employee: r.employeeName,
+        Region: r.regionCode,
+        'Leave Type': r.leaveTypeName,
+        'Start Date': r.startDate,
+        'End Date': r.endDate,
+        Days: Number(r.totalDays),
+        Status: r.status,
+        Reason: r.reason ?? '',
+      }))
+      const buf = generateXlsx(xlsxData, 'Leave Requests')
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      res.setHeader('Content-Disposition', `attachment; filename="${baseName}.xlsx"`)
+      return res.send(buf)
+    }
+
     const csvHeader = 'Employee,Region,Leave Type,Start Date,End Date,Days,Status,Reason\n'
     const csvRows = rows.map((r) =>
       [
@@ -354,11 +399,8 @@ router.get('/export/leave-requests', validate(leaveRequestExportSchema, 'query')
       ].join(',')
     ).join('\n')
 
-    const regionSuffix = regionId ? `_region${regionId}` : '_all_regions'
-    const filename = `leave_requests_${year}${regionSuffix}.csv`
-
     res.setHeader('Content-Type', 'text/csv')
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
+    res.setHeader('Content-Disposition', `attachment; filename="${baseName}.csv"`)
     res.send(csvHeader + csvRows)
   } catch (err) {
     next(err)
@@ -369,11 +411,12 @@ router.get('/export/leave-requests', validate(leaveRequestExportSchema, 'query')
 const entitlementExportSchema = z.object({
   year: z.coerce.number().int().min(2020).max(2100).default(new Date().getFullYear()),
   regionId: z.coerce.number().int().positive().optional(),
+  format: z.enum(['csv', 'xlsx']).default('csv'),
 })
 
 router.get('/export/entitlements', validate(entitlementExportSchema, 'query'), async (req, res, next) => {
   try {
-    const { year, regionId } = req.query as unknown as z.infer<typeof entitlementExportSchema>
+    const { year, regionId, format } = req.query as unknown as z.infer<typeof entitlementExportSchema>
 
     const conditions = [eq(leaveBalances.year, year), eq(users.isActive, true)]
     if (regionId) conditions.push(eq(users.regionId, regionId))
@@ -396,6 +439,35 @@ router.get('/export/entitlements', validate(entitlementExportSchema, 'query'), a
       .where(and(...conditions))
       .orderBy(users.name, leaveTypes.name)
 
+    const regionSuffix = regionId ? `_region${regionId}` : '_all_regions'
+    const baseName = `entitlements_${year}${regionSuffix}`
+
+    if (format === 'xlsx') {
+      const xlsxData = rows.map((r) => {
+        const entitled = parseFloat(r.entitled)
+        const used = parseFloat(r.used)
+        const adj = parseFloat(r.adjustments)
+        const carried = parseFloat(r.carried)
+        const pending = parseFloat(r.pending)
+        const remaining = parseFloat((entitled + carried + adj - used - pending).toFixed(1))
+        return {
+          Employee: r.employeeName,
+          Region: r.regionCode,
+          'Leave Type': r.leaveTypeName,
+          Entitlement: parseFloat(entitled.toFixed(1)),
+          Used: parseFloat(used.toFixed(1)),
+          Adjustment: parseFloat(adj.toFixed(1)),
+          'Carried Over': parseFloat(carried.toFixed(1)),
+          Pending: parseFloat(pending.toFixed(1)),
+          Remaining: remaining,
+        }
+      })
+      const buf = generateXlsx(xlsxData, 'Entitlements')
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      res.setHeader('Content-Disposition', `attachment; filename="${baseName}.xlsx"`)
+      return res.send(buf)
+    }
+
     const csvHeader = 'Employee,Region,Leave Type,Entitlement,Used,Adjustment,Carried Over,Pending,Remaining\n'
     const csvRows = rows.map((r) => {
       const entitled = parseFloat(r.entitled)
@@ -417,11 +489,8 @@ router.get('/export/entitlements', validate(entitlementExportSchema, 'query'), a
       ].join(',')
     }).join('\n')
 
-    const regionSuffix = regionId ? `_region${regionId}` : '_all_regions'
-    const filename = `entitlements_${year}${regionSuffix}.csv`
-
     res.setHeader('Content-Type', 'text/csv')
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
+    res.setHeader('Content-Disposition', `attachment; filename="${baseName}.csv"`)
     res.send(csvHeader + csvRows)
   } catch (err) {
     next(err)

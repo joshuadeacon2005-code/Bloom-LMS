@@ -166,6 +166,8 @@ export const leaveTypes = pgTable(
     staffRestriction: text('staff_restriction'),
     // 'working_days' (default) or 'calendar_days' (e.g. maternity leave)
     dayCalculation: varchar('day_calculation', { length: 20 }).notNull().default('working_days'),
+    // Minimum booking unit: '1_day' | 'half_day' | '2_hours' | '1_hour'
+    minUnit: varchar('min_unit', { length: 10 }).notNull().default('1_day'),
   },
   (table) => [
     index('leave_types_region_id_idx').on(table.regionId),
@@ -247,6 +249,9 @@ export const leaveRequests = pgTable(
     // For hourly leave types (e.g. Breastfeeding Leave CN) — daily recurring time slot
     dailyStartTime: time('daily_start_time'),
     dailyEndTime: time('daily_end_time'),
+    // Time-of-day for hour/sub-day leave bookings
+    startTime: time('start_time'),
+    endTime: time('end_time'),
     approvalStep: integer('approval_step').notNull().default(1),
     currentApproverId: integer('current_approver_id').references((): AnyPgColumn => users.id),
     ...timestamps,
@@ -418,6 +423,23 @@ export const entitlementAuditLog = pgTable(
   ]
 )
 
+export const policyEntitlementTiers = pgTable('policy_entitlement_tiers', {
+  id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+  leavePolicyId: integer('leave_policy_id').notNull().references(() => leavePolicies.id, { onDelete: 'cascade' }),
+  entitlementDays: numeric('entitlement_days', { precision: 5, scale: 1 }).notNull(),
+  label: text('label'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
+export const policyTierAssignments = pgTable('policy_tier_assignments', {
+  id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+  tierId: integer('tier_id').notNull().references(() => policyEntitlementTiers.id, { onDelete: 'cascade' }),
+  userId: integer('user_id').notNull().references(() => users.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  unique('policy_tier_assignments_tier_user_unique').on(table.tierId, table.userId),
+])
+
 export const compLeaveRules = pgTable('comp_leave_rules', {
   id: integer('id').generatedAlwaysAsIdentity().primaryKey(),
   regionId: integer('region_id')
@@ -484,12 +506,32 @@ export const leaveTypesRelations = relations(leaveTypes, ({ one, many }) => ({
   leaveRequests: many(leaveRequests),
 }))
 
-export const leavePoliciesRelations = relations(leavePolicies, ({ one }) => ({
+export const leavePoliciesRelations = relations(leavePolicies, ({ one, many }) => ({
   leaveType: one(leaveTypes, {
     fields: [leavePolicies.leaveTypeId],
     references: [leaveTypes.id],
   }),
   region: one(regions, { fields: [leavePolicies.regionId], references: [regions.id] }),
+  tiers: many(policyEntitlementTiers),
+}))
+
+export const policyEntitlementTiersRelations = relations(policyEntitlementTiers, ({ one, many }) => ({
+  policy: one(leavePolicies, {
+    fields: [policyEntitlementTiers.leavePolicyId],
+    references: [leavePolicies.id],
+  }),
+  assignments: many(policyTierAssignments),
+}))
+
+export const policyTierAssignmentsRelations = relations(policyTierAssignments, ({ one }) => ({
+  tier: one(policyEntitlementTiers, {
+    fields: [policyTierAssignments.tierId],
+    references: [policyEntitlementTiers.id],
+  }),
+  user: one(users, {
+    fields: [policyTierAssignments.userId],
+    references: [users.id],
+  }),
 }))
 
 export const leaveBalancesRelations = relations(leaveBalances, ({ one }) => ({

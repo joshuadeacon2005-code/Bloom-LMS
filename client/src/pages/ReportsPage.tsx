@@ -28,9 +28,9 @@ import {
 import {
   useUtilisationReport,
   useDepartmentSummary,
-  downloadPayrollCsv,
-  downloadLeaveRequestsCsv,
-  downloadEntitlementsCsv,
+  downloadPayrollXlsx,
+  downloadLeaveRequestsXlsx,
+  downloadEntitlementsXlsx,
 } from '@/hooks/useReports'
 
 const MONTHS = [
@@ -124,7 +124,7 @@ export function ReportsPage() {
   async function handleExport() {
     setExporting(true)
     try {
-      await downloadPayrollCsv({
+      await downloadPayrollXlsx({
         year,
         month: exportMonth ? Number(exportMonth) : undefined,
       })
@@ -139,7 +139,7 @@ export function ReportsPage() {
   async function handleExportLeaveRequests() {
     setExportingLR(true)
     try {
-      await downloadLeaveRequestsCsv({ year, status: lrStatus })
+      await downloadLeaveRequestsXlsx({ year, status: lrStatus })
       toast.success('Export downloaded')
     } catch {
       toast.error('Export failed')
@@ -151,7 +151,7 @@ export function ReportsPage() {
   async function handleExportEntitlements() {
     setExportingEnt(true)
     try {
-      await downloadEntitlementsCsv({ year })
+      await downloadEntitlementsXlsx({ year })
       toast.success('Export downloaded')
     } catch {
       toast.error('Export failed')
@@ -231,7 +231,7 @@ export function ReportsPage() {
               <TabsTrigger value="utilisation">Leave Utilisation</TabsTrigger>
               <TabsTrigger value="trends">Monthly Trends</TabsTrigger>
               <TabsTrigger value="departments">By Department</TabsTrigger>
-              <TabsTrigger value="export">Payroll Export</TabsTrigger>
+              <TabsTrigger value="export">Exports</TabsTrigger>
             </TabsList>
 
             {/* Utilisation by leave type */}
@@ -398,7 +398,7 @@ export function ReportsPage() {
               {/* Payroll export */}
               <Card>
                 <CardHeader>
-                  <CardTitle>Payroll CSV</CardTitle>
+                  <CardTitle>Payroll Export</CardTitle>
                   <CardDescription>Approved leave records for payroll processing</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -428,7 +428,7 @@ export function ReportsPage() {
                   </div>
                   <Button onClick={handleExport} disabled={exporting} className="w-full sm:w-auto">
                     <Download className="mr-2 h-4 w-4" />
-                    {exporting ? 'Exporting…' : `Download — ${year}${exportMonth ? ` ${MONTHS[Number(exportMonth) - 1]}` : ''}`}
+                    {exporting ? 'Exporting…' : `Download XLSX — ${year}${exportMonth ? ` ${MONTHS[Number(exportMonth) - 1]}` : ''}`}
                   </Button>
                 </CardContent>
               </Card>
@@ -436,7 +436,7 @@ export function ReportsPage() {
               {/* Leave requests export */}
               <Card>
                 <CardHeader>
-                  <CardTitle>Leave Requests CSV</CardTitle>
+                  <CardTitle>Leave Requests Export</CardTitle>
                   <CardDescription>All leave requests across all regions</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -468,7 +468,7 @@ export function ReportsPage() {
                   </div>
                   <Button onClick={handleExportLeaveRequests} disabled={exportingLR} className="w-full sm:w-auto">
                     <Download className="mr-2 h-4 w-4" />
-                    {exportingLR ? 'Exporting…' : `Download — ${year} (${lrStatus})`}
+                    {exportingLR ? 'Exporting…' : `Download XLSX — ${year} (${lrStatus})`}
                   </Button>
                 </CardContent>
               </Card>
@@ -476,7 +476,7 @@ export function ReportsPage() {
               {/* Entitlements export */}
               <Card>
                 <CardHeader>
-                  <CardTitle>Entitlements CSV</CardTitle>
+                  <CardTitle>Entitlements Export</CardTitle>
                   <CardDescription>Leave balances and entitlements for all employees</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -493,7 +493,7 @@ export function ReportsPage() {
                   </div>
                   <Button onClick={handleExportEntitlements} disabled={exportingEnt} className="w-full sm:w-auto">
                     <Download className="mr-2 h-4 w-4" />
-                    {exportingEnt ? 'Exporting…' : `Download — ${year}`}
+                    {exportingEnt ? 'Exporting…' : `Download XLSX — ${year}`}
                   </Button>
                 </CardContent>
               </Card>

@@ -207,6 +207,8 @@ export async function createLeaveRequest(
     halfDayPeriod?: 'AM' | 'PM' | null
     reason?: string
     attachmentUrl?: string
+    startTime?: string | null
+    endTime?: string | null
   }
 ) {
   // 1. Get user
@@ -231,6 +233,20 @@ export async function createLeaveRequest(
     .limit(1)
 
   if (!leaveType) throw new ValidationError('This leave type is not available in your region')
+
+  // Check regionRestriction (comma-separated region codes)
+  if (leaveType.regionRestriction) {
+    const [userRegion] = await db
+      .select({ code: regions.code })
+      .from(regions)
+      .where(eq(regions.id, user.regionId))
+      .limit(1)
+    const userCode = userRegion?.code ?? ''
+    const allowedCodes = leaveType.regionRestriction.split(',').map((s) => s.trim())
+    if (!allowedCodes.includes(userCode)) {
+      throw new ValidationError('This leave type is not available in your region')
+    }
+  }
 
   // Check staff restriction
   if (leaveType.staffRestriction) {
@@ -317,6 +333,8 @@ export async function createLeaveRequest(
         status: 'approved',
         attachmentUrl: data.attachmentUrl,
         approvalStep: 1,
+        startTime: data.startTime ?? null,
+        endTime: data.endTime ?? null,
       })
       .returning()
 
@@ -378,6 +396,8 @@ export async function createLeaveRequest(
       attachmentUrl: data.attachmentUrl,
       approvalStep: 1,
       currentApproverId: level1ApproverId,
+      startTime: data.startTime ?? null,
+      endTime: data.endTime ?? null,
     })
     .returning()
 
@@ -752,7 +772,12 @@ export async function getLeaveTypes(regionId?: number) {
             isNull(leaveTypes.regionId),
             or(
               isNull(leaveTypes.regionRestriction),
-              sql`${leaveTypes.regionRestriction} LIKE ${'%' + regionCode + '%'}`
+              sql`(
+                ${leaveTypes.regionRestriction} = ${regionCode}
+                OR ${leaveTypes.regionRestriction} LIKE ${regionCode + ',%'}
+                OR ${leaveTypes.regionRestriction} LIKE ${'%,' + regionCode + ',%'}
+                OR ${leaveTypes.regionRestriction} LIKE ${'%,' + regionCode}
+              )`
             ),
             sql`EXISTS (
               SELECT 1 FROM leave_policies lp

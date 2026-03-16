@@ -44,11 +44,13 @@ export interface LeaveType {
   requiresAttachment: boolean
   maxDaysPerYear: number | null
   regionId: number | null
+  regionRestriction: string | null
   approvalFlow: 'standard' | 'auto_approve' | 'hr_required' | 'multi_level'
   minNoticeDays: number
   maxConsecutiveDays: number | null
   dayCalculation: 'working_days' | 'calendar_days'
   staffRestriction: string | null
+  minUnit: '1_day' | 'half_day' | '2_hours' | '1_hour'
 }
 
 export interface LeavePolicy {
@@ -68,6 +70,14 @@ export interface PublicHoliday {
   name: string
   date: string
   regionId: number
+  isRecurring: boolean
+}
+
+export interface CreateHolidayInput {
+  name: string
+  date: string
+  /** A specific region ID, or "CN" to insert for both CN-GZ and CN-SH */
+  regionId: number | 'CN'
   isRecurring: boolean
 }
 
@@ -332,11 +342,11 @@ export function useHolidays(regionId?: number, year?: number) {
 export function useCreateHoliday() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (data: Omit<PublicHoliday, 'id'>) =>
-      api.post<{ data: PublicHoliday }>('/admin/holidays', data).then((r) => r.data.data),
-    onSuccess: () => {
+    mutationFn: (data: CreateHolidayInput) =>
+      api.post<{ data: PublicHoliday | PublicHoliday[] }>('/admin/holidays', data).then((r) => r.data.data),
+    onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: ['admin-holidays'] })
-      toast.success('Holiday added')
+      toast.success(variables.regionId === 'CN' ? 'Holiday added for all China regions' : 'Holiday added')
     },
     onError: (e: { response?: { data?: { error?: string } } }) => {
       toast.error(e.response?.data?.error ?? 'Failed to add holiday')
@@ -494,7 +504,8 @@ export function useUpdateEntitlement() {
       leaveTypeId: number
       year: number
       field: 'entitled' | 'carried' | 'adjustments'
-      newValue: number
+      newValue?: number
+      delta?: number
       reason: string
     }) =>
       api
@@ -545,5 +556,68 @@ export function useEntitlementAudit(employeeId?: number) {
           params: employeeId ? { employeeId } : {},
         })
         .then((r) => r.data.data),
+  })
+}
+
+// ─── Policy Entitlement Tiers ─────────────────────────────────────────────────
+
+export interface PolicyTier {
+  id: number
+  entitlementDays: string
+  label: string | null
+  users: Array<{ id: number; name: string; regionCode: string }>
+}
+
+export function usePolicyTiers(policyId: number | undefined) {
+  return useQuery({
+    queryKey: ['policy-tiers', policyId],
+    queryFn: () =>
+      api
+        .get<{ data: PolicyTier[] }>(`/admin/policies/${policyId}/tiers`)
+        .then((r) => r.data.data),
+    enabled: !!policyId,
+  })
+}
+
+export function useCreateTier() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ policyId, data }: { policyId: number; data: { entitlementDays: number; label?: string | null; userIds: number[] } }) =>
+      api.post(`/admin/policies/${policyId}/tiers`, data).then((r) => r.data),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['policy-tiers', vars.policyId] })
+      toast.success('Tier added')
+    },
+    onError: (e: { response?: { data?: { error?: string } } }) => {
+      toast.error(e.response?.data?.error ?? 'Failed to add tier')
+    },
+  })
+}
+
+export function useUpdateTier() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ policyId, tierId, data }: { policyId: number; tierId: number; data: { entitlementDays: number; label?: string | null; userIds: number[] } }) =>
+      api.put(`/admin/policies/${policyId}/tiers/${tierId}`, data).then((r) => r.data),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['policy-tiers', vars.policyId] })
+      toast.success('Tier updated')
+    },
+    onError: (e: { response?: { data?: { error?: string } } }) => {
+      toast.error(e.response?.data?.error ?? 'Failed to update tier')
+    },
+  })
+}
+
+export function useDeleteTier() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ policyId, tierId }: { policyId: number; tierId: number }) =>
+      api.delete(`/admin/policies/${policyId}/tiers/${tierId}`).then((r) => r.data),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ['policy-tiers', vars.policyId] })
+      toast.success('Tier deleted')
+    },
+    onError: () => toast.error('Failed to delete tier'),
   })
 }

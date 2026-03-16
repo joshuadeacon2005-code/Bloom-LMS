@@ -79,14 +79,20 @@ import {
   useUpdateEntitlement,
   useBulkUpdateEntitlements,
   useEntitlementAudit,
+  usePolicyTiers,
+  useCreateTier,
+  useUpdateTier,
+  useDeleteTier,
   type SlackSyncResult,
   type AdminUser,
   type LeaveType,
   type LeavePolicy,
   type PublicHoliday,
+  type CreateHolidayInput,
   type ManagerOption,
   type EntitlementRow,
   type AuditLogEntry,
+  type PolicyTier,
 } from '@/hooks/useAdmin'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -644,13 +650,187 @@ const leaveTypeSchema = z.object({
   requiresAttachment: z.boolean(),
   maxDaysPerYear: z.string().optional(),
   regionId: z.string().optional(),
+  regionRestriction: z.array(z.string()).optional(),
   approvalFlow: z.enum(['standard', 'auto_approve', 'hr_required', 'multi_level']),
   minNoticeDays: z.string().optional(),
   maxConsecutiveDays: z.string().optional(),
   dayCalculation: z.enum(['working_days', 'calendar_days']).default('working_days'),
-  staffRestriction: z.string().optional(),
+  staffRestriction: z.array(z.string()).optional(),
+  minUnit: z.enum(['1_day', 'half_day', '2_hours', '1_hour']).default('1_day'),
 })
 type LeaveTypeFormData = z.infer<typeof leaveTypeSchema>
+
+// ─── Region Multi-Select ──────────────────────────────────────────────────────
+
+const ALL_REGIONS = [
+  { code: 'HK', label: 'Hong Kong' },
+  { code: 'SG', label: 'Singapore' },
+  { code: 'MY', label: 'Malaysia' },
+  { code: 'ID', label: 'Indonesia' },
+  { code: 'CN-GZ', label: 'China - Guangzhou' },
+  { code: 'CN-SH', label: 'China - Shanghai' },
+  { code: 'AU', label: 'Australia' },
+  { code: 'NZ', label: 'New Zealand' },
+]
+
+function RegionMultiSelect({
+  value,
+  onChange,
+}: {
+  value: string[]
+  onChange: (v: string[]) => void
+}) {
+  const allSelected = value.length === 0 || value.length === ALL_REGIONS.length
+
+  function toggleAll() {
+    onChange(allSelected ? [] : ALL_REGIONS.map((r) => r.code))
+  }
+
+  function toggle(code: string) {
+    if (value.includes(code)) {
+      const next = value.filter((c) => c !== code)
+      onChange(next)
+    } else {
+      onChange([...value, code])
+    }
+  }
+
+  return (
+    <div className="rounded-md border p-3 space-y-2">
+      <div className="flex items-center gap-2">
+        <Checkbox
+          id="region-all"
+          checked={allSelected}
+          onCheckedChange={toggleAll}
+        />
+        <label htmlFor="region-all" className="text-sm font-medium cursor-pointer select-none">
+          All Regions
+        </label>
+      </div>
+      <div className="grid grid-cols-2 gap-1.5 pt-1 border-t">
+        {ALL_REGIONS.map((r) => (
+          <div key={r.code} className="flex items-center gap-2">
+            <Checkbox
+              id={`region-${r.code}`}
+              checked={allSelected || value.includes(r.code)}
+              onCheckedChange={() => {
+                // When currently all-selected, toggling one means "deselect all others"
+                if (allSelected) {
+                  onChange(ALL_REGIONS.map((x) => x.code).filter((c) => c !== r.code))
+                } else {
+                  toggle(r.code)
+                }
+              }}
+            />
+            <label htmlFor={`region-${r.code}`} className="text-xs cursor-pointer select-none">
+              {r.label}
+            </label>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ─── Staff Multi-Select ───────────────────────────────────────────────────────
+
+function StaffMultiSelect({
+  value,
+  onChange,
+  allUsers,
+}: {
+  value: string[]
+  onChange: (v: string[]) => void
+  allUsers: Array<{ id: number; name: string; regionCode?: string }>
+}) {
+  const [search, setSearch] = useState('')
+
+  const filtered = allUsers.filter((u) =>
+    u.name.toLowerCase().includes(search.toLowerCase())
+  )
+
+  function toggle(id: string) {
+    if (value.includes(id)) {
+      onChange(value.filter((v) => v !== id))
+    } else {
+      onChange([...value, id])
+    }
+  }
+
+  function remove(id: string) {
+    onChange(value.filter((v) => v !== id))
+  }
+
+  const selectedUsers = value
+    .map((id) => allUsers.find((u) => String(u.id) === id))
+    .filter(Boolean) as Array<{ id: number; name: string; regionCode?: string }>
+
+  return (
+    <div className="space-y-2">
+      {selectedUsers.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {selectedUsers.map((u) => (
+            <span
+              key={u.id}
+              className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary"
+            >
+              {u.name}
+              <button
+                type="button"
+                className="ml-0.5 rounded-full hover:bg-primary/20 p-0.5"
+                onClick={() => remove(String(u.id))}
+                aria-label={`Remove ${u.name}`}
+              >
+                ×
+              </button>
+            </span>
+          ))}
+          <button
+            type="button"
+            className="text-xs text-muted-foreground hover:text-destructive"
+            onClick={() => onChange([])}
+          >
+            Clear all
+          </button>
+        </div>
+      )}
+      <div className="rounded-md border">
+        <div className="p-2 border-b">
+          <Input
+            placeholder="Search employees…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="h-7 text-xs"
+          />
+        </div>
+        <div className="max-h-40 overflow-y-auto p-1 space-y-0.5">
+          {filtered.length === 0 && (
+            <p className="text-xs text-muted-foreground px-2 py-2">No employees found</p>
+          )}
+          {filtered.map((u) => (
+            <div
+              key={u.id}
+              className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-muted/50 cursor-pointer"
+              onClick={() => toggle(String(u.id))}
+            >
+              <Checkbox
+                checked={value.includes(String(u.id))}
+                onCheckedChange={() => toggle(String(u.id))}
+                id={`staff-${u.id}`}
+              />
+              <label htmlFor={`staff-${u.id}`} className="text-xs cursor-pointer select-none flex-1">
+                {u.name}
+                {u.regionCode && (
+                  <span className="ml-1.5 text-muted-foreground">— {u.regionCode}</span>
+                )}
+              </label>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
 
 function LeaveTypeDialog({
   open,
@@ -662,12 +842,20 @@ function LeaveTypeDialog({
   editing: LeaveType | null
 }) {
   const { data: regions } = useRegions()
+  const { data: adminUsersData } = useAdminUsers({ pageSize: 500, isActive: true })
   const createLT = useCreateLeaveType()
   const updateLT = useUpdateLeaveType()
 
+  // Build user list enriched with region code for display
+  const allUsers = (adminUsersData?.data ?? []).map((u) => ({
+    id: u.id,
+    name: u.name,
+    regionCode: regions?.find((r) => r.id === u.regionId)?.code,
+  }))
+
   const { register, control, handleSubmit, reset, formState: { errors } } = useForm<LeaveTypeFormData>({
     resolver: zodResolver(leaveTypeSchema),
-    defaultValues: { isPaid: true, requiresAttachment: false, approvalFlow: 'standard', minNoticeDays: '0', dayCalculation: 'working_days' },
+    defaultValues: { isPaid: true, requiresAttachment: false, approvalFlow: 'standard', minNoticeDays: '0', dayCalculation: 'working_days', regionRestriction: [], staffRestriction: [], minUnit: '1_day' },
   })
 
   useEffect(() => {
@@ -680,18 +868,29 @@ function LeaveTypeDialog({
         requiresAttachment: editing.requiresAttachment,
         maxDaysPerYear: editing.maxDaysPerYear ? String(editing.maxDaysPerYear) : '',
         regionId: editing.regionId ? String(editing.regionId) : '',
+        regionRestriction: editing.regionRestriction ? editing.regionRestriction.split(',').map((s) => s.trim()).filter(Boolean) : [],
         approvalFlow: editing.approvalFlow ?? 'standard',
         minNoticeDays: editing.minNoticeDays !== undefined ? String(editing.minNoticeDays) : '0',
         maxConsecutiveDays: editing.maxConsecutiveDays ? String(editing.maxConsecutiveDays) : '',
         dayCalculation: editing.dayCalculation ?? 'working_days',
-        staffRestriction: editing.staffRestriction ?? '',
+        staffRestriction: editing.staffRestriction ? editing.staffRestriction.split(',').map((s) => s.trim()).filter(Boolean) : [],
+        minUnit: (editing as LeaveType & { minUnit?: LeaveTypeFormData['minUnit'] }).minUnit ?? '1_day',
       })
     } else if (open && !editing) {
-      reset({ isPaid: true, requiresAttachment: false, approvalFlow: 'standard', minNoticeDays: '0', dayCalculation: 'working_days', staffRestriction: '' })
+      reset({ isPaid: true, requiresAttachment: false, approvalFlow: 'standard', minNoticeDays: '0', dayCalculation: 'working_days', regionRestriction: [], staffRestriction: [], minUnit: '1_day' })
     }
   }, [open, editing, reset])
 
   async function onSubmit(data: LeaveTypeFormData) {
+    const selectedRegions = data.regionRestriction ?? []
+    const regionRestrictionValue =
+      selectedRegions.length === 0 || selectedRegions.length === ALL_REGIONS.length
+        ? null
+        : selectedRegions.join(',')
+
+    const selectedStaff = data.staffRestriction ?? []
+    const staffRestrictionValue = selectedStaff.length === 0 ? null : selectedStaff.join(',')
+
     const payload = {
       name: data.name,
       code: data.code.toUpperCase(),
@@ -700,11 +899,13 @@ function LeaveTypeDialog({
       requiresAttachment: data.requiresAttachment,
       maxDaysPerYear: data.maxDaysPerYear ? Number(data.maxDaysPerYear) : null,
       regionId: data.regionId && data.regionId !== '__none__' ? Number(data.regionId) : null,
+      regionRestriction: regionRestrictionValue,
       approvalFlow: data.approvalFlow,
       minNoticeDays: data.minNoticeDays ? Number(data.minNoticeDays) : 0,
       maxConsecutiveDays: data.maxConsecutiveDays ? Number(data.maxConsecutiveDays) : null,
       dayCalculation: data.dayCalculation,
-      staffRestriction: data.staffRestriction || null,
+      staffRestriction: staffRestrictionValue,
+      minUnit: data.minUnit,
     }
     if (editing) {
       await updateLT.mutateAsync({ id: editing.id, data: payload })
@@ -719,7 +920,7 @@ function LeaveTypeDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{editing ? 'Edit Leave Type' : 'New Leave Type'}</DialogTitle>
         </DialogHeader>
@@ -748,7 +949,7 @@ function LeaveTypeDialog({
               <Input {...register('maxDaysPerYear')} type="number" min="1" placeholder="Unlimited" />
             </div>
             <div className="space-y-1.5">
-              <Label>Region <span className="text-muted-foreground text-xs">(optional)</span></Label>
+              <Label>Legacy region <span className="text-muted-foreground text-xs">(optional)</span></Label>
               <Controller
                 name="regionId"
                 control={control}
@@ -765,6 +966,20 @@ function LeaveTypeDialog({
                 )}
               />
             </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>
+              Region restriction{' '}
+              <span className="text-muted-foreground text-xs">(leave all checked = all regions)</span>
+            </Label>
+            <Controller
+              name="regionRestriction"
+              control={control}
+              render={({ field }) => (
+                <RegionMultiSelect value={field.value ?? []} onChange={field.onChange} />
+              )}
+            />
           </div>
 
           <div className="space-y-1.5">
@@ -815,8 +1030,40 @@ function LeaveTypeDialog({
           </div>
 
           <div className="space-y-1.5">
-            <Label>Staff restriction <span className="text-muted-foreground text-xs">(optional — comma-separated user IDs)</span></Label>
-            <Input {...register('staffRestriction')} placeholder="e.g. 12,34,56 — blank = all staff" />
+            <Label>Minimum booking unit</Label>
+            <Controller
+              name="minUnit"
+              control={control}
+              render={({ field }) => (
+                <Select value={field.value || '1_day'} onValueChange={field.onChange}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1_day">Full day (1 day)</SelectItem>
+                    <SelectItem value="half_day">Half day</SelectItem>
+                    <SelectItem value="2_hours">2 hours</SelectItem>
+                    <SelectItem value="1_hour">1 hour</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>
+              Staff restriction{' '}
+              <span className="text-muted-foreground text-xs">(optional — blank = all staff)</span>
+            </Label>
+            <Controller
+              name="staffRestriction"
+              control={control}
+              render={({ field }) => (
+                <StaffMultiSelect
+                  value={field.value ?? []}
+                  onChange={field.onChange}
+                  allUsers={allUsers}
+                />
+              )}
+            />
           </div>
 
           <div className="flex gap-6">
@@ -857,7 +1104,6 @@ function LeaveTypeDialog({
 function LeaveTypesTab() {
   const { user: me } = useAuthStore()
   const isHrAdmin = me?.role === 'hr_admin' || me?.role === 'super_admin'
-  const isSuperAdmin = me?.role === 'super_admin'
   const { data: regions } = useRegions()
   const [filterRegion, setFilterRegion] = useState<string>('__none__')
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -868,9 +1114,6 @@ function LeaveTypesTab() {
   const { data: leaveTypes, isLoading } = useAdminLeaveTypes(
     filterRegion && filterRegion !== '__none__' ? Number(filterRegion) : undefined
   )
-
-  const regionName = (id: number | null) =>
-    id ? (regions?.find((r) => r.id === id)?.name ?? '—') : 'All regions'
 
   return (
     <div className="space-y-4">
@@ -921,7 +1164,19 @@ function LeaveTypesTab() {
                     <td className="px-4 py-3">
                       <code className="rounded bg-muted px-1.5 py-0.5 text-xs">{lt.code}</code>
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground">{regionName(lt.regionId)}</td>
+                    <td className="px-4 py-3">
+                      {lt.regionRestriction ? (
+                        <div className="flex flex-wrap gap-1">
+                          {lt.regionRestriction.split(',').map((code) => (
+                            <Badge key={code} variant="outline" className="text-xs px-1.5 py-0">
+                              {code.trim()}
+                            </Badge>
+                          ))}
+                        </div>
+                      ) : (
+                        <Badge variant="secondary" className="text-xs">All Regions</Badge>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-muted-foreground text-xs">
                       {lt.approvalFlow === 'standard' ? 'Standard' :
                        lt.approvalFlow === 'auto_approve' ? 'Auto-Approve' :
@@ -953,7 +1208,7 @@ function LeaveTypesTab() {
                           >
                             <Pencil className="h-3.5 w-3.5" />
                           </Button>
-                          {isSuperAdmin && (
+                          {isHrAdmin && (
                             <Button
                               size="icon"
                               variant="ghost"
@@ -1049,6 +1304,50 @@ function PolicyDialog({
   const isEntitlementUnlimited = watch('entitlementUnlimited')
   const isCarryoverUnlimited = watch('carryoverUnlimited')
 
+  // Tier management state
+  const { data: tiers = [], isLoading: tiersLoading } = usePolicyTiers(open ? policy.id : undefined)
+  const createTier = useCreateTier()
+  const updateTier = useUpdateTier()
+  const deleteTier = useDeleteTier()
+  const { data: adminUsersData } = useAdminUsers({ pageSize: 500, isActive: true })
+  const { data: tierRegions } = useRegions()
+  const allUsersForTiers = (adminUsersData?.data ?? []).map((u) => ({
+    id: u.id,
+    name: u.name,
+    regionCode: tierRegions?.find((r) => r.id === u.regionId)?.code,
+  }))
+
+  const [tierFormOpen, setTierFormOpen] = useState<'add' | number | null>(null)
+  const [tierDays, setTierDays] = useState('')
+  const [tierLabel, setTierLabel] = useState('')
+  const [tierUserIds, setTierUserIds] = useState<string[]>([])
+
+  function openAddTier() {
+    setTierDays('')
+    setTierLabel('')
+    setTierUserIds([])
+    setTierFormOpen('add')
+  }
+
+  function openEditTier(tier: PolicyTier) {
+    setTierDays(tier.entitlementDays)
+    setTierLabel(tier.label ?? '')
+    setTierUserIds(tier.users.map((u) => String(u.id)))
+    setTierFormOpen(tier.id)
+  }
+
+  async function saveTier() {
+    const days = parseFloat(tierDays)
+    if (isNaN(days) || days < 0) return
+    const userIds = tierUserIds.map(Number)
+    if (tierFormOpen === 'add') {
+      await createTier.mutateAsync({ policyId: policy.id, data: { entitlementDays: days, label: tierLabel || null, userIds } })
+    } else if (typeof tierFormOpen === 'number') {
+      await updateTier.mutateAsync({ policyId: policy.id, tierId: tierFormOpen, data: { entitlementDays: days, label: tierLabel || null, userIds } })
+    }
+    setTierFormOpen(null)
+  }
+
   async function onSubmit(data: PolicyFormData) {
     await upsert.mutateAsync({
       id: policy.id,
@@ -1066,9 +1365,11 @@ function PolicyDialog({
     onOpenChange(false)
   }
 
+  const tierSaving = createTier.isPending || updateTier.isPending
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Edit Policy</DialogTitle>
           <p className="text-sm text-muted-foreground pt-1">
@@ -1126,6 +1427,122 @@ function PolicyDialog({
               <Input {...register('accrualRate')} placeholder="e.g. 1.1667" />
             </div>
           </div>
+
+          {/* Staff Entitlement Tiers */}
+          <div className="space-y-2 border-t pt-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium">Staff Entitlement Tiers</p>
+                <p className="text-xs text-muted-foreground">
+                  Default: {policy.entitlementUnlimited ? 'Unlimited' : `${policy.entitlementDays} days`} (applies to all staff not in a tier)
+                </p>
+              </div>
+            </div>
+
+            {tiersLoading ? (
+              <div className="space-y-1.5">
+                <Skeleton className="h-8 w-full" />
+                <Skeleton className="h-8 w-full" />
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                {tiers.map((tier) => (
+                  <div key={tier.id} className="flex items-start justify-between rounded-md border bg-muted/30 px-3 py-2">
+                    <div className="space-y-0.5">
+                      <span className="text-sm font-medium">{tier.entitlementDays} days</span>
+                      {tier.label && <span className="ml-2 text-xs text-muted-foreground">{tier.label}</span>}
+                      {tier.users.length > 0 ? (
+                        <div className="flex flex-wrap gap-1 pt-0.5">
+                          {tier.users.map((u) => (
+                            <span key={u.id} className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">
+                              {u.name}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-muted-foreground italic">No staff assigned</p>
+                      )}
+                    </div>
+                    <div className="flex shrink-0 gap-1 ml-2">
+                      <Button type="button" size="icon" variant="ghost" className="h-6 w-6" onClick={() => openEditTier(tier)}>
+                        <Pencil className="h-3 w-3" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="h-6 w-6 text-destructive hover:text-destructive"
+                        disabled={deleteTier.isPending}
+                        onClick={() => deleteTier.mutate({ policyId: policy.id, tierId: tier.id })}
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+
+                {/* Inline tier form */}
+                {tierFormOpen !== null && (
+                  <div className="rounded-md border bg-muted/20 p-3 space-y-2">
+                    <p className="text-xs font-medium text-muted-foreground">
+                      {tierFormOpen === 'add' ? 'New tier' : 'Edit tier'}
+                    </p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-1">
+                        <Label className="text-xs">Days</Label>
+                        <Input
+                          type="number"
+                          step="0.5"
+                          min="0"
+                          placeholder="e.g. 15"
+                          value={tierDays}
+                          onChange={(e) => setTierDays(e.target.value)}
+                          className="h-8 text-sm"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Label <span className="text-muted-foreground">(optional)</span></Label>
+                        <Input
+                          placeholder="e.g. Senior Staff"
+                          value={tierLabel}
+                          onChange={(e) => setTierLabel(e.target.value)}
+                          className="h-8 text-sm"
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Assign staff</Label>
+                      <StaffMultiSelect
+                        value={tierUserIds}
+                        onChange={setTierUserIds}
+                        allUsers={allUsersForTiers}
+                      />
+                    </div>
+                    <div className="flex gap-2 pt-1">
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={tierSaving || !tierDays || isNaN(parseFloat(tierDays))}
+                        onClick={saveTier}
+                      >
+                        {tierSaving ? 'Saving…' : 'Save'}
+                      </Button>
+                      <Button type="button" size="sm" variant="outline" onClick={() => setTierFormOpen(null)}>
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {tierFormOpen === null && (
+                  <Button type="button" size="sm" variant="outline" className="w-full" onClick={openAddTier}>
+                    <Plus className="mr-1.5 h-3.5 w-3.5" /> Add Tier
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
+
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
             <Button type="submit" disabled={upsert.isPending}>
@@ -1140,7 +1557,7 @@ function PolicyDialog({
 
 function PoliciesTab() {
   const { user: me } = useAuthStore()
-  const isSuperAdmin = me?.role === 'super_admin'
+  const isHrAdmin = me?.role === 'hr_admin' || me?.role === 'super_admin'
   const { data: regions } = useRegions()
   const { data: leaveTypes } = useAdminLeaveTypes()
   const [regionId, setRegionId] = useState<string>('__none__')
@@ -1211,7 +1628,7 @@ function PoliciesTab() {
                         >
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
-                        {isSuperAdmin && (
+                        {isHrAdmin && (
                           <Button
                             size="icon"
                             variant="ghost"
@@ -1279,6 +1696,7 @@ function PoliciesTab() {
 const holidaySchema = z.object({
   name: z.string().min(2, 'Name required'),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD format'),
+  // "CN" means all China regions; otherwise a numeric region ID as string
   regionId: z.string().min(1, 'Region required'),
   isRecurring: z.boolean(),
 })
@@ -1287,27 +1705,32 @@ type HolidayFormData = z.infer<typeof holidaySchema>
 function HolidayDialog({
   open,
   onOpenChange,
-  regionId,
+  defaultRegionId,
 }: {
   open: boolean
   onOpenChange: (v: boolean) => void
-  regionId: string
+  defaultRegionId?: string
 }) {
   const { data: regions } = useRegions()
   const createHoliday = useCreateHoliday()
 
   const { register, control, handleSubmit, reset, formState: { errors } } = useForm<HolidayFormData>({
     resolver: zodResolver(holidaySchema),
-    defaultValues: { regionId, isRecurring: false },
+    defaultValues: { regionId: defaultRegionId ?? '', isRecurring: false },
   })
 
+  useEffect(() => {
+    if (open) reset({ regionId: defaultRegionId ?? '', isRecurring: false, name: '', date: '' })
+  }, [open, defaultRegionId, reset])
+
   async function onSubmit(data: HolidayFormData) {
-    await createHoliday.mutateAsync({
+    const payload: CreateHolidayInput = {
       name: data.name,
       date: data.date,
-      regionId: Number(data.regionId),
+      regionId: data.regionId === 'CN' ? 'CN' : Number(data.regionId),
       isRecurring: data.isRecurring,
-    })
+    }
+    await createHoliday.mutateAsync(payload)
     reset()
     onOpenChange(false)
   }
@@ -1338,7 +1761,11 @@ function HolidayDialog({
                 <Select value={field.value} onValueChange={field.onChange}>
                   <SelectTrigger><SelectValue placeholder="Select region" /></SelectTrigger>
                   <SelectContent>
-                    {regions?.map((r) => (
+                    <SelectItem value="CN">China (all — GZ &amp; SH)</SelectItem>
+                    {regions?.filter((r) => !r.code.startsWith('CN')).map((r) => (
+                      <SelectItem key={r.id} value={String(r.id)}>{r.name}</SelectItem>
+                    ))}
+                    {regions?.filter((r) => r.code.startsWith('CN')).map((r) => (
                       <SelectItem key={r.id} value={String(r.id)}>{r.name}</SelectItem>
                     ))}
                   </SelectContent>
@@ -1369,14 +1796,23 @@ function HolidayDialog({
   )
 }
 
+interface GroupedHoliday {
+  key: string
+  name: string
+  date: string
+  regionLabel: string
+  isRecurring: boolean
+  ids: number[]
+}
+
 function HolidaysTab() {
   const { user: me } = useAuthStore()
-  const isSuperAdmin = me?.role === 'super_admin'
+  const isHrAdmin = me?.role === 'hr_admin' || me?.role === 'super_admin'
   const { data: regions } = useRegions()
   const [regionId, setRegionId] = useState<string>('__none__')
   const [year, setYear] = useState(currentYear)
   const [dialogOpen, setDialogOpen] = useState(false)
-  const [deleting, setDeleting] = useState<PublicHoliday | null>(null)
+  const [deletingGroup, setDeletingGroup] = useState<GroupedHoliday | null>(null)
 
   const { data: holidays, isLoading } = useHolidays(
     regionId && regionId !== '__none__' ? Number(regionId) : undefined,
@@ -1385,12 +1821,38 @@ function HolidaysTab() {
   const deleteHoliday = useDeleteHoliday()
 
   const YEARS = [currentYear - 1, currentYear, currentYear + 1]
+
+  const rCode = (id: number) => regions?.find((r) => r.id === id)?.code ?? ''
   const rName = (id: number) => regions?.find((r) => r.id === id)?.name ?? '—'
 
   function formatDate(dateStr: string) {
     const d = new Date(dateStr + 'T00:00:00')
     return `${d.getDate()} ${MONTHS_SHORT[d.getMonth()]} ${d.getFullYear()}`
   }
+
+  // Group CN-GZ and CN-SH holidays with the same name+date into a single "China" row
+  const groupedHolidays: GroupedHoliday[] = (() => {
+    if (!holidays) return []
+    const map = new Map<string, GroupedHoliday>()
+    for (const h of holidays) {
+      const code = rCode(h.regionId)
+      const isCN = code === 'CN-GZ' || code === 'CN-SH'
+      const groupKey = isCN ? `CN|${h.name}|${h.date}` : `${h.id}`
+      if (map.has(groupKey)) {
+        map.get(groupKey)!.ids.push(h.id)
+      } else {
+        map.set(groupKey, {
+          key: groupKey,
+          name: h.name,
+          date: h.date,
+          regionLabel: isCN ? 'China' : rName(h.regionId),
+          isRecurring: h.isRecurring,
+          ids: [h.id],
+        })
+      }
+    }
+    return Array.from(map.values())
+  })()
 
   return (
     <div className="space-y-4">
@@ -1414,7 +1876,7 @@ function HolidaysTab() {
             </SelectContent>
           </Select>
         </div>
-        {isSuperAdmin && (
+        {isHrAdmin && (
           <Button size="sm" onClick={() => setDialogOpen(true)}>
             <Plus className="mr-1.5 h-4 w-4" /> Add Holiday
           </Button>
@@ -1429,7 +1891,7 @@ function HolidaysTab() {
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Date</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Region</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Recurring</th>
-              {isSuperAdmin && <th className="px-4 py-3" />}
+              {isHrAdmin && <th className="px-4 py-3" />}
             </tr>
           </thead>
           <tbody className="divide-y">
@@ -1441,23 +1903,23 @@ function HolidaysTab() {
                     ))}
                   </tr>
                 ))
-              : holidays?.map((h) => (
-                  <tr key={h.id} className="hover:bg-muted/30 transition-colors">
+              : groupedHolidays.map((h) => (
+                  <tr key={h.key} className="hover:bg-muted/30 transition-colors">
                     <td className="px-4 py-3 font-medium">{h.name}</td>
                     <td className="px-4 py-3 text-muted-foreground">{formatDate(h.date)}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{rName(h.regionId)}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{h.regionLabel}</td>
                     <td className="px-4 py-3">
                       <Badge variant={h.isRecurring ? 'default' : 'secondary'}>
                         {h.isRecurring ? 'Yes' : 'One-time'}
                       </Badge>
                     </td>
-                    {isSuperAdmin && (
+                    {isHrAdmin && (
                       <td className="px-4 py-3 text-right">
                         <Button
                           size="icon"
                           variant="ghost"
                           className="h-7 w-7 text-destructive hover:text-destructive"
-                          onClick={() => setDeleting(h)}
+                          onClick={() => setDeletingGroup(h)}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
@@ -1465,10 +1927,10 @@ function HolidaysTab() {
                     )}
                   </tr>
                 ))}
-            {!isLoading && (!holidays || holidays.length === 0) && (
+            {!isLoading && groupedHolidays.length === 0 && (
               <tr>
                 <td colSpan={5} className="px-4 py-10 text-center text-muted-foreground">
-                  {regionId ? 'No holidays found for this region and year' : 'Select a region to view holidays'}
+                  {regionId !== '__none__' ? 'No holidays found for this region and year' : 'Select a region to view holidays'}
                 </td>
               </tr>
             )}
@@ -1479,15 +1941,16 @@ function HolidaysTab() {
       <HolidayDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
-        regionId={regionId}
+        defaultRegionId={regionId !== '__none__' ? regionId : undefined}
       />
 
-      <AlertDialog open={!!deleting} onOpenChange={(v) => !v && setDeleting(null)}>
+      <AlertDialog open={!!deletingGroup} onOpenChange={(v) => !v && setDeletingGroup(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete "{deleting?.name}"?</AlertDialogTitle>
+            <AlertDialogTitle>Delete "{deletingGroup?.name}"?</AlertDialogTitle>
             <AlertDialogDescription>
-              This holiday will be permanently removed and may affect leave calculations.
+              This holiday will be permanently removed from {deletingGroup?.regionLabel} and may affect leave calculations.
+              {deletingGroup && deletingGroup.ids.length > 1 && ' This will delete the holiday for all China regions.'}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1495,9 +1958,11 @@ function HolidaysTab() {
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={async () => {
-                if (deleting) {
-                  await deleteHoliday.mutateAsync(deleting.id)
-                  setDeleting(null)
+                if (deletingGroup) {
+                  for (const id of deletingGroup.ids) {
+                    await deleteHoliday.mutateAsync(id)
+                  }
+                  setDeletingGroup(null)
                 }
               }}
             >
@@ -1524,32 +1989,58 @@ function EditEntitlementDialog({
   const update = useUpdateEntitlement()
   const [field, setField] = useState<'entitled' | 'carried' | 'adjustments'>('entitled')
   const [value, setValue] = useState('')
+  // For adjustments: delta input
+  const [delta, setDelta] = useState('')
   const [reason, setReason] = useState('')
 
   useEffect(() => {
     if (open) {
       setField('entitled')
       setValue(parseFloat(row.entitled).toString())
+      setDelta('')
       setReason('')
     }
   }, [open, row])
 
   const currentVal = field === 'entitled' ? row.entitled : field === 'carried' ? row.carried : row.adjustments
 
+  // For adjustments field: compute original (entitled + carried + existing adjustments) and new total
+  const originalEntitlement = parseFloat(row.entitled) + parseFloat(row.carried) + parseFloat(row.adjustments)
+  const deltaNum = parseFloat(delta)
+  const newTotal = isNaN(deltaNum) ? originalEntitlement : originalEntitlement + deltaNum
+
   const handleSave = async () => {
-    const num = parseFloat(value)
-    if (isNaN(num) || num < 0) return
     if (!reason.trim()) return
-    await update.mutateAsync({
-      userId: row.userId,
-      leaveTypeId: row.leaveTypeId,
-      year: row.year,
-      field,
-      newValue: num,
-      reason: reason.trim(),
-    })
+
+    if (field === 'adjustments') {
+      if (isNaN(deltaNum)) return
+      await update.mutateAsync({
+        userId: row.userId,
+        leaveTypeId: row.leaveTypeId,
+        year: row.year,
+        field,
+        delta: deltaNum,
+        reason: reason.trim(),
+      })
+    } else {
+      const num = parseFloat(value)
+      if (isNaN(num) || num < 0) return
+      await update.mutateAsync({
+        userId: row.userId,
+        leaveTypeId: row.leaveTypeId,
+        year: row.year,
+        field,
+        newValue: num,
+        reason: reason.trim(),
+      })
+    }
     onOpenChange(false)
   }
+
+  const isAdjustments = field === 'adjustments'
+  const canSave = !update.isPending && !!reason.trim() && (
+    isAdjustments ? !isNaN(deltaNum) : !isNaN(parseFloat(value)) && parseFloat(value) >= 0
+  )
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -1572,6 +2063,7 @@ function EditEntitlementDialog({
               const f = v as typeof field
               setField(f)
               setValue(parseFloat(f === 'entitled' ? row.entitled : f === 'carried' ? row.carried : row.adjustments).toString())
+              setDelta('')
             }}>
               <SelectTrigger>
                 <SelectValue />
@@ -1585,20 +2077,46 @@ function EditEntitlementDialog({
             <p className="text-xs text-muted-foreground">Current: {parseFloat(currentVal).toFixed(1)} days</p>
           </div>
 
-          <div className="space-y-1.5">
-            <Label>New value (days)</Label>
-            <Input
-              type="number"
-              step="0.5"
-              min="0"
-              max="365"
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-            />
-          </div>
+          {isAdjustments ? (
+            <div className="space-y-3 rounded-md border bg-muted/20 p-3">
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Original Entitlement</span>
+                <span className="font-medium">{originalEntitlement.toFixed(1)} days</span>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Adjustment (+ or −)</Label>
+                <Input
+                  type="number"
+                  step="0.5"
+                  placeholder="e.g. +2 or -1"
+                  value={delta}
+                  onChange={(e) => setDelta(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">Use a negative number to reduce entitlement</p>
+              </div>
+              <div className="flex justify-between text-sm border-t pt-2">
+                <span className="text-muted-foreground">New Total</span>
+                <span className={`font-semibold ${newTotal < 0 ? 'text-red-600' : 'text-foreground'}`}>
+                  {isNaN(deltaNum) ? '—' : `${newTotal.toFixed(1)} days`}
+                </span>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              <Label>New value (days)</Label>
+              <Input
+                type="number"
+                step="0.5"
+                min="0"
+                max="365"
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+              />
+            </div>
+          )}
 
           <div className="space-y-1.5">
-            <Label>Reason for change</Label>
+            <Label>Reason for change <span className="text-destructive">*</span></Label>
             <Textarea
               rows={2}
               placeholder="e.g. Annual entitlement correction"
@@ -1610,10 +2128,7 @@ function EditEntitlementDialog({
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button
-            onClick={handleSave}
-            disabled={update.isPending || !reason.trim() || isNaN(parseFloat(value))}
-          >
+          <Button onClick={handleSave} disabled={!canSave}>
             {update.isPending ? 'Saving...' : 'Save'}
           </Button>
         </DialogFooter>

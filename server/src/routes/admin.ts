@@ -13,6 +13,8 @@ import {
   users,
   leaveBalances,
   entitlementAuditLog,
+  policyEntitlementTiers,
+  policyTierAssignments,
 } from '../db/schema'
 import { authenticate } from '../middleware/auth'
 import { requireRole } from '../middleware/rbac'
@@ -69,11 +71,13 @@ const createLeaveTypeSchema = z.object({
   requiresAttachment: z.boolean().default(false),
   maxDaysPerYear: z.number().int().positive().nullable().optional(),
   regionId: z.number().int().positive().nullable().optional(),
+  regionRestriction: z.string().nullable().optional(),
   approvalFlow: z.enum(['standard', 'auto_approve', 'hr_required', 'multi_level']).default('standard'),
   minNoticeDays: z.number().int().min(0).default(0),
   maxConsecutiveDays: z.number().int().positive().nullable().optional(),
   dayCalculation: z.enum(['working_days', 'calendar_days']).default('working_days'),
   staffRestriction: z.string().nullable().optional(),
+  minUnit: z.enum(['1_hour', '2_hours', 'half_day', '1_day']).optional().default('1_day'),
 })
 
 router.get('/leave-types', async (req, res, next) => {
@@ -117,7 +121,7 @@ router.patch('/leave-types/:id', validate(createLeaveTypeSchema.partial()), asyn
   }
 })
 
-router.delete('/leave-types/:id', requireRole('super_admin'), async (req, res, next) => {
+router.delete('/leave-types/:id', requireRole('hr_admin'), async (req, res, next) => {
   try {
     const id = parseInt(req.params.id as string, 10)
     // Check for leave request references
@@ -193,10 +197,127 @@ router.patch('/policies/:id', validate(createPolicySchema.partial()), async (req
   }
 })
 
-router.delete('/policies/:id', requireRole('super_admin'), async (req, res, next) => {
+router.delete('/policies/:id', requireRole('hr_admin'), async (req, res, next) => {
   try {
     const id = parseInt(req.params.id as string, 10)
     await db.delete(leavePolicies).where(eq(leavePolicies.id, id))
+    res.json({ success: true, data: { deleted: true } })
+  } catch (err) {
+    next(err)
+  }
+})
+
+// ============================================================
+// Policy Entitlement Tiers
+// ============================================================
+
+// GET /admin/policies/:id/tiers
+router.get('/policies/:id/tiers', async (req, res, next) => {
+  try {
+    const policyId = parseInt(req.params.id as string, 10)
+    const tiers = await db
+      .select({
+        tierId: policyEntitlementTiers.id,
+        entitlementDays: policyEntitlementTiers.entitlementDays,
+        label: policyEntitlementTiers.label,
+        userId: policyTierAssignments.userId,
+        userName: users.name,
+        userRegionId: users.regionId,
+      })
+      .from(policyEntitlementTiers)
+      .leftJoin(policyTierAssignments, eq(policyTierAssignments.tierId, policyEntitlementTiers.id))
+      .leftJoin(users, eq(users.id, policyTierAssignments.userId))
+      .leftJoin(regions, eq(regions.id, users.regionId))
+      .where(eq(policyEntitlementTiers.leavePolicyId, policyId))
+      .orderBy(policyEntitlementTiers.id)
+
+    // Get region codes for user display
+    const allRegions = await db.select({ id: regions.id, code: regions.code }).from(regions)
+    const regionCodeMap: Record<number, string> = {}
+    allRegions.forEach((r) => { regionCodeMap[r.id] = r.code })
+
+    // Group by tier
+    const tierMap = new Map<number, { id: number; entitlementDays: string; label: string | null; users: Array<{ id: number; name: string; regionCode: string }> }>()
+    for (const row of tiers) {
+      if (!tierMap.has(row.tierId)) {
+        tierMap.set(row.tierId, { id: row.tierId, entitlementDays: row.entitlementDays, label: row.label, users: [] })
+      }
+      if (row.userId && row.userName) {
+        tierMap.get(row.tierId)!.users.push({
+          id: row.userId,
+          name: row.userName,
+          regionCode: row.userRegionId ? (regionCodeMap[row.userRegionId] ?? '') : '',
+        })
+      }
+    }
+
+    const response: ApiResponse<typeof Array.prototype> = { success: true, data: Array.from(tierMap.values()) }
+    res.json(response)
+  } catch (err) {
+    next(err)
+  }
+})
+
+const tierSchema = z.object({
+  entitlementDays: z.number().min(0).max(365),
+  label: z.string().max(100).nullable().optional(),
+  userIds: z.array(z.number().int().positive()),
+})
+
+// POST /admin/policies/:id/tiers
+router.post('/policies/:id/tiers', validate(tierSchema), async (req, res, next) => {
+  try {
+    const policyId = parseInt(req.params.id as string, 10)
+    const { entitlementDays, label, userIds } = req.body as z.infer<typeof tierSchema>
+
+    const [tier] = await db
+      .insert(policyEntitlementTiers)
+      .values({ leavePolicyId: policyId, entitlementDays: entitlementDays.toFixed(1), label: label ?? null })
+      .returning()
+
+    if (userIds.length > 0) {
+      await db.insert(policyTierAssignments).values(userIds.map((uid) => ({ tierId: tier.id, userId: uid })))
+    }
+
+    const response: ApiResponse<typeof tier> = { success: true, data: tier }
+    res.status(201).json(response)
+  } catch (err) {
+    next(err)
+  }
+})
+
+// PUT /admin/policies/:id/tiers/:tierId
+router.put('/policies/:id/tiers/:tierId', validate(tierSchema), async (req, res, next) => {
+  try {
+    const tierId = parseInt(req.params.tierId as string, 10)
+    const { entitlementDays, label, userIds } = req.body as z.infer<typeof tierSchema>
+
+    const [tier] = await db
+      .update(policyEntitlementTiers)
+      .set({ entitlementDays: entitlementDays.toFixed(1), label: label ?? null })
+      .where(eq(policyEntitlementTiers.id, tierId))
+      .returning()
+
+    if (!tier) throw new NotFoundError('Tier')
+
+    // Replace assignments
+    await db.delete(policyTierAssignments).where(eq(policyTierAssignments.tierId, tierId))
+    if (userIds.length > 0) {
+      await db.insert(policyTierAssignments).values(userIds.map((uid) => ({ tierId, userId: uid })))
+    }
+
+    const response: ApiResponse<typeof tier> = { success: true, data: tier }
+    res.json(response)
+  } catch (err) {
+    next(err)
+  }
+})
+
+// DELETE /admin/policies/:id/tiers/:tierId
+router.delete('/policies/:id/tiers/:tierId', async (req, res, next) => {
+  try {
+    const tierId = parseInt(req.params.tierId as string, 10)
+    await db.delete(policyEntitlementTiers).where(eq(policyEntitlementTiers.id, tierId))
     res.json({ success: true, data: { deleted: true } })
   } catch (err) {
     next(err)
@@ -210,7 +331,8 @@ router.delete('/policies/:id', requireRole('super_admin'), async (req, res, next
 const createHolidaySchema = z.object({
   name: z.string().min(2).max(200),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  regionId: z.number().int().positive(),
+  // regionId can be a positive integer OR the string "CN" (meaning all China regions)
+  regionId: z.union([z.number().int().positive(), z.literal('CN')]),
   isRecurring: z.boolean().default(false),
 })
 
@@ -242,7 +364,56 @@ router.get('/holidays', async (req, res, next) => {
 
 router.post('/holidays', validate(createHolidaySchema), async (req, res, next) => {
   try {
-    const [holiday] = await db.insert(publicHolidays).values(req.body).returning()
+    const body = req.body as { name: string; date: string; regionId: number | 'CN'; isRecurring: boolean }
+
+    if (body.regionId === 'CN') {
+      // Insert for both CN-GZ and CN-SH
+      const cnRegions = await db
+        .select({ id: regions.id, code: regions.code })
+        .from(regions)
+        .where(sql`${regions.code} IN ('CN-GZ', 'CN-SH')`)
+
+      if (cnRegions.length === 0) {
+        res.status(422).json({ success: false, error: 'China regions (CN-GZ, CN-SH) not found in database' })
+        return
+      }
+
+      const inserted: typeof publicHolidays.$inferSelect[] = []
+      for (const region of cnRegions) {
+        // Duplicate check
+        const [existing] = await db
+          .select({ id: publicHolidays.id })
+          .from(publicHolidays)
+          .where(and(eq(publicHolidays.regionId, region.id), eq(publicHolidays.date, body.date), eq(publicHolidays.name, body.name)))
+          .limit(1)
+        if (existing) {
+          res.status(409).json({ success: false, error: `Holiday already exists for ${region.code} on ${body.date}` })
+          return
+        }
+        const [holiday] = await db
+          .insert(publicHolidays)
+          .values({ name: body.name, date: body.date, regionId: region.id, isRecurring: body.isRecurring })
+          .returning()
+        inserted.push(holiday)
+      }
+
+      const response: ApiResponse<typeof inserted> = { success: true, data: inserted }
+      res.status(201).json(response)
+      return
+    }
+
+    // Single region — duplicate check
+    const [existing] = await db
+      .select({ id: publicHolidays.id })
+      .from(publicHolidays)
+      .where(and(eq(publicHolidays.regionId, body.regionId as number), eq(publicHolidays.date, body.date), eq(publicHolidays.name, body.name)))
+      .limit(1)
+    if (existing) {
+      res.status(409).json({ success: false, error: `Holiday already exists for this region on ${body.date}` })
+      return
+    }
+
+    const [holiday] = await db.insert(publicHolidays).values({ ...body, regionId: body.regionId as number }).returning()
     const response: ApiResponse<typeof holiday> = { success: true, data: holiday }
     res.status(201).json(response)
   } catch (err) {
@@ -250,7 +421,7 @@ router.post('/holidays', validate(createHolidaySchema), async (req, res, next) =
   }
 })
 
-router.delete('/holidays/:id', requireRole('super_admin'), async (req, res, next) => {
+router.delete('/holidays/:id', requireRole('hr_admin'), async (req, res, next) => {
   try {
     const id = parseInt(req.params.id as string, 10)
     const [deleted] = await db
@@ -451,15 +622,19 @@ const updateEntitlementSchema = z.object({
   leaveTypeId: z.number().int().positive(),
   year: z.number().int().min(2020).max(2030),
   field: z.enum(['entitled', 'carried', 'adjustments']),
-  newValue: z.number().min(0).max(365),
+  // For adjustments field: can use delta (relative) instead of newValue (absolute)
+  newValue: z.number().min(0).max(365).optional(),
+  delta: z.number().min(-365).max(365).optional(),
   reason: z.string().min(1).max(500),
+}).refine((d) => d.newValue !== undefined || d.delta !== undefined, {
+  message: 'Either newValue or delta must be provided',
 })
 
 // PATCH /admin/entitlements/:userId
 router.patch('/entitlements/:userId', validate(updateEntitlementSchema), async (req, res, next) => {
   try {
     const userId = parseInt(req.params.userId as string, 10)
-    const { leaveTypeId, year, field, newValue, reason } = req.body as z.infer<typeof updateEntitlementSchema>
+    const { leaveTypeId, year, field, newValue, delta, reason } = req.body as z.infer<typeof updateEntitlementSchema>
     const changedById = req.user!.userId
 
     const [existing] = await db
@@ -483,9 +658,21 @@ router.patch('/entitlements/:userId', validate(updateEntitlementSchema), async (
     }
 
     const oldValue = existing ? parseFloat(existing[field as keyof typeof existing] as string) : 0
+
+    let resolvedNewValue: number
+    if (field === 'adjustments' && delta !== undefined) {
+      // Delta-based: add delta to current value
+      resolvedNewValue = oldValue + delta
+    } else if (newValue !== undefined) {
+      resolvedNewValue = newValue
+    } else {
+      res.status(400).json({ success: false, error: 'newValue required for this field' })
+      return
+    }
+
     await db
       .update(leaveBalances)
-      .set({ [field]: newValue.toFixed(1) })
+      .set({ [field]: resolvedNewValue.toFixed(1) })
       .where(and(eq(leaveBalances.userId, userId), eq(leaveBalances.leaveTypeId, leaveTypeId), eq(leaveBalances.year, year)))
 
     await db.insert(entitlementAuditLog).values({
@@ -493,7 +680,7 @@ router.patch('/entitlements/:userId', validate(updateEntitlementSchema), async (
       leaveTypeId,
       fieldChanged: field,
       oldValue: oldValue.toFixed(1),
-      newValue: newValue.toFixed(1),
+      newValue: resolvedNewValue.toFixed(1),
       reason,
       changedById,
     })

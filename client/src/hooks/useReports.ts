@@ -72,17 +72,19 @@ export function useDepartmentSummary(filters: Pick<ReportFilters, 'year' | 'regi
   })
 }
 
-async function downloadCsv(url: string, filename: string) {
+function getAuthToken(): string | null {
   const stored = localStorage.getItem('bloom-lms-auth')
-  const token = stored
-    ? (JSON.parse(stored) as { state?: { accessToken?: string } }).state?.accessToken
+  return stored
+    ? (JSON.parse(stored) as { state?: { accessToken?: string } }).state?.accessToken ?? null
     : null
+}
 
+async function downloadFile(url: string, filename: string) {
+  const token = getAuthToken()
   const response = await fetch(url, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   })
   if (!response.ok) throw new Error('Export failed')
-
   const blob = await response.blob()
   const objectUrl = URL.createObjectURL(blob)
   const a = document.createElement('a')
@@ -92,6 +94,60 @@ async function downloadCsv(url: string, filename: string) {
   URL.revokeObjectURL(objectUrl)
 }
 
+export async function downloadLeaveRequestsXlsx(params: {
+  year: number
+  regionId?: number
+  leaveTypeId?: number
+  status?: string
+}) {
+  const query = new URLSearchParams()
+  query.set('year', String(params.year))
+  query.set('format', 'xlsx')
+  if (params.regionId) query.set('regionId', String(params.regionId))
+  if (params.leaveTypeId) query.set('leaveTypeId', String(params.leaveTypeId))
+  if (params.status) query.set('status', params.status)
+
+  const regionSuffix = params.regionId ? `_region${params.regionId}` : '_all_regions'
+  await downloadFile(
+    `/api/reports/export/leave-requests?${query.toString()}`,
+    `leave_requests_${params.year}${regionSuffix}.xlsx`
+  )
+}
+
+export async function downloadEntitlementsXlsx(params: {
+  year: number
+  regionId?: number
+}) {
+  const query = new URLSearchParams()
+  query.set('year', String(params.year))
+  query.set('format', 'xlsx')
+  if (params.regionId) query.set('regionId', String(params.regionId))
+
+  const regionSuffix = params.regionId ? `_region${params.regionId}` : '_all_regions'
+  await downloadFile(
+    `/api/reports/export/entitlements?${query.toString()}`,
+    `entitlements_${params.year}${regionSuffix}.xlsx`
+  )
+}
+
+export async function downloadPayrollXlsx(params: {
+  year: number
+  month?: number
+  regionId?: number
+}) {
+  const query = new URLSearchParams()
+  query.set('year', String(params.year))
+  query.set('format', 'xlsx')
+  if (params.month) query.set('month', String(params.month))
+  if (params.regionId) query.set('regionId', String(params.regionId))
+
+  const filename = params.month
+    ? `payroll-${params.year}-${String(params.month).padStart(2, '0')}.xlsx`
+    : `payroll-${params.year}.xlsx`
+  await downloadFile(`/api/reports/export/payroll?${query.toString()}`, filename)
+}
+
+// Keep CSV helpers for backward compatibility
 export async function downloadLeaveRequestsCsv(params: {
   year: number
   regionId?: number
@@ -105,7 +161,7 @@ export async function downloadLeaveRequestsCsv(params: {
   if (params.status) query.set('status', params.status)
 
   const regionSuffix = params.regionId ? `_region${params.regionId}` : '_all_regions'
-  await downloadCsv(
+  await downloadFile(
     `/api/reports/export/leave-requests?${query.toString()}`,
     `leave_requests_${params.year}${regionSuffix}.csv`
   )
@@ -120,7 +176,7 @@ export async function downloadEntitlementsCsv(params: {
   if (params.regionId) query.set('regionId', String(params.regionId))
 
   const regionSuffix = params.regionId ? `_region${params.regionId}` : '_all_regions'
-  await downloadCsv(
+  await downloadFile(
     `/api/reports/export/entitlements?${query.toString()}`,
     `entitlements_${params.year}${regionSuffix}.csv`
   )
@@ -136,25 +192,8 @@ export async function downloadPayrollCsv(params: {
   if (params.month) query.set('month', String(params.month))
   if (params.regionId) query.set('regionId', String(params.regionId))
 
-  const stored = localStorage.getItem('bloom-lms-auth')
-  const token = stored
-    ? (JSON.parse(stored) as { state?: { accessToken?: string } }).state?.accessToken
-    : null
-
-  const response = await fetch(`/api/reports/export/payroll?${query.toString()}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  })
-
-  if (!response.ok) throw new Error('Export failed')
-
-  const blob = await response.blob()
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
   const filename = params.month
     ? `payroll-${params.year}-${String(params.month).padStart(2, '0')}.csv`
     : `payroll-${params.year}.csv`
-  a.download = filename
-  a.click()
-  URL.revokeObjectURL(url)
+  await downloadFile(`/api/reports/export/payroll?${query.toString()}`, filename)
 }

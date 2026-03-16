@@ -72,6 +72,8 @@ export function useCreateLeaveRequest() {
       halfDayPeriod?: 'AM' | 'PM' | null
       reason?: string
       attachmentUrl?: string
+      startTime?: string | null
+      endTime?: string | null
     }) => api.post<{ data: LeaveRequest }>('/leave/requests', data).then((r) => r.data.data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['leave-requests'] })
