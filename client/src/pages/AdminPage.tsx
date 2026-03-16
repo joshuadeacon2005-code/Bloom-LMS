@@ -87,7 +87,6 @@ import {
   type AdminUser,
   type LeaveType,
   type LeavePolicy,
-  type PublicHoliday,
   type CreateHolidayInput,
   type ManagerOption,
   type EntitlementRow,

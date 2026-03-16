@@ -83,7 +83,6 @@ export function RequestLeaveSheet({ open, onOpenChange }: RequestLeaveSheetProps
   const dateRange = watch('dateRange')
   const halfDay = watch('halfDay')
   const startTime = watch('startTime')
-  const endTime = watch('endTime')
 
   const isOnProbation = user?.isOnProbation ?? false
 
