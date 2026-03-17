@@ -1602,9 +1602,9 @@ function PolicyDialog({
           <div className="space-y-2 border-t pt-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium">Staff Entitlement Tiers</p>
+                <p className="text-sm font-medium">Custom Entitlement Tiers</p>
                 <p className="text-xs text-muted-foreground">
-                  Default: {policy.entitlementUnlimited ? 'Unlimited' : `${policy.entitlementDays} days`} (applies to all staff not in a tier)
+                  Regional default: {policy.entitlementUnlimited ? 'Unlimited' : `${policy.entitlementDays} days`} — create tiers below to give specific staff more or fewer days
                 </p>
               </div>
             </div>
@@ -1760,7 +1760,8 @@ function PoliciesTab() {
             <tr>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Leave Type</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Region</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Entitlement</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Default Entitlement</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Custom Tiers</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Carry-over max</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Probation</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Accrual</th>
@@ -1771,7 +1772,7 @@ function PoliciesTab() {
             {isLoading
               ? [...Array(5)].map((_, i) => (
                   <tr key={i}>
-                    {[...Array(7)].map((_, j) => (
+                    {[...Array(8)].map((_, j) => (
                       <td key={j} className="px-4 py-3"><Skeleton className="h-4 w-full" /></td>
                     ))}
                   </tr>
@@ -1780,8 +1781,17 @@ function PoliciesTab() {
                   <tr key={p.id} className="hover:bg-muted/30 transition-colors">
                     <td className="px-4 py-3 font-medium">{ltName(p.leaveTypeId)}</td>
                     <td className="px-4 py-3 text-muted-foreground">{rName(p.regionId)}</td>
-                    <td className="px-4 py-3">{p.entitlementDays} days</td>
-                    <td className="px-4 py-3 text-muted-foreground">{p.carryOverMax} days</td>
+                    <td className="px-4 py-3">{p.entitlementUnlimited ? 'Unlimited' : `${p.entitlementDays} days`}</td>
+                    <td className="px-4 py-3">
+                      {p.tierCount > 0 ? (
+                        <span className="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
+                          {p.tierCount} tier{p.tierCount !== 1 ? 's' : ''}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground">{p.carryoverUnlimited ? 'Unlimited' : `${p.carryOverMax} days`}</td>
                     <td className="px-4 py-3 text-muted-foreground">
                       {p.probationMonths > 0 ? `${p.probationMonths} mo` : 'None'}
                     </td>
@@ -1814,7 +1824,7 @@ function PoliciesTab() {
                 ))}
             {!isLoading && (!policies || policies.length === 0) && (
               <tr>
-                <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
+                <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
                   No policies found
                 </td>
               </tr>
@@ -2522,6 +2532,7 @@ function EntitlementsTab() {
                 </th>
                 <th className="px-3 py-2 text-left font-medium">Employee</th>
                 <th className="px-3 py-2 text-left font-medium">Leave Type</th>
+                <th className="px-3 py-2 text-right font-medium">Region Default</th>
                 <th className="px-3 py-2 text-right font-medium">Entitled</th>
                 <th className="px-3 py-2 text-right font-medium">Used</th>
                 <th className="px-3 py-2 text-right font-medium">Pending</th>
@@ -2534,7 +2545,7 @@ function EntitlementsTab() {
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="px-3 py-8 text-center text-muted-foreground">
+                  <td colSpan={11} className="px-3 py-8 text-center text-muted-foreground">
                     No entitlements found
                   </td>
                 </tr>
@@ -2561,7 +2572,26 @@ function EntitlementsTab() {
                         <div className="text-xs text-muted-foreground">{row.userEmail}</div>
                       </td>
                       <td className="px-3 py-2">{row.leaveTypeName}</td>
-                      <td className="px-3 py-2 text-right">{parseFloat(row.entitled).toFixed(1)}</td>
+                      <td className="px-3 py-2 text-right text-muted-foreground">
+                        {row.policyDefault === 'unlimited' ? '∞' : row.policyDefault ? parseFloat(row.policyDefault).toFixed(1) : '—'}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {(() => {
+                          const entitled = parseFloat(row.entitled)
+                          const def = row.policyDefault === 'unlimited' ? null : row.policyDefault ? parseFloat(row.policyDefault) : null
+                          const isCustom = def !== null && Math.abs(entitled - def) >= 0.1
+                          return (
+                            <span className={isCustom ? (entitled > (def ?? 0) ? 'text-green-600 font-medium' : 'text-orange-600 font-medium') : ''}>
+                              {entitled.toFixed(1)}
+                              {isCustom && (
+                                <span className="ml-1 text-xs">
+                                  ({entitled > (def ?? 0) ? '+' : ''}{(entitled - (def ?? 0)).toFixed(1)})
+                                </span>
+                              )}
+                            </span>
+                          )
+                        })()}
+                      </td>
                       <td className="px-3 py-2 text-right text-muted-foreground">{parseFloat(row.used).toFixed(1)}</td>
                       <td className="px-3 py-2 text-right text-muted-foreground">{parseFloat(row.pending).toFixed(1)}</td>
                       <td className="px-3 py-2 text-right text-muted-foreground">{parseFloat(row.carried).toFixed(1)}</td>

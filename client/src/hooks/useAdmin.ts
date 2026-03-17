@@ -62,6 +62,7 @@ export interface LeavePolicy {
   probationMonths: number
   entitlementUnlimited: boolean
   carryoverUnlimited: boolean
+  tierCount: number
 }
 
 export interface PublicHoliday {
@@ -294,7 +295,7 @@ export function useUpsertPolicy() {
       data,
     }: {
       id?: number
-      data: Omit<LeavePolicy, 'id'>
+      data: Omit<LeavePolicy, 'id' | 'tierCount'>
     }) =>
       id
         ? api.patch<{ data: LeavePolicy }>(`/admin/policies/${id}`, data).then((r) => r.data.data)
@@ -457,6 +458,7 @@ export interface EntitlementRow {
   userId: number
   userName: string
   userEmail: string
+  regionId: number
   leaveTypeId: number
   leaveTypeName: string
   leaveTypeCode: string
@@ -466,6 +468,7 @@ export interface EntitlementRow {
   pending: string
   carried: string
   adjustments: string
+  policyDefault: string | null
 }
 
 export interface AuditLogEntry {

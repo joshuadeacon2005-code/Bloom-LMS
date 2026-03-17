@@ -49,6 +49,13 @@ bloom-lms/
 - Production deployment: `node server/dist/index.js` (autoscale target)
 - Build command: `npm run build` (builds client then server)
 
+## Entitlement & Tiers System
+- Each region has a **default entitlement** per leave type (via `leave_policies.entitlement_days`)
+- **Custom tiers** allow specific staff to receive more or fewer days than the regional default
+- Tiers are managed inside the Policy dialog (Admin > Policies > click Edit on any policy)
+- The Entitlements tab shows the "Region Default" alongside each user's entitled days
+- Color-coded comparison: green = more than default, orange = less than default
+
 ## Key Decisions
 - Switched from Neon serverless driver to standard `pg` pool for Replit's built-in PostgreSQL
 - Vite dev server runs on port 5000 (required for Replit webview)

@@ -163,7 +163,22 @@ router.get('/policies', async (req, res, next) => {
       .select()
       .from(leavePolicies)
       .where(regionId ? eq(leavePolicies.regionId, regionId) : undefined)
-    const response: ApiResponse<typeof rows> = { success: true, data: rows }
+
+    const tierCounts = await db
+      .select({
+        policyId: policyEntitlementTiers.leavePolicyId,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(policyEntitlementTiers)
+      .groupBy(policyEntitlementTiers.leavePolicyId)
+    const tierCountMap = new Map(tierCounts.map((t) => [t.policyId, t.count]))
+
+    const enriched = rows.map((r) => ({
+      ...r,
+      tierCount: tierCountMap.get(r.id) ?? 0,
+    }))
+
+    const response: ApiResponse<typeof enriched> = { success: true, data: enriched }
     res.json(response)
   } catch (err) {
     next(err)
@@ -586,6 +601,7 @@ router.get('/entitlements', async (req, res, next) => {
         userId: users.id,
         userName: users.name,
         userEmail: users.email,
+        regionId: users.regionId,
         leaveTypeId: leaveTypes.id,
         leaveTypeName: leaveTypes.name,
         leaveTypeCode: leaveTypes.code,
@@ -610,7 +626,29 @@ router.get('/entitlements', async (req, res, next) => {
       )
       .orderBy(users.name, leaveTypes.name)
 
-    const response: ApiResponse<typeof rows> = { success: true, data: rows }
+    const policyRows = await db
+      .select({
+        regionId: leavePolicies.regionId,
+        leaveTypeId: leavePolicies.leaveTypeId,
+        entitlementDays: leavePolicies.entitlementDays,
+        entitlementUnlimited: leavePolicies.entitlementUnlimited,
+      })
+      .from(leavePolicies)
+
+    const policyMap = new Map<string, { entitlementDays: string; entitlementUnlimited: boolean | null }>()
+    for (const p of policyRows) {
+      policyMap.set(`${p.regionId}-${p.leaveTypeId}`, { entitlementDays: p.entitlementDays, entitlementUnlimited: p.entitlementUnlimited })
+    }
+
+    const enriched = rows.map((r) => {
+      const policy = policyMap.get(`${r.regionId}-${r.leaveTypeId}`)
+      return {
+        ...r,
+        policyDefault: policy?.entitlementUnlimited ? 'unlimited' : (policy?.entitlementDays ?? null),
+      }
+    })
+
+    const response: ApiResponse<typeof enriched> = { success: true, data: enriched }
     res.json(response)
   } catch (err) {
     next(err)
