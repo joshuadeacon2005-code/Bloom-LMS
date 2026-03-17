@@ -608,6 +608,32 @@ export function useUpdateTier() {
   })
 }
 
+// ─── Employee Leave History (admin view) ─────────────────────────────────────
+
+export interface EmployeeLeaveRequest {
+  id: number
+  leaveTypeName: string | null
+  leaveTypeCode: string | null
+  startDate: string
+  endDate: string
+  totalDays: string
+  status: string
+  reason: string | null
+  halfDayPeriod: string | null
+  createdAt: string
+}
+
+export function useEmployeeLeaveHistory(userId?: number) {
+  return useQuery({
+    queryKey: ['admin-employee-history', userId],
+    queryFn: () =>
+      api
+        .get<{ data: EmployeeLeaveRequest[] }>(`/admin/users/${userId}/leave-requests`)
+        .then((r) => r.data.data),
+    enabled: !!userId,
+  })
+}
+
 export function useDeleteTier() {
   const qc = useQueryClient()
   return useMutation({

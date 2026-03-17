@@ -10,6 +10,8 @@ import {
   Search,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  Check,
   Slack,
   RefreshCw,
   Send,
@@ -24,6 +26,22 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet'
 import {
   Dialog,
   DialogContent,
@@ -83,6 +101,7 @@ import {
   useCreateTier,
   useUpdateTier,
   useDeleteTier,
+  useEmployeeLeaveHistory,
   type SlackSyncResult,
   type AdminUser,
   type LeaveType,
@@ -92,6 +111,7 @@ import {
   type EntitlementRow,
   type AuditLogEntry,
   type PolicyTier,
+  type EmployeeLeaveRequest,
 } from '@/hooks/useAdmin'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -116,6 +136,153 @@ const currentYear = new Date().getFullYear()
 function FieldError({ msg }: { msg?: string }) {
   if (!msg) return null
   return <p className="text-xs text-destructive mt-1">{msg}</p>
+}
+
+// ─── ManagerCombobox ──────────────────────────────────────────────────────────
+
+function ManagerCombobox({
+  value,
+  onChange,
+  managers,
+  role,
+}: {
+  value: string
+  onChange: (v: string) => void
+  managers: ManagerOption[]
+  role: string
+}) {
+  const [open, setOpen] = useState(false)
+  const selected = managers.find((m) => String(m.id) === value && value !== '__none__')
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          className="w-full justify-between font-normal"
+        >
+          <span className="truncate">
+            {selected
+              ? `${selected.name}${selected.regionName ? ` — ${selected.regionName}` : ''}`
+              : 'Select manager…'}
+          </span>
+          <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[380px] p-0" align="start">
+        <Command>
+          <CommandInput placeholder="Search managers…" />
+          <CommandList>
+            <CommandEmpty>No managers found</CommandEmpty>
+            <CommandGroup>
+              {role === 'super_admin' && (
+                <CommandItem
+                  value="__none__ no manager"
+                  onSelect={() => {
+                    onChange('__none__')
+                    setOpen(false)
+                  }}
+                >
+                  <Check className={cn('mr-2 h-4 w-4', (value === '__none__' || !value) ? 'opacity-100' : 'opacity-0')} />
+                  No manager
+                </CommandItem>
+              )}
+              {managers.map((m) => (
+                <CommandItem
+                  key={m.id}
+                  value={`${m.name} ${m.regionName ?? ''} ${m.email}`}
+                  onSelect={() => {
+                    onChange(String(m.id))
+                    setOpen(false)
+                  }}
+                >
+                  <Check className={cn('mr-2 h-4 w-4', value === String(m.id) ? 'opacity-100' : 'opacity-0')} />
+                  <span className="flex-1 truncate">{m.name}</span>
+                  {m.regionName && (
+                    <span className="ml-2 text-xs text-muted-foreground shrink-0">{m.regionName}</span>
+                  )}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+// ─── EmployeeHistorySheet ─────────────────────────────────────────────────────
+
+const STATUS_COLOURS_HISTORY: Record<string, string> = {
+  pending: 'bg-yellow-100 text-yellow-800',
+  approved: 'bg-green-100 text-green-800',
+  rejected: 'bg-red-100 text-red-800',
+  cancelled: 'bg-muted text-muted-foreground',
+  pending_hr: 'bg-blue-100 text-blue-800',
+}
+
+function EmployeeHistorySheet({
+  user,
+  onClose,
+}: {
+  user: AdminUser | null
+  onClose: () => void
+}) {
+  const { data: history, isLoading } = useEmployeeLeaveHistory(user?.id)
+
+  return (
+    <Sheet open={!!user} onOpenChange={(v) => { if (!v) onClose() }}>
+      <SheetContent className="w-full sm:max-w-2xl overflow-y-auto">
+        <SheetHeader>
+          <SheetTitle>{user?.name} — Leave History</SheetTitle>
+          <SheetDescription>{user?.email}</SheetDescription>
+        </SheetHeader>
+        <div className="mt-6 space-y-2">
+          {isLoading ? (
+            [...Array(5)].map((_, i) => <Skeleton key={i} className="h-16 w-full" />)
+          ) : !history || history.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-6 text-center">
+              No leave requests found for this employee.
+            </p>
+          ) : (
+            history.map((req: EmployeeLeaveRequest) => {
+              const days = parseFloat(req.totalDays)
+              const dayLabel = days === 0.5 ? '0.5 days (half day)' : `${days} day${days !== 1 ? 's' : ''}`
+              const dateLabel =
+                req.startDate === req.endDate
+                  ? req.startDate
+                  : `${req.startDate} → ${req.endDate}`
+              const statusColour = STATUS_COLOURS_HISTORY[req.status] ?? 'bg-muted text-muted-foreground'
+              return (
+                <div key={req.id} className="rounded-lg border px-4 py-3 space-y-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium text-sm truncate">
+                      {req.leaveTypeName ?? req.leaveTypeCode ?? '—'}
+                    </span>
+                    <span className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-xs font-medium capitalize ${statusColour}`}>
+                      {req.status.replace('_', ' ')}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {dateLabel} · {dayLabel}
+                  </p>
+                  {req.reason && (
+                    <p className="text-xs text-muted-foreground italic line-clamp-2">{req.reason}</p>
+                  )}
+                  <p className="text-xs text-muted-foreground/60">
+                    Submitted {format(new Date(req.createdAt), 'd MMM yyyy')}
+                  </p>
+                </div>
+              )
+            })
+          )}
+        </div>
+      </SheetContent>
+    </Sheet>
+  )
 }
 
 // ─── Users Tab ────────────────────────────────────────────────────────────────
@@ -292,19 +459,12 @@ function UserDialog({
               name="managerId"
               control={control}
               render={({ field }) => (
-                <Select value={field.value || '__none__'} onValueChange={field.onChange}>
-                  <SelectTrigger><SelectValue placeholder="Select manager…" /></SelectTrigger>
-                  <SelectContent>
-                    {selectedRole === 'super_admin' && (
-                      <SelectItem value="__none__">No manager</SelectItem>
-                    )}
-                    {(managers as ManagerOption[] | undefined)?.map((m) => (
-                      <SelectItem key={m.id} value={String(m.id)}>
-                        {m.name} — {m.regionName ?? ''}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <ManagerCombobox
+                  value={field.value || ''}
+                  onChange={field.onChange}
+                  managers={(managers as ManagerOption[] | undefined) ?? []}
+                  role={selectedRole}
+                />
               )}
             />
           </div>
@@ -359,6 +519,7 @@ function UsersTab() {
   const [search, setSearch] = useState('')
   const [roleFilter, setRoleFilter] = useState<string>('__none__')
   const [activeFilter, setActiveFilter] = useState<string>('true')
+  const [regionFilter, setRegionFilter] = useState<string>('__none__')
   const [page, setPage] = useState(1)
   const pageSize = 15
 
@@ -366,12 +527,14 @@ function UsersTab() {
   const [editing, setEditing] = useState<AdminUser | null>(null)
   const [deactivating, setDeactivating] = useState<AdminUser | null>(null)
   const [syncResult, setSyncResult] = useState<SlackSyncResult | null>(null)
+  const [historyUser, setHistoryUser] = useState<AdminUser | null>(null)
 
   const { data: regions } = useRegions()
   const { data, isLoading } = useAdminUsers({
     search: search || undefined,
     role: roleFilter === '__none__' ? undefined : roleFilter,
     isActive: activeFilter === '__none__' ? undefined : activeFilter === 'true',
+    regionId: regionFilter !== '__none__' ? Number(regionFilter) : undefined,
     page,
     pageSize,
   })
@@ -426,6 +589,15 @@ function UsersTab() {
               <SelectItem value="true">Active</SelectItem>
               <SelectItem value="false">Inactive</SelectItem>
               <SelectItem value="__none__">All</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={regionFilter} onValueChange={(v) => { setRegionFilter(v); setPage(1) }}>
+            <SelectTrigger className="w-36"><SelectValue placeholder="All regions" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">All regions</SelectItem>
+              {regions?.map((r) => (
+                <SelectItem key={r.id} value={String(r.id)}>{r.name}</SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
@@ -553,6 +725,15 @@ function UsersTab() {
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-1">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-7 w-7 text-muted-foreground"
+                          title="View leave history"
+                          onClick={() => setHistoryUser(u)}
+                        >
+                          <History className="h-3.5 w-3.5" />
+                        </Button>
                         {u.slackUserId && (
                           <Button
                             size="icon"
@@ -610,6 +791,8 @@ function UsersTab() {
       )}
 
       <UserDialog open={dialogOpen} onOpenChange={setDialogOpen} editing={editing} />
+
+      <EmployeeHistorySheet user={historyUser} onClose={() => setHistoryUser(null)} />
 
       <AlertDialog open={!!deactivating} onOpenChange={(v) => !v && setDeactivating(null)}>
         <AlertDialogContent>

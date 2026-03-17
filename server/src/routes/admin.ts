@@ -806,4 +806,36 @@ router.get('/entitlements/audit', async (req, res, next) => {
   }
 })
 
+// ============================================================
+// Employee leave history (for admin view)
+// ============================================================
+
+router.get('/users/:id/leave-requests', async (req, res, next) => {
+  try {
+    const userId = parseInt(req.params.id as string, 10)
+    const rows = await db
+      .select({
+        id: leaveRequests.id,
+        leaveTypeName: leaveTypes.name,
+        leaveTypeCode: leaveTypes.code,
+        startDate: leaveRequests.startDate,
+        endDate: leaveRequests.endDate,
+        totalDays: leaveRequests.totalDays,
+        status: leaveRequests.status,
+        reason: leaveRequests.reason,
+        halfDayPeriod: leaveRequests.halfDayPeriod,
+        createdAt: leaveRequests.createdAt,
+      })
+      .from(leaveRequests)
+      .leftJoin(leaveTypes, eq(leaveRequests.leaveTypeId, leaveTypes.id))
+      .where(eq(leaveRequests.userId, userId))
+      .orderBy(desc(leaveRequests.createdAt))
+
+    const response: ApiResponse<typeof rows> = { success: true, data: rows }
+    res.json(response)
+  } catch (err) {
+    next(err)
+  }
+})
+
 export default router
