@@ -20,15 +20,49 @@ export async function runMigrations(): Promise<void> {
       ADD COLUMN IF NOT EXISTS approval_flow varchar(30) NOT NULL DEFAULT 'standard'
     `)
 
-    await client.query(`
-      ALTER TABLE leave_types
-      ADD COLUMN IF NOT EXISTS min_notice_days integer NOT NULL DEFAULT 0
-    `)
+    // min_notice_days was removed from the system (Phase 6 drop, see below).
+    // Use DROP instead of ADD so restarts after Phase 6 don't re-create it.
+    await client.query(`ALTER TABLE leave_types DROP COLUMN IF EXISTS min_notice_days`)
 
     await client.query(`
       ALTER TABLE leave_types
       ADD COLUMN IF NOT EXISTS max_consecutive_days integer
     `)
+
+    // approval_step and current_approver_id — required for multi-level approval flow.
+    // These were added to schema.ts but never added to the production migration.
+    await client.query(`
+      ALTER TABLE leave_requests
+      ADD COLUMN IF NOT EXISTS approval_step integer NOT NULL DEFAULT 1
+    `)
+    await client.query(`
+      ALTER TABLE leave_requests
+      ADD COLUMN IF NOT EXISTS current_approver_id integer REFERENCES users(id)
+    `)
+
+    // approval_status enum and approval_workflows table — used by the approval chain.
+    await client.query(`
+      DO $$ BEGIN
+        CREATE TYPE approval_status AS ENUM ('pending', 'approved', 'rejected', 'delegated');
+      EXCEPTION WHEN duplicate_object THEN null;
+      END $$
+    `)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS approval_workflows (
+        id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        leave_request_id integer NOT NULL REFERENCES leave_requests(id) ON DELETE CASCADE,
+        approver_id integer NOT NULL REFERENCES users(id),
+        level integer NOT NULL DEFAULT 1,
+        status approval_status NOT NULL DEFAULT 'pending',
+        comments text,
+        action_date timestamptz,
+        created_at timestamptz DEFAULT now() NOT NULL,
+        updated_at timestamptz DEFAULT now() NOT NULL
+      )
+    `)
+    await client.query(`CREATE INDEX IF NOT EXISTS approval_workflows_request_id_idx ON approval_workflows(leave_request_id)`)
+    await client.query(`CREATE INDEX IF NOT EXISTS approval_workflows_approver_id_idx ON approval_workflows(approver_id)`)
+    await client.query(`CREATE INDEX IF NOT EXISTS approval_workflows_status_idx ON approval_workflows(status)`)
 
     await client.query(`
       DO $$ BEGIN
@@ -433,9 +467,20 @@ export async function runMigrations(): Promise<void> {
     if (obsoleteResult.rowCount && obsoleteResult.rowCount > 0) {
       const safeIds = obsoleteResult.rows.map((r: { id: number }) => r.id)
       await client.query(`DELETE FROM leave_balances WHERE leave_type_id = ANY($1)`, [safeIds])
-      await client.query(`DELETE FROM leave_types WHERE id = ANY($1)`, [safeIds])
-      console.log(`[migrate] Removed ${safeIds.length} obsolete leave type(s)`)
+      try {
+        await client.query(`DELETE FROM leave_types WHERE id = ANY($1)`, [safeIds])
+        console.log(`[migrate] Removed ${safeIds.length} obsolete leave type(s)`)
+      } catch (delErr) {
+        // If a FK constraint prevents deletion (e.g. leave_requests reference), deactivate instead
+        console.log(`[migrate] Could not delete some obsolete types (FK constraint), deactivating: ${delErr instanceof Error ? delErr.message : String(delErr)}`)
+        await client.query(`UPDATE leave_types SET is_active = false WHERE id = ANY($1)`, [safeIds])
+      }
     }
+    // Also deactivate any obsolete types that couldn't be deleted earlier (have leave requests)
+    await client.query(`
+      UPDATE leave_types SET is_active = false
+      WHERE code = ANY($1) AND is_active = true
+    `, [obsoleteCodes])
 
     // ── Phase 2 migrations (Elaine feedback, March 2026) ────────────────────────
 
@@ -493,12 +538,12 @@ export async function runMigrations(): Promise<void> {
       { code: 'AL',        name: 'Annual Leave',                              description: 'Paid annual leave entitlement',                                         isPaid: true,  deducts: true,  reqAttach: false, approvalFlow: 'standard',     minNotice: 0,  regionRestriction: null,    unit: 'days', color: '#3B82F6' },
       { code: 'AL_AUNZ',   name: 'Annual Leave - AU/NZ',                      description: 'Annual leave for Australia & New Zealand',                              isPaid: true,  deducts: true,  reqAttach: false, approvalFlow: 'standard',     minNotice: 3,  regionRestriction: 'AU,NZ', unit: 'days', color: '#2563EB' },
       { code: 'BDL',       name: 'Birthday Leave',                            description: '1 day per year on or around your birthday',                            isPaid: true,  deducts: true,  reqAttach: false, approvalFlow: 'standard',     minNotice: 0,  regionRestriction: null,    unit: 'days', color: '#F59E0B' },
-      { code: 'BFL_CN',    name: 'Breast-feeding Leave - CN',                 description: '1 hour per day breastfeeding break (China statutory)',                  isPaid: true,  deducts: true,  reqAttach: false, approvalFlow: 'standard',     minNotice: 0,  regionRestriction: 'CN',    unit: 'hours', color: '#EC4899' },
+      { code: 'BFL_CN',    name: 'Breast-feeding Leave - CN',                 description: '1 hour per day breastfeeding break (China statutory)',                  isPaid: true,  deducts: true,  reqAttach: false, approvalFlow: 'standard',     minNotice: 0,  regionRestriction: 'CN,CN-GZ,CN-SH', unit: 'hours', color: '#EC4899' },
       { code: 'BT',        name: 'Business Trip',                             description: 'Approved business travel — no balance deduction',                      isPaid: true,  deducts: false, reqAttach: false, approvalFlow: 'standard',     minNotice: 1,  regionRestriction: null,    unit: 'days', color: '#64748B' },
-      { code: 'CARE_CN',   name: 'Care Leave - CN',                           description: 'China-specific care leave',                                            isPaid: true,  deducts: true,  reqAttach: false, approvalFlow: 'standard',     minNotice: 0,  regionRestriction: 'CN',    unit: 'days', color: '#BE185D' },
+      { code: 'CARE_CN',   name: 'Care Leave - CN',                           description: 'China-specific care leave',                                            isPaid: true,  deducts: true,  reqAttach: false, approvalFlow: 'standard',     minNotice: 0,  regionRestriction: 'CN,CN-GZ,CN-SH', unit: 'days', color: '#BE185D' },
       { code: 'CCL_SG',    name: 'Childcare Leave - SG',                      description: 'Singapore government-mandated childcare leave',                        isPaid: true,  deducts: true,  reqAttach: false, approvalFlow: 'standard',     minNotice: 0,  regionRestriction: 'SG',    unit: 'days', color: '#06B6D4' },
       { code: 'CL',        name: 'Compassionate Leave',                       description: 'Leave for bereavement or serious family illness',                      isPaid: true,  deducts: true,  reqAttach: false, approvalFlow: 'standard',     minNotice: 0,  regionRestriction: null,    unit: 'days', color: '#6366F1' },
-      { code: 'CL_CN',     name: 'Compassionate Leave - CN',                  description: 'China-specific compassionate leave',                                   isPaid: true,  deducts: true,  reqAttach: false, approvalFlow: 'standard',     minNotice: 0,  regionRestriction: 'CN',    unit: 'days', color: '#4F46E5' },
+      { code: 'CL_CN',     name: 'Compassionate Leave - CN',                  description: 'China-specific compassionate leave',                                   isPaid: true,  deducts: true,  reqAttach: false, approvalFlow: 'standard',     minNotice: 0,  regionRestriction: 'CN,CN-GZ,CN-SH', unit: 'days', color: '#4F46E5' },
       { code: 'COMP_LEAVE',name: 'Compensatory Leave',                        description: 'Leave earned via approved OT claims (non-AU/NZ)',                      isPaid: true,  deducts: true,  reqAttach: false, approvalFlow: 'standard',     minNotice: 0,  regionRestriction: null,    unit: 'days', color: '#10B981' },
       { code: 'FAM_ID',    name: 'Family Leave - ID',                         description: 'Indonesia family leave',                                               isPaid: true,  deducts: true,  reqAttach: false, approvalFlow: 'standard',     minNotice: 0,  regionRestriction: 'ID',    unit: 'days', color: '#F97316' },
       { code: 'FPSL',      name: 'Full Pay Sick Leave',                       description: 'Full pay sick leave — requires attachment after 2 consecutive days',   isPaid: true,  deducts: true,  reqAttach: false, approvalFlow: 'standard',     minNotice: 0,  regionRestriction: null,    unit: 'days', color: '#EF4444' },
@@ -513,12 +558,12 @@ export async function runMigrations(): Promise<void> {
       { code: 'NPL_AUNZ',  name: 'No Pay Leave - AU/NZ',                      description: 'Unpaid leave for Australia & New Zealand',                            isPaid: false, deducts: true,  reqAttach: false, approvalFlow: 'multi_level',  minNotice: 0,  regionRestriction: 'AU,NZ', unit: 'days', color: '#4B5563' },
       { code: 'NPSL',      name: 'No Pay Sick Leave',                         description: 'Unpaid sick leave',                                                    isPaid: false, deducts: true,  reqAttach: false, approvalFlow: 'standard',     minNotice: 0,  regionRestriction: null,    unit: 'days', color: '#9CA3AF' },
       { code: 'OTC',       name: 'OT Claim',                                  description: 'Overtime compensation claim — credits Comp Leave or cash payment',    isPaid: true,  deducts: false, reqAttach: false, approvalFlow: 'standard',     minNotice: 0,  regionRestriction: null,    unit: 'days', color: '#F59E0B' },
-      { code: 'PARL_CN',   name: 'Parental Leave - CN',                       description: 'China parental leave',                                                 isPaid: true,  deducts: true,  reqAttach: true,  approvalFlow: 'hr_required',  minNotice: 0,  regionRestriction: 'CN',    unit: 'days', color: '#C026D3' },
+      { code: 'PARL_CN',   name: 'Parental Leave - CN',                       description: 'China parental leave',                                                 isPaid: true,  deducts: true,  reqAttach: true,  approvalFlow: 'hr_required',  minNotice: 0,  regionRestriction: 'CN,CN-GZ,CN-SH', unit: 'days', color: '#C026D3' },
       { code: 'PL',        name: 'Paternity Leave',                           description: 'Paid paternity leave — requires attachment. Manager then HR.',         isPaid: true,  deducts: true,  reqAttach: true,  approvalFlow: 'hr_required',  minNotice: 0,  regionRestriction: null,    unit: 'days', color: '#8B5CF6' },
-      { code: 'PEL_CN',    name: 'Prenatal Examination Leave - CN',           description: 'China prenatal examination leave',                                     isPaid: true,  deducts: true,  reqAttach: false, approvalFlow: 'standard',     minNotice: 0,  regionRestriction: 'CN',    unit: 'days', color: '#A855F7' },
+      { code: 'PEL_CN',    name: 'Prenatal Examination Leave - CN',           description: 'China prenatal examination leave',                                     isPaid: true,  deducts: true,  reqAttach: false, approvalFlow: 'standard',     minNotice: 0,  regionRestriction: 'CN,CN-GZ,CN-SH', unit: 'days', color: '#A855F7' },
       { code: 'RSL_SG',    name: 'Reservist Leave - SG',                      description: 'NS/reservist training — statutory, no balance deduction',             isPaid: true,  deducts: false, reqAttach: true,  approvalFlow: 'standard',     minNotice: 0,  regionRestriction: 'SG',    unit: 'days', color: '#0D9488' },
       { code: 'SL',        name: 'Sick Leave',                                description: 'Sick leave — requires attachment after 2 consecutive days',           isPaid: true,  deducts: true,  reqAttach: false, approvalFlow: 'standard',     minNotice: 0,  regionRestriction: null,    unit: 'days', color: '#F87171' },
-      { code: 'SPL_CN',    name: 'Special Leave - CN',                        description: 'China special leave',                                                  isPaid: true,  deducts: true,  reqAttach: false, approvalFlow: 'standard',     minNotice: 0,  regionRestriction: 'CN',    unit: 'days', color: '#7C3AED' },
+      { code: 'SPL_CN',    name: 'Special Leave - CN',                        description: 'China special leave',                                                  isPaid: true,  deducts: true,  reqAttach: false, approvalFlow: 'standard',     minNotice: 0,  regionRestriction: 'CN,CN-GZ,CN-SH', unit: 'days', color: '#7C3AED' },
       { code: 'TIL',       name: 'Time In Lieu - AU/NZ',                      description: 'Earned via OT claims for AU/NZ staff',                                isPaid: true,  deducts: true,  reqAttach: false, approvalFlow: 'standard',     minNotice: 0,  regionRestriction: 'AU,NZ', unit: 'days', color: '#059669' },
       { code: 'TOMED',     name: 'Time-off (1.5 hours for medical treatment only)', description: '1.5 hours per use for medical treatment',                        isPaid: true,  deducts: true,  reqAttach: false, approvalFlow: 'standard',     minNotice: 0,  regionRestriction: null,    unit: 'hours', color: '#FB923C' },
       { code: 'WFH',       name: 'Work From Home',                            description: 'Work from home — auto-approved, no balance deduction',                isPaid: true,  deducts: false, reqAttach: false, approvalFlow: 'auto_approve', minNotice: 0,  regionRestriction: null,    unit: 'days', color: '#22D3EE' },

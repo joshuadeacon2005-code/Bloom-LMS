@@ -9,7 +9,7 @@ export interface TokenPayload {
 
 export function signAccessToken(payload: TokenPayload): string {
   if (!process.env.JWT_SECRET) throw new Error('JWT_SECRET not configured')
-  return jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '15m' })
+  return jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '8h' })
 }
 
 export function signRefreshToken(userId: number): string {

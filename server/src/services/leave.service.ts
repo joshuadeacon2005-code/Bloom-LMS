@@ -274,7 +274,11 @@ export async function createLeaveRequest(
   } else {
     totalDays = calculateWorkingDays(data.startDate, data.endDate, holidays)
     if (data.halfDayPeriod && data.startDate === data.endDate && totalDays === 1) {
+      // Single-day half-day
       totalDays = 0.5
+    } else if (data.halfDayPeriod && data.startDate !== data.endDate && totalDays >= 1) {
+      // Multi-day with a half-day on the first or last day (1.5-day style)
+      totalDays = totalDays - 0.5
     }
     if (totalDays === 0) {
       throw new ValidationError(

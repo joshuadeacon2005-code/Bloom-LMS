@@ -227,9 +227,13 @@ router.get('/calculate-days', validate(calculateDaysSchema, 'query'), async (req
       totalDays = calculateWorkingDays(startDate, endDate, holidaySet)
     }
 
-    // Half-day override (only valid for single-day requests)
+    // Half-day overrides
     if (halfDayPeriod && startDate === endDate) {
+      // Single-day half-day
       totalDays = 0.5
+    } else if (halfDayPeriod && startDate !== endDate && totalDays >= 1) {
+      // Multi-day with a half-day on first or last day (1.5-day style)
+      totalDays = totalDays - 0.5
     }
 
     const data = {

@@ -101,7 +101,18 @@ export function RequestLeaveSheet({ open, onOpenChange }: RequestLeaveSheetProps
     : startDateStr
 
   const halfDayPeriodWatch = watch('halfDayPeriod')
-  const halfDayPeriodForCalc = (halfDay && isSingleDay) ? halfDayPeriodWatch : undefined
+  const endTimeWatch = watch('endTime')
+
+  // Parse hours for hourly display (endTime - startTime per slot)
+  const parseHour = (t: string) => {
+    const [h, m] = t.split(':').map(Number)
+    return h + (m || 0) / 60
+  }
+  const hoursPerSlot = isHourly && startTime && endTimeWatch
+    ? parseHour(endTimeWatch) - parseHour(startTime)
+    : 0
+
+  const halfDayPeriodForCalc = (halfDay || isHalfDayUnit) ? halfDayPeriodWatch : undefined
 
   // Live day count
   const { data: dayCalc, isFetching: calcFetching } = useCalculateDays({
@@ -119,7 +130,7 @@ export function RequestLeaveSheet({ open, onOpenChange }: RequestLeaveSheetProps
       : startDate
 
     const halfDayPeriod =
-      (data.halfDay || isHalfDayUnit) && isSingleDay ? (data.halfDayPeriod ?? 'AM') : undefined
+      (data.halfDay || isHalfDayUnit) ? (data.halfDayPeriod ?? 'AM') : undefined
 
     await createRequest.mutateAsync({
       leaveTypeId: parseInt(data.leaveTypeId, 10),
@@ -216,6 +227,16 @@ export function RequestLeaveSheet({ open, onOpenChange }: RequestLeaveSheetProps
                       mode="range"
                       selected={field.value as DateRange}
                       onSelect={(range) => {
+                        // When the user already has a complete multi-day range selected,
+                        // treat any new click as starting fresh (don't extend the old range).
+                        const hasCompleteRange =
+                          !!(field.value?.from && field.value?.to &&
+                             !isSameDay(field.value.from, field.value.to))
+                        if (hasCompleteRange && range?.from) {
+                          field.onChange({ from: range.from, to: undefined })
+                          setValue('halfDay', false)
+                          return
+                        }
                         field.onChange(range)
                         setValue('halfDay', false)
                         if (range?.from && range?.to && !isSameDay(range.from, range.to)) {
@@ -343,6 +364,60 @@ export function RequestLeaveSheet({ open, onOpenChange }: RequestLeaveSheetProps
             </div>
           )}
 
+          {/* Half-day on first/last day — shown for multi-day 1_day unit leaves */}
+          {!isHourly && !isSingleDay && minUnit === '1_day' && startDateStr && endDateStr && (
+            <div className="space-y-2 rounded-md border bg-muted/30 p-3">
+              <Controller
+                name="halfDay"
+                control={control}
+                render={({ field }) => (
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                      id="multi-half-day-toggle"
+                    />
+                    <Label htmlFor="multi-half-day-toggle" className="cursor-pointer">
+                      Half day on first or last day?
+                    </Label>
+                  </div>
+                )}
+              />
+              {halfDay && (
+                <Controller
+                  name="halfDayPeriod"
+                  control={control}
+                  render={({ field }) => (
+                    <div className="flex gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => field.onChange('PM')}
+                        className={`flex-1 rounded-md border px-3 py-1.5 text-sm font-medium transition-colors ${
+                          field.value === 'PM'
+                            ? 'border-primary bg-primary/10 text-primary'
+                            : 'border-input bg-background text-muted-foreground hover:bg-accent'
+                        }`}
+                      >
+                        First day (half day)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => field.onChange('AM')}
+                        className={`flex-1 rounded-md border px-3 py-1.5 text-sm font-medium transition-colors ${
+                          field.value === 'AM'
+                            ? 'border-primary bg-primary/10 text-primary'
+                            : 'border-input bg-background text-muted-foreground hover:bg-accent'
+                        }`}
+                      >
+                        Last day (half day)
+                      </button>
+                    </div>
+                  )}
+                />
+              )}
+            </div>
+          )}
+
           {/* Live day count */}
           {startDateStr && endDateStr && selectedType && (
             <div className="rounded-md border bg-blue-50 border-blue-200 px-3 py-2.5 text-sm">
@@ -355,9 +430,11 @@ export function RequestLeaveSheet({ open, onOpenChange }: RequestLeaveSheetProps
                 <div className="space-y-1">
                   <div className="flex items-center gap-1.5 font-medium text-blue-800">
                     <CalendarIcon className="h-3.5 w-3.5" />
-                    {dayCalc.totalDays === 0.5
-                      ? '0.5 days (half day)'
-                      : `${dayCalc.totalDays} ${selectedType.dayCalculation === 'calendar_days' ? 'calendar' : 'working'} day${dayCalc.totalDays !== 1 ? 's' : ''}`}
+                    {isHourly && hoursPerSlot > 0
+                      ? `${Math.round(dayCalc.totalDays * hoursPerSlot * 2) / 2} hours`
+                      : dayCalc.totalDays === 0.5
+                        ? '0.5 days (half day)'
+                        : `${dayCalc.totalDays} ${selectedType.dayCalculation === 'calendar_days' ? 'calendar' : 'working'} day${dayCalc.totalDays !== 1 ? 's' : ''}`}
                   </div>
                   {dayCalc.excludedDates.length > 0 && (
                     <p className="text-xs text-blue-700">
