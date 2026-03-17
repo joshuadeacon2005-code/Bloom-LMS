@@ -9,12 +9,12 @@ export interface TokenPayload {
 
 export function signAccessToken(payload: TokenPayload): string {
   if (!process.env.JWT_SECRET) throw new Error('JWT_SECRET not configured')
-  return jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '8h' })
+  return jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '24h' })
 }
 
 export function signRefreshToken(userId: number): string {
   if (!process.env.JWT_REFRESH_SECRET) throw new Error('JWT_REFRESH_SECRET not configured')
-  return jwt.sign({ userId }, process.env.JWT_REFRESH_SECRET, { expiresIn: '7d' })
+  return jwt.sign({ userId }, process.env.JWT_REFRESH_SECRET, { expiresIn: '30d' })
 }
 
 export function verifyAccessToken(token: string): TokenPayload {
@@ -29,6 +29,6 @@ export function verifyRefreshToken(token: string): { userId: number } {
 
 export function getRefreshTokenExpiry(): Date {
   const expiry = new Date()
-  expiry.setDate(expiry.getDate() + 7)
+  expiry.setDate(expiry.getDate() + 30)
   return expiry
 }

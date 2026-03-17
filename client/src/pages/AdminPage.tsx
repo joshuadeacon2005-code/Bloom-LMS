@@ -978,14 +978,17 @@ function StaffMultiSelect({
       )}
       <div className="rounded-md border">
         <div className="p-2 border-b">
-          <Input
-            placeholder="Search employees…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="h-7 text-xs"
-          />
+          <div className="relative">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <Input
+              placeholder="Search by name…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="h-8 pl-7 text-sm"
+            />
+          </div>
         </div>
-        <div className="max-h-40 overflow-y-auto p-1 space-y-0.5">
+        <div className="max-h-52 overflow-y-auto p-1 space-y-0.5">
           {filtered.length === 0 && (
             <p className="text-xs text-muted-foreground px-2 py-2">No employees found</p>
           )}
@@ -2068,6 +2071,7 @@ function HolidaysTab() {
           <thead className="bg-muted/50">
             <tr>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Holiday</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Type</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Date</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Region</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Recurring</th>
@@ -2078,7 +2082,7 @@ function HolidaysTab() {
             {isLoading
               ? [...Array(5)].map((_, i) => (
                   <tr key={i}>
-                    {[...Array(4)].map((_, j) => (
+                    {[...Array(5)].map((_, j) => (
                       <td key={j} className="px-4 py-3"><Skeleton className="h-4 w-full" /></td>
                     ))}
                   </tr>
@@ -2086,6 +2090,7 @@ function HolidaysTab() {
               : groupedHolidays.map((h) => (
                   <tr key={h.key} className="hover:bg-muted/30 transition-colors">
                     <td className="px-4 py-3 font-medium">{h.name}</td>
+                    <td className="px-4 py-3"><Badge variant="outline" className="text-xs">Public Holiday</Badge></td>
                     <td className="px-4 py-3 text-muted-foreground">{formatDate(h.date)}</td>
                     <td className="px-4 py-3 text-muted-foreground">{h.regionLabel}</td>
                     <td className="px-4 py-3">
@@ -2109,7 +2114,7 @@ function HolidaysTab() {
                 ))}
             {!isLoading && groupedHolidays.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-10 text-center text-muted-foreground">
+                <td colSpan={6} className="px-4 py-10 text-center text-muted-foreground">
                   {regionId !== '__none__' ? 'No holidays found for this region and year' : 'Select a region to view holidays'}
                 </td>
               </tr>

@@ -360,8 +360,8 @@ export function RequestLeaveSheet({ open, onOpenChange }: RequestLeaveSheetProps
             </div>
           )}
 
-          {/* Half-day on first/last day — shown for multi-day 1_day unit leaves */}
-          {!isHourly && !isSingleDay && minUnit === '1_day' && startDateStr && endDateStr && (
+          {/* Half-day on first/last day — shown for multi-day 1_day or half_day unit leaves */}
+          {!isHourly && !isSingleDay && (minUnit === '1_day' || minUnit === 'half_day') && startDateStr && endDateStr && (
             <div className="space-y-2 rounded-md border bg-muted/30 p-3">
               <Controller
                 name="halfDay"
@@ -426,8 +426,15 @@ export function RequestLeaveSheet({ open, onOpenChange }: RequestLeaveSheetProps
                 <div className="space-y-1">
                   <div className="flex items-center gap-1.5 font-medium text-blue-800">
                     <CalendarIcon className="h-3.5 w-3.5" />
-                    {isHourly && hoursPerSlot > 0
-                      ? `${Math.round(dayCalc.totalDays * hoursPerSlot * 2) / 2} hours`
+                    {isHourly
+                      ? (() => {
+                          const totalHours = hoursPerSlot > 0
+                            ? Math.round(dayCalc.totalDays * hoursPerSlot * 2) / 2
+                            : hoursPerSlot
+                          return totalHours > 0
+                            ? `${totalHours} hour${totalHours !== 1 ? 's' : ''}${dayCalc.totalDays > 1 ? ` (${dayCalc.totalDays} days × ${hoursPerSlot} hr${hoursPerSlot !== 1 ? 's' : ''}/day)` : ''}`
+                            : `${dayCalc.totalDays} working day${dayCalc.totalDays !== 1 ? 's' : ''} — select a time slot above`
+                        })()
                       : dayCalc.totalDays === 0.5
                         ? '0.5 days (half day)'
                         : `${dayCalc.totalDays} ${selectedType.dayCalculation === 'calendar_days' ? 'calendar' : 'working'} day${dayCalc.totalDays !== 1 ? 's' : ''}`}
