@@ -929,6 +929,68 @@ export async function runMigrations(): Promise<void> {
       END $$;
     `)
 
+    // ── Phase 6: Leave type cleanup & HK holiday substitutes (March 2026 feedback) ──
+
+    // Deactivate 13 legacy/regional leave types that are no longer in use.
+    // Using is_active = false preserves historical leave request data.
+    const phase6DeactivateCodes = [
+      'CCL',       // Child Care Leave (global) — replaced by region-specific CCL_SG
+      'AL_AU',     // Annual Leave (AU) — superseded by AL_AUNZ or global AL
+      'AL_NZ',     // Annual Leave (NZ) — superseded by AL_AUNZ or global AL
+      'AL_AUNZ',   // Annual Leave AU/NZ combined — replaced by global AL
+      'FPSL_AU',   // Full Pay Sick Leave (AU) — superseded by FPSL_AUNZ or global FPSL
+      'FPSL_NZ',   // Full Pay Sick Leave (NZ) — superseded by FPSL_AUNZ or global FPSL
+      'FPSL_AUNZ', // Full Pay Sick Leave AU/NZ — replaced by global FPSL
+      'LSL_AU',    // Long Service Leave (AU) — replaced by LSL_AUNZ
+      'LSL_NZ',    // Long Service Leave (NZ) — replaced by LSL_AUNZ
+      'ML_AU',     // Maternity Leave (AU) — replaced by ML_AUNZ
+      'ML_NZ',     // Maternity Leave (NZ) — replaced by ML_AUNZ
+      'OTC',       // OT Claim — replaced by overtime_entries workflow
+      'TOMED',     // Time-off (1.5 hours medical) — no longer offered
+    ]
+    const phase6DeactivateResult = await client.query(
+      `UPDATE leave_types SET is_active = false WHERE code = ANY($1) AND is_active = true`,
+      [phase6DeactivateCodes]
+    )
+    if (phase6DeactivateResult.rowCount && phase6DeactivateResult.rowCount > 0) {
+      console.log(`[migrate] Deactivated ${phase6DeactivateResult.rowCount} legacy leave type(s)`)
+    }
+
+    // Clear min_notice_days for all leave types — per Elaine's feedback, no notice period required
+    await client.query(`UPDATE leave_types SET min_notice_days = 0 WHERE min_notice_days > 0`)
+
+    // Add missing HK 2026 substitute/additional public holidays.
+    // In HK, when a statutory holiday falls on a Sunday or coincides with another holiday,
+    // a substitute holiday is granted on the next available weekday.
+    //
+    // Calculations (2026):
+    //   Jan 31 (Lunar NY Day 3) = Saturday  → substitute: Feb 2 (Monday)
+    //   Apr 5  (Ching Ming)     = Easter Sunday, Apr 6 = Easter Monday → substitute: Apr 7 (Tue)
+    //   May 24 (Buddha's B-day) = Sunday    → substitute: May 25 (Monday)
+    //   Sep 26 (After Mid-Autumn) = Saturday → substitute: Sep 28 (Monday)
+    //   Oct 11 (Chung Yeung)    = Sunday    → substitute: Oct 12 (Monday)
+    //   Dec 26 (Boxing Day)     = Saturday  → substitute: Dec 28 (Monday)
+    const hkSubstitutes = [
+      { name: 'Lunar New Year (Substitute)',               date: '2026-02-02' },
+      { name: 'Ching Ming Festival (Substitute)',          date: '2026-04-07' },
+      { name: "The Day Following Buddha's Birthday (Sub)", date: '2026-05-25' },
+      { name: 'Day After Mid-Autumn Festival (Sub)',       date: '2026-09-28' },
+      { name: 'Chung Yeung Festival (Substitute)',         date: '2026-10-12' },
+      { name: 'Boxing Day (Substitute)',                   date: '2026-12-28' },
+    ]
+    let hkHolCount = 0
+    for (const h of hkSubstitutes) {
+      const res = await client.query(`
+        INSERT INTO public_holidays (name, date, region_id, is_recurring)
+        SELECT $1, $2::date, r.id, false
+        FROM regions r
+        WHERE r.code = 'HK'
+        ON CONFLICT ON CONSTRAINT public_holidays_region_date_unique DO NOTHING
+      `, [h.name, h.date])
+      if (res.rowCount) hkHolCount++
+    }
+    if (hkHolCount > 0) console.log(`[migrate] Added ${hkHolCount} HK substitute holiday(s)`)
+
     console.log('[migrate] Migrations complete')
   } catch (err) {
     console.error('[migrate] Migration error:', err)
