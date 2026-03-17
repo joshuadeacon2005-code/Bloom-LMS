@@ -227,8 +227,6 @@ export function RequestLeaveSheet({ open, onOpenChange }: RequestLeaveSheetProps
                       mode="range"
                       selected={field.value as DateRange}
                       onSelect={(range) => {
-                        // When the user already has a complete multi-day range selected,
-                        // treat any new click as starting fresh (don't extend the old range).
                         const hasCompleteRange =
                           !!(field.value?.from && field.value?.to &&
                              !isSameDay(field.value.from, field.value.to))
@@ -239,9 +237,7 @@ export function RequestLeaveSheet({ open, onOpenChange }: RequestLeaveSheetProps
                         }
                         field.onChange(range)
                         setValue('halfDay', false)
-                        if (range?.from && range?.to && !isSameDay(range.from, range.to)) {
-                          setDatePickerOpen(false)
-                        } else if (range?.from && !range?.to) {
+                        if (range?.from && range?.to) {
                           setDatePickerOpen(false)
                         }
                       }}

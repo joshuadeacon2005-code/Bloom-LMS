@@ -572,7 +572,7 @@ export async function runMigrations(): Promise<void> {
 
     let upsertCount = 0
     for (const lt of masterLeaveTypes) {
-      // Upsert by code: update if exists (for global region_id=NULL types), insert if not
+      const minUnit = lt.unit === 'hours' ? '1_hour' : '1_day'
       const existing = await client.query(`SELECT id FROM leave_types WHERE code = $1 AND region_id IS NULL LIMIT 1`, [lt.code])
       if (existing.rowCount && existing.rowCount > 0) {
         await client.query(`
@@ -580,15 +580,15 @@ export async function runMigrations(): Promise<void> {
             name = $2, description = $3, is_paid = $4, deducts_balance = $5,
             requires_attachment = $6, approval_flow = $7,
             region_restriction = $8, unit = $9, color = $10, is_active = true,
-            region_id = NULL
+            region_id = NULL, min_unit = $11
           WHERE code = $1 AND region_id IS NULL
-        `, [lt.code, lt.name, lt.description, lt.isPaid, lt.deducts, lt.reqAttach, lt.approvalFlow, lt.regionRestriction, lt.unit, lt.color])
+        `, [lt.code, lt.name, lt.description, lt.isPaid, lt.deducts, lt.reqAttach, lt.approvalFlow, lt.regionRestriction, lt.unit, lt.color, minUnit])
       } else {
         await client.query(`
-          INSERT INTO leave_types (name, code, description, is_paid, deducts_balance, requires_attachment, approval_flow, region_restriction, unit, color, is_active, region_id)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, true, NULL)
+          INSERT INTO leave_types (name, code, description, is_paid, deducts_balance, requires_attachment, approval_flow, region_restriction, unit, color, is_active, region_id, min_unit)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, true, NULL, $11)
           ON CONFLICT DO NOTHING
-        `, [lt.name, lt.code, lt.description, lt.isPaid, lt.deducts, lt.reqAttach, lt.approvalFlow, lt.regionRestriction, lt.unit, lt.color])
+        `, [lt.name, lt.code, lt.description, lt.isPaid, lt.deducts, lt.reqAttach, lt.approvalFlow, lt.regionRestriction, lt.unit, lt.color, minUnit])
         upsertCount++
       }
     }
