@@ -271,6 +271,12 @@ export async function createLeaveRequest(
   let totalDays: number
   if (dayCalc === 'calendar_days') {
     totalDays = calculateCalendarDays(data.startDate, data.endDate)
+    // Apply half-day deduction for calendar-day leave types too (parity with /calculate-days)
+    if (data.halfDayPeriod && data.startDate === data.endDate && totalDays === 1) {
+      totalDays = 0.5
+    } else if (data.halfDayPeriod && data.startDate !== data.endDate && totalDays >= 1) {
+      totalDays = totalDays - 0.5
+    }
   } else {
     totalDays = calculateWorkingDays(data.startDate, data.endDate, holidays)
     if (data.halfDayPeriod && data.startDate === data.endDate && totalDays === 1) {
