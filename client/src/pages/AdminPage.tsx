@@ -651,7 +651,6 @@ const leaveTypeSchema = z.object({
   regionId: z.string().optional(),
   regionRestriction: z.array(z.string()).optional(),
   approvalFlow: z.enum(['standard', 'auto_approve', 'hr_required', 'multi_level']),
-  minNoticeDays: z.string().optional(),
   maxConsecutiveDays: z.string().optional(),
   dayCalculation: z.enum(['working_days', 'calendar_days']).default('working_days'),
   staffRestriction: z.array(z.string()).optional(),
@@ -854,7 +853,7 @@ function LeaveTypeDialog({
 
   const { register, control, handleSubmit, reset, formState: { errors } } = useForm<LeaveTypeFormData>({
     resolver: zodResolver(leaveTypeSchema),
-    defaultValues: { isPaid: true, requiresAttachment: false, approvalFlow: 'standard', minNoticeDays: '0', dayCalculation: 'working_days', regionRestriction: [], staffRestriction: [], minUnit: '1_day' },
+    defaultValues: { isPaid: true, requiresAttachment: false, approvalFlow: 'standard', dayCalculation: 'working_days', regionRestriction: [], staffRestriction: [], minUnit: '1_day' },
   })
 
   useEffect(() => {
@@ -869,14 +868,13 @@ function LeaveTypeDialog({
         regionId: editing.regionId ? String(editing.regionId) : '',
         regionRestriction: editing.regionRestriction ? editing.regionRestriction.split(',').map((s) => s.trim()).filter(Boolean) : [],
         approvalFlow: editing.approvalFlow ?? 'standard',
-        minNoticeDays: editing.minNoticeDays !== undefined ? String(editing.minNoticeDays) : '0',
         maxConsecutiveDays: editing.maxConsecutiveDays ? String(editing.maxConsecutiveDays) : '',
         dayCalculation: editing.dayCalculation ?? 'working_days',
         staffRestriction: editing.staffRestriction ? editing.staffRestriction.split(',').map((s) => s.trim()).filter(Boolean) : [],
         minUnit: (editing as LeaveType & { minUnit?: LeaveTypeFormData['minUnit'] }).minUnit ?? '1_day',
       })
     } else if (open && !editing) {
-      reset({ isPaid: true, requiresAttachment: false, approvalFlow: 'standard', minNoticeDays: '0', dayCalculation: 'working_days', regionRestriction: [], staffRestriction: [], minUnit: '1_day' })
+      reset({ isPaid: true, requiresAttachment: false, approvalFlow: 'standard', dayCalculation: 'working_days', regionRestriction: [], staffRestriction: [], minUnit: '1_day' })
     }
   }, [open, editing, reset])
 
@@ -900,7 +898,6 @@ function LeaveTypeDialog({
       regionId: data.regionId && data.regionId !== '__none__' ? Number(data.regionId) : null,
       regionRestriction: regionRestrictionValue,
       approvalFlow: data.approvalFlow,
-      minNoticeDays: data.minNoticeDays ? Number(data.minNoticeDays) : 0,
       maxConsecutiveDays: data.maxConsecutiveDays ? Number(data.maxConsecutiveDays) : null,
       dayCalculation: data.dayCalculation,
       staffRestriction: staffRestrictionValue,
@@ -1000,15 +997,9 @@ function LeaveTypeDialog({
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <Label>Minimum notice days</Label>
-              <Input {...register('minNoticeDays')} type="number" min="0" placeholder="0" />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Max consecutive days <span className="text-muted-foreground text-xs">(optional)</span></Label>
-              <Input {...register('maxConsecutiveDays')} type="number" min="1" placeholder="Unlimited" />
-            </div>
+          <div className="space-y-1.5">
+            <Label>Max consecutive days <span className="text-muted-foreground text-xs">(optional)</span></Label>
+            <Input {...register('maxConsecutiveDays')} type="number" min="1" placeholder="Unlimited" />
           </div>
 
           <div className="space-y-1.5">
@@ -1141,7 +1132,6 @@ function LeaveTypesTab() {
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Code</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Region</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Approval Flow</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Min Notice</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Max Days</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Paid</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Attachment</th>
@@ -1181,9 +1171,6 @@ function LeaveTypesTab() {
                        lt.approvalFlow === 'auto_approve' ? 'Auto-Approve' :
                        lt.approvalFlow === 'hr_required' ? 'HR Required' :
                        lt.approvalFlow === 'multi_level' ? 'Multi-Level' : lt.approvalFlow}
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground text-xs">
-                      {lt.minNoticeDays ? `${lt.minNoticeDays}d` : '—'}
                     </td>
                     <td className="px-4 py-3 text-muted-foreground text-xs">
                       {lt.maxConsecutiveDays ? `${lt.maxConsecutiveDays}d` : '—'}

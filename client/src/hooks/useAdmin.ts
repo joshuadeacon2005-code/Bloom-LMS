@@ -46,7 +46,6 @@ export interface LeaveType {
   regionId: number | null
   regionRestriction: string | null
   approvalFlow: 'standard' | 'auto_approve' | 'hr_required' | 'multi_level'
-  minNoticeDays: number
   maxConsecutiveDays: number | null
   dayCalculation: 'working_days' | 'calendar_days'
   staffRestriction: string | null

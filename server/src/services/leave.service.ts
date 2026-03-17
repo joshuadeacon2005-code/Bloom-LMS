@@ -256,7 +256,6 @@ export async function createLeaveRequest(
   }
 
   const approvalFlow = (leaveType.approvalFlow ?? 'standard') as string
-  const minNoticeDays = leaveType.minNoticeDays ?? 0
   const maxConsecutiveDays = leaveType.maxConsecutiveDays ?? null
 
   // 3. Ensure startDate <= endDate
@@ -280,20 +279,6 @@ export async function createLeaveRequest(
     if (totalDays === 0) {
       throw new ValidationError(
         'The selected date range contains no working days (weekends and public holidays are excluded)'
-      )
-    }
-  }
-
-  // Notice period validation
-  if (minNoticeDays > 0) {
-    const today = getTodayString()
-    // Add minNoticeDays calendar days to today
-    const todayDate = new Date(today)
-    todayDate.setDate(todayDate.getDate() + minNoticeDays)
-    const earliestStart = todayDate.toISOString().split('T')[0]!
-    if (data.startDate < earliestStart) {
-      throw new ValidationError(
-        `${leaveType.name} requires at least ${minNoticeDays} day${minNoticeDays !== 1 ? 's' : ''} notice`
       )
     }
   }

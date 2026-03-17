@@ -147,7 +147,6 @@ export const leaveTypes = pgTable(
     maxDaysPerYear: integer('max_days_per_year'),
     // Approval flow: standard | auto_approve | hr_required | multi_level
     approvalFlow: varchar('approval_flow', { length: 30 }).notNull().default('standard'),
-    minNoticeDays: integer('min_notice_days').notNull().default(0),
     maxConsecutiveDays: integer('max_consecutive_days'),
     // null = applies to all regions; set to regionId for region-specific types
     regionId: integer('region_id').references(() => regions.id),

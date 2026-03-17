@@ -73,7 +73,6 @@ const createLeaveTypeSchema = z.object({
   regionId: z.number().int().positive().nullable().optional(),
   regionRestriction: z.string().nullable().optional(),
   approvalFlow: z.enum(['standard', 'auto_approve', 'hr_required', 'multi_level']).default('standard'),
-  minNoticeDays: z.number().int().min(0).default(0),
   maxConsecutiveDays: z.number().int().positive().nullable().optional(),
   dayCalculation: z.enum(['working_days', 'calendar_days']).default('working_days'),
   staffRestriction: z.string().nullable().optional(),

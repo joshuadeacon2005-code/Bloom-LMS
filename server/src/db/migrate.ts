@@ -102,10 +102,10 @@ export async function runMigrations(): Promise<void> {
     let newTypeCount = 0
     for (const lt of newLeaveTypes) {
       const res = await client.query(
-        `INSERT INTO leave_types (name, code, description, is_paid, requires_attachment, approval_flow, min_notice_days, region_id)
-         SELECT $1::varchar,$2::varchar,$3::text,$4::boolean,$5::boolean,$6::varchar,$7::int,$8
+        `INSERT INTO leave_types (name, code, description, is_paid, requires_attachment, approval_flow, region_id)
+         SELECT $1::varchar,$2::varchar,$3::text,$4::boolean,$5::boolean,$6::varchar,$7
          WHERE NOT EXISTS (SELECT 1 FROM leave_types WHERE code = $2::varchar)`,
-        [lt.name, lt.code, lt.description, lt.isPaid, lt.requiresAttachment, lt.approvalFlow, lt.minNoticeDays, lt.regionId]
+        [lt.name, lt.code, lt.description, lt.isPaid, lt.requiresAttachment, lt.approvalFlow, lt.regionId]
       )
       if (res.rowCount) newTypeCount++
     }
@@ -533,17 +533,17 @@ export async function runMigrations(): Promise<void> {
         await client.query(`
           UPDATE leave_types SET
             name = $2, description = $3, is_paid = $4, deducts_balance = $5,
-            requires_attachment = $6, approval_flow = $7, min_notice_days = $8,
-            region_restriction = $9, unit = $10, color = $11, is_active = true,
+            requires_attachment = $6, approval_flow = $7,
+            region_restriction = $8, unit = $9, color = $10, is_active = true,
             region_id = NULL
           WHERE code = $1 AND region_id IS NULL
-        `, [lt.code, lt.name, lt.description, lt.isPaid, lt.deducts, lt.reqAttach, lt.approvalFlow, lt.minNotice, lt.regionRestriction, lt.unit, lt.color])
+        `, [lt.code, lt.name, lt.description, lt.isPaid, lt.deducts, lt.reqAttach, lt.approvalFlow, lt.regionRestriction, lt.unit, lt.color])
       } else {
         await client.query(`
-          INSERT INTO leave_types (name, code, description, is_paid, deducts_balance, requires_attachment, approval_flow, min_notice_days, region_restriction, unit, color, is_active, region_id)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, true, NULL)
+          INSERT INTO leave_types (name, code, description, is_paid, deducts_balance, requires_attachment, approval_flow, region_restriction, unit, color, is_active, region_id)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, true, NULL)
           ON CONFLICT DO NOTHING
-        `, [lt.name, lt.code, lt.description, lt.isPaid, lt.deducts, lt.reqAttach, lt.approvalFlow, lt.minNotice, lt.regionRestriction, lt.unit, lt.color])
+        `, [lt.name, lt.code, lt.description, lt.isPaid, lt.deducts, lt.reqAttach, lt.approvalFlow, lt.regionRestriction, lt.unit, lt.color])
         upsertCount++
       }
     }
@@ -756,8 +756,7 @@ export async function runMigrations(): Promise<void> {
       WHERE code IN ('ML', 'ML_AUNZ', 'PL', 'PARL_CN')
     `)
 
-    // Fix 3: Remove min notice days for Annual Leave
-    await client.query(`UPDATE leave_types SET min_notice_days = 0 WHERE code IN ('AL', 'AL_AUNZ')`)
+    // Fix 3: min_notice_days removal — column is dropped in Phase 6 below; nothing to do here
 
     // Fix 4: Deactivate duplicate Birthday Leave — keep oldest active one, deactivate the rest
     await client.query(`
@@ -956,8 +955,8 @@ export async function runMigrations(): Promise<void> {
       console.log(`[migrate] Deactivated ${phase6DeactivateResult.rowCount} legacy leave type(s)`)
     }
 
-    // Clear min_notice_days for all leave types — per Elaine's feedback, no notice period required
-    await client.query(`UPDATE leave_types SET min_notice_days = 0 WHERE min_notice_days > 0`)
+    // Drop min_notice_days column — notice periods are not used in Bloom & Grow LMS
+    await client.query(`ALTER TABLE leave_types DROP COLUMN IF EXISTS min_notice_days`)
 
     // Add missing HK 2026 substitute/additional public holidays.
     // In HK, when a statutory holiday falls on a Sunday or coincides with another holiday,

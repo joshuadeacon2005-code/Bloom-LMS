@@ -452,13 +452,12 @@ async function seed() {
     { code: 'LSL_NZ', approvalFlow: 'multi_level', minNoticeDays: 14 },
     { code: 'ML_NZ', approvalFlow: 'hr_required', minNoticeDays: 0 },
     { code: 'NPL_NZ', approvalFlow: 'multi_level', minNoticeDays: 0 },
-  ] as { code: string; approvalFlow: string; minNoticeDays: number; maxConsecutiveDays?: number }[]
+  ] as { code: string; approvalFlow: string; minNoticeDays?: number; maxConsecutiveDays?: number }[]
   for (const update of approvalFlowUpdates) {
     const id = ltMap[update.code]
     if (id) {
       await db.update(leaveTypes).set({
         approvalFlow: update.approvalFlow as any,
-        minNoticeDays: update.minNoticeDays ?? 0,
         ...(update.maxConsecutiveDays !== undefined ? { maxConsecutiveDays: update.maxConsecutiveDays } : {}),
       }).where(eq(leaveTypes.id, id))
     }
