@@ -1035,6 +1035,58 @@ export async function runMigrations(): Promise<void> {
     }
     if (hkHolCount > 0) console.log(`[migrate] Added ${hkHolCount} HK substitute holiday(s)`)
 
+    // ── Fix Slack IDs for users whose LMS email differs from Slack email ───────
+    const slackFixes = [
+      { lmsEmail: 'victoria@bloomandgrowasia.com',  slackId: 'U03SPQZ7TEV' },
+      { lmsEmail: 'ania@bloomandgrow.com.au',       slackId: 'U045A0C4L9J' },
+      { lmsEmail: 'connie@bloomandgrowgroup.com',   slackId: 'U0AKDSUA9HR' },
+    ]
+    let slackFixCount = 0
+    for (const fix of slackFixes) {
+      const res = await client.query(
+        `UPDATE users SET slack_user_id = $1 WHERE email = $2 AND (slack_user_id IS NULL OR slack_user_id != $1)`,
+        [fix.slackId, fix.lmsEmail]
+      )
+      if (res.rowCount && res.rowCount > 0) slackFixCount++
+    }
+    if (slackFixCount > 0) console.log(`[migrate] Linked ${slackFixCount} Slack user(s) by manual ID`)
+
+    // ── Ensure Connie Li (AU) has AL & SL entitlements matching Tammy Bolton ───
+    const connieRow = await client.query(`SELECT id FROM users WHERE email = 'connie@bloomandgrowgroup.com' LIMIT 1`)
+    const tammyRow = await client.query(`SELECT id FROM users WHERE email = 'tammy@bloomandgrowgroup.com' LIMIT 1`)
+    if (connieRow.rowCount && connieRow.rowCount > 0 && tammyRow.rowCount && tammyRow.rowCount > 0) {
+      const connieId = connieRow.rows[0].id
+      const tammyId = tammyRow.rows[0].id
+      const alType = await client.query(`SELECT id FROM leave_types WHERE code = 'AL' AND is_active = true ORDER BY id ASC LIMIT 1`)
+      const slType = await client.query(`SELECT id FROM leave_types WHERE code = 'SL' AND is_active = true ORDER BY id ASC LIMIT 1`)
+      const typesToCopy = [
+        ...(alType.rowCount ? [alType.rows[0].id] : []),
+        ...(slType.rowCount ? [slType.rows[0].id] : []),
+      ]
+      if (typesToCopy.length === 0) console.log('[migrate] WARNING: No AL/SL leave types found for Connie entitlements')
+      let entitlementCount = 0
+      for (const ltId of typesToCopy) {
+        const tammyBal = await client.query(
+          `SELECT entitled, carried, adjustments FROM leave_balances WHERE user_id = $1 AND leave_type_id = $2 AND year = 2026 LIMIT 1`,
+          [tammyId, ltId]
+        )
+        if (tammyBal.rowCount && tammyBal.rowCount > 0) {
+          const { entitled, carried, adjustments } = tammyBal.rows[0]
+          const res = await client.query(`
+            INSERT INTO leave_balances (user_id, leave_type_id, year, entitled, used, pending, carried, adjustments)
+            VALUES ($1, $2, 2026, $3, '0.0', '0.0', $4, $5)
+            ON CONFLICT ON CONSTRAINT leave_balances_user_type_year_unique
+            DO UPDATE SET entitled = EXCLUDED.entitled, carried = EXCLUDED.carried, adjustments = EXCLUDED.adjustments
+          `, [connieId, ltId, entitled, carried, adjustments])
+          if (res.rowCount && res.rowCount > 0) entitlementCount++
+        }
+      }
+      if (entitlementCount > 0) console.log(`[migrate] Set ${entitlementCount} entitlement(s) for Connie Li matching Tammy`)
+    } else {
+      if (!connieRow.rowCount || connieRow.rowCount === 0) console.log('[migrate] Connie Li not found in database (skipping entitlements)')
+      if (!tammyRow.rowCount || tammyRow.rowCount === 0) console.log('[migrate] Tammy Bolton not found in database (skipping Connie entitlements)')
+    }
+
     console.log('[migrate] Migrations complete')
   } catch (err) {
     console.error('[migrate] Migration error:', err)
