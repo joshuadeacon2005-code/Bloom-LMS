@@ -178,7 +178,7 @@ function ManagerCombobox({
           <CommandList>
             <CommandEmpty>No managers found</CommandEmpty>
             <CommandGroup>
-              {role === 'super_admin' && (
+              {(role === 'super_admin' || role === 'hr_admin') && (
                 <CommandItem
                   value="__none__ no manager"
                   onSelect={() => {
@@ -451,7 +451,7 @@ function UserDialog({
           <div className="space-y-1.5">
             <Label>
               Manager
-              {selectedRole !== 'super_admin' && (
+              {selectedRole !== 'super_admin' && selectedRole !== 'hr_admin' && (
                 <span className="ml-1 text-xs text-muted-foreground">(required for approval routing)</span>
               )}
             </Label>
@@ -514,7 +514,7 @@ function UserDialog({
 
 function UsersTab() {
   const { user: me } = useAuthStore()
-  const isSuperAdmin = me?.role === 'super_admin'
+  const isHrOrAbove = me?.role === 'hr_admin' || me?.role === 'super_admin'
 
   const [search, setSearch] = useState('')
   const [roleFilter, setRoleFilter] = useState<string>('__none__')
@@ -749,7 +749,7 @@ function UsersTab() {
                         <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openEdit(u)}>
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
-                        {isSuperAdmin && u.isActive && u.id !== me?.id && (
+                        {isHrOrAbove && u.isActive && u.id !== me?.id && (
                           <Button
                             size="icon"
                             variant="ghost"

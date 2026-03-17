@@ -563,7 +563,7 @@ router.get('/slack/commands-enabled', requireRole('hr_admin'), (_req, res) => {
   res.json({ success: true, data: { enabled: isSlackCommandsEnabled() } })
 })
 
-router.post('/slack/commands-enabled', requireRole('super_admin'), (req, res) => {
+router.post('/slack/commands-enabled', requireRole('hr_admin'), (req, res) => {
   const enabled = Boolean(req.body.enabled)
   setSlackCommandsEnabled(enabled)
   console.log(`[admin] Slack commands ${enabled ? 'enabled' : 'disabled'} by admin`)

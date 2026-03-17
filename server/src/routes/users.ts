@@ -133,8 +133,8 @@ router.patch(
   }
 )
 
-// DELETE /api/users/:id — Super Admin only (soft delete)
-router.delete('/:id', requireRole('super_admin'), async (req, res, next) => {
+// DELETE /api/users/:id — HR Admin or above (soft delete)
+router.delete('/:id', requireRole('hr_admin'), async (req, res, next) => {
   try {
     const id = parseInt(req.params.id as string, 10)
     await usersService.deleteUser(id)
