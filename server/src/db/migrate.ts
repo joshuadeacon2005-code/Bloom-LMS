@@ -1087,6 +1087,56 @@ export async function runMigrations(): Promise<void> {
       if (!tammyRow.rowCount || tammyRow.rowCount === 0) console.log('[migrate] Tammy Bolton not found in database (skipping Connie entitlements)')
     }
 
+    // ── Phase 7: Correct HK 2026 public holidays (from official gazette) ────
+    // The existing HK holidays had incorrect dates (2025 calendar).
+    // Delete all 2026 HK holidays and re-insert the correct ones.
+    const hkRegionRow = await client.query(`SELECT id FROM regions WHERE code = 'HK' LIMIT 1`)
+    if (hkRegionRow.rowCount && hkRegionRow.rowCount > 0) {
+      const hkRegionId = hkRegionRow.rows[0].id
+
+      const correctHK2026 = [
+        { date: '2026-01-01', name: 'The first day of January' },
+        { date: '2026-02-17', name: "Lunar New Year's Day" },
+        { date: '2026-02-18', name: 'The second day of Lunar New Year' },
+        { date: '2026-02-19', name: 'The third day of Lunar New Year' },
+        { date: '2026-04-03', name: 'Good Friday' },
+        { date: '2026-04-04', name: 'The day following Good Friday' },
+        { date: '2026-04-06', name: 'The day following Ching Ming Festival' },
+        { date: '2026-04-07', name: 'The day following Easter Monday' },
+        { date: '2026-05-01', name: 'Labour Day' },
+        { date: '2026-05-25', name: 'The day following the Birthday of the Buddha' },
+        { date: '2026-06-19', name: 'Tuen Ng Festival' },
+        { date: '2026-07-01', name: 'Hong Kong SAR Establishment Day' },
+        { date: '2026-09-26', name: 'The day following the Chinese Mid-Autumn Festival' },
+        { date: '2026-10-01', name: 'National Day' },
+        { date: '2026-10-19', name: 'The day following Chung Yeung Festival' },
+        { date: '2026-12-25', name: 'Christmas Day' },
+        { date: '2026-12-26', name: 'The first weekday after Christmas Day' },
+      ]
+
+      // Delete all existing 2026 HK holidays
+      const delResult = await client.query(
+        `DELETE FROM public_holidays WHERE region_id = $1 AND date >= '2026-01-01' AND date <= '2026-12-31'`,
+        [hkRegionId]
+      )
+      if (delResult.rowCount && delResult.rowCount > 0) {
+        console.log(`[migrate] Removed ${delResult.rowCount} old HK 2026 holiday(s)`)
+      }
+
+      // Insert correct 2026 holidays
+      let hk2026Count = 0
+      for (const h of correctHK2026) {
+        const res = await client.query(
+          `INSERT INTO public_holidays (name, date, region_id, is_recurring)
+           VALUES ($1, $2::date, $3, false)
+           ON CONFLICT ON CONSTRAINT public_holidays_region_date_unique DO UPDATE SET name = $1`,
+          [h.name, h.date, hkRegionId]
+        )
+        if (res.rowCount) hk2026Count++
+      }
+      console.log(`[migrate] Inserted ${hk2026Count} correct HK 2026 public holiday(s)`)
+    }
+
     console.log('[migrate] Migrations complete')
   } catch (err) {
     console.error('[migrate] Migration error:', err)
