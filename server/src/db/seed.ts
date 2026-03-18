@@ -32,10 +32,7 @@ async function seed() {
     .onConflictDoNothing()
     .returning()
 
-  let allRegions = insertedRegions
-  if (allRegions.length === 0) {
-    allRegions = await db.select().from(regions)
-  }
+  const allRegions = await db.select().from(regions)
   const regionMap = Object.fromEntries(allRegions.map((r) => [r.code, r.id]))
   console.log('[seed] Regions available:', Object.keys(regionMap))
 
@@ -64,14 +61,12 @@ async function seed() {
     { name: 'Technology', regionCode: 'HK' },
   ]
 
-  await db
-    .insert(departments)
-    .values(
-      deptData
-        .filter((d) => regionMap[d.regionCode] !== undefined)
-        .map((d) => ({ name: d.name, regionId: regionMap[d.regionCode]! }))
-    )
-    .onConflictDoNothing()
+  const deptValues = deptData
+    .filter((d) => regionMap[d.regionCode] !== undefined)
+    .map((d) => ({ name: d.name, regionId: regionMap[d.regionCode]! }))
+  if (deptValues.length > 0) {
+    await db.insert(departments).values(deptValues).onConflictDoNothing()
+  }
 
   // ============================================================
   // Leave Types (global — regionId = null means applies to all)
@@ -399,10 +394,7 @@ async function seed() {
     .onConflictDoNothing()
     .returning()
 
-  let allLeaveTypes = insertedLeaveTypes
-  if (allLeaveTypes.length === 0) {
-    allLeaveTypes = await db.select().from(leaveTypes)
-  }
+  const allLeaveTypes = await db.select().from(leaveTypes)
   const ltMap = Object.fromEntries(allLeaveTypes.map((lt) => [lt.code, lt.id]))
   console.log('[seed] Leave types available:', Object.keys(ltMap))
 
@@ -624,7 +616,9 @@ async function seed() {
       probationMonths: p.probationMonths,
     }))
 
-  await db.insert(leavePolicies).values(policyRows).onConflictDoNothing()
+  if (policyRows.length > 0) {
+    await db.insert(leavePolicies).values(policyRows).onConflictDoNothing()
+  }
   console.log('[seed] Leave policies inserted:', policyRows.length)
 
   // ============================================================
@@ -770,7 +764,9 @@ async function seed() {
       isRecurring: false,
     }))
 
-  await db.insert(publicHolidays).values(holidayRows).onConflictDoNothing()
+  if (holidayRows.length > 0) {
+    await db.insert(publicHolidays).values(holidayRows).onConflictDoNothing()
+  }
   console.log('[seed] Public holidays inserted:', holidayRows.length)
 
   // ============================================================

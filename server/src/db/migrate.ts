@@ -1137,6 +1137,104 @@ export async function runMigrations(): Promise<void> {
       console.log(`[migrate] Inserted ${hk2026Count} correct HK 2026 public holiday(s)`)
     }
 
+    // ── Phase 8: Seed data fixes for production (UK region, holidays, leave type fixes) ────
+
+    // 8a. Add UK region if not present
+    await client.query(`
+      INSERT INTO regions (name, code, timezone, currency)
+      VALUES ('United Kingdom', 'UK', 'Europe/London', 'GBP')
+      ON CONFLICT (code) DO NOTHING
+    `)
+
+    // 8b. Add schema columns (safe to re-run)
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS probation_months integer`)
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS probation_end_date date`)
+    await client.query(`ALTER TABLE public_holidays ADD COLUMN IF NOT EXISTS half_day varchar(2)`)
+
+    // 8c. Time-off restricted to HK and UK only
+    const timeoffRes = await client.query(
+      `UPDATE leave_types SET region_restriction = 'HK,UK' WHERE (name LIKE '%Time-off%' OR code = 'TOMED') AND (region_restriction IS NULL OR region_restriction != 'HK,UK')`
+    )
+    if (timeoffRes.rowCount && timeoffRes.rowCount > 0) console.log(`[migrate] Updated Time-off region restriction`)
+
+    // 8d. Deactivate 'Unpaid Leave'
+    await client.query(`UPDATE leave_types SET is_active = false WHERE name = 'Unpaid Leave' AND is_active = true`)
+
+    // 8e. Require attachments for Sick/Compassionate/Maternity leave types
+    const attachRes = await client.query(
+      `UPDATE leave_types SET requires_attachment = true WHERE (name ILIKE '%Sick Leave%' OR name ILIKE '%Compassionate Leave%' OR name ILIKE '%Maternity Leave%') AND requires_attachment = false`
+    )
+    if (attachRes.rowCount && attachRes.rowCount > 0) console.log(`[migrate] Updated ${attachRes.rowCount} leave type attachment requirement(s)`)
+
+    // 8f. Indonesia 2026 public holidays
+    const idRegionRow = await client.query(`SELECT id FROM regions WHERE code = 'ID' LIMIT 1`)
+    if (idRegionRow.rowCount && idRegionRow.rowCount > 0) {
+      const idRegionId = idRegionRow.rows[0].id
+      const idHolidays = [
+        { date: '2026-01-01', name: "New Year's Day" },
+        { date: '2026-01-16', name: "Isra and Mi'raj of the Prophet Muhammad (PBUH)" },
+        { date: '2026-02-16', name: 'Chinese New Year (Joint Leave)' },
+        { date: '2026-02-17', name: 'Chinese New Year' },
+        { date: '2026-03-18', name: 'Day of Silence / Nyepi (Joint Leave)' },
+        { date: '2026-03-19', name: 'Day of Silence / Nyepi (Saka New Year)' },
+        { date: '2026-03-20', name: 'Eid al-Fitr 1447H (Joint Leave)' },
+        { date: '2026-03-21', name: 'Eid al-Fitr 1447H' },
+        { date: '2026-03-22', name: 'Eid al-Fitr 1447H' },
+        { date: '2026-03-23', name: 'Eid al-Fitr 1447H (Joint Leave)' },
+        { date: '2026-03-24', name: 'Eid al-Fitr 1447H (Joint Leave)' },
+        { date: '2026-04-03', name: 'Good Friday' },
+        { date: '2026-05-01', name: 'Labour Day' },
+        { date: '2026-05-14', name: 'Ascension of Jesus Christ (Joint Leave)' },
+        { date: '2026-05-15', name: 'Ascension of Jesus Christ' },
+        { date: '2026-05-23', name: 'Vesak Day' },
+        { date: '2026-06-01', name: 'Pancasila Day' },
+        { date: '2026-07-27', name: 'Islamic New Year 1448H' },
+        { date: '2026-08-17', name: 'Independence Day' },
+        { date: '2026-10-05', name: "Prophet Muhammad's Birthday" },
+        { date: '2026-12-24', name: 'Christmas Eve (Joint Leave)' },
+        { date: '2026-12-25', name: 'Christmas Day' },
+      ]
+      let idCount = 0
+      for (const h of idHolidays) {
+        const res = await client.query(
+          `INSERT INTO public_holidays (name, date, region_id, is_recurring)
+           VALUES ($1, $2::date, $3, false)
+           ON CONFLICT ON CONSTRAINT public_holidays_region_date_unique DO UPDATE SET name = $1`,
+          [h.name, h.date, idRegionId]
+        )
+        if (res.rowCount) idCount++
+      }
+      if (idCount > 0) console.log(`[migrate] Inserted/updated ${idCount} Indonesia 2026 holiday(s)`)
+    }
+
+    // 8g. UK 2026 public holidays
+    const ukRegionRow = await client.query(`SELECT id FROM regions WHERE code = 'UK' LIMIT 1`)
+    if (ukRegionRow.rowCount && ukRegionRow.rowCount > 0) {
+      const ukRegionId = ukRegionRow.rows[0].id
+      const ukHolidays = [
+        { date: '2026-01-01', name: "New Year's Day" },
+        { date: '2026-04-03', name: 'Good Friday' },
+        { date: '2026-04-06', name: 'Easter Monday' },
+        { date: '2026-05-04', name: 'Early May Bank Holiday' },
+        { date: '2026-05-25', name: 'Spring Bank Holiday' },
+        { date: '2026-08-31', name: 'Summer Bank Holiday' },
+        { date: '2026-12-25', name: 'Christmas Day' },
+        { date: '2026-12-26', name: 'Boxing Day' },
+        { date: '2026-12-28', name: 'Boxing Day (Substitute)' },
+      ]
+      let ukCount = 0
+      for (const h of ukHolidays) {
+        const res = await client.query(
+          `INSERT INTO public_holidays (name, date, region_id, is_recurring)
+           VALUES ($1, $2::date, $3, false)
+           ON CONFLICT ON CONSTRAINT public_holidays_region_date_unique DO UPDATE SET name = $1`,
+          [h.name, h.date, ukRegionId]
+        )
+        if (res.rowCount) ukCount++
+      }
+      if (ukCount > 0) console.log(`[migrate] Inserted/updated ${ukCount} UK 2026 holiday(s)`)
+    }
+
     console.log('[migrate] Migrations complete')
   } catch (err) {
     console.error('[migrate] Migration error:', err)
