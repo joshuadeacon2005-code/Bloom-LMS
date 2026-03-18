@@ -70,7 +70,7 @@ import {
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { Checkbox } from '@/components/ui/checkbox'
-import { format } from 'date-fns'
+import { format, addMonths, parse } from 'date-fns'
 import { useAuthStore } from '@/stores/authStore'
 import {
   useRegions,
@@ -297,6 +297,7 @@ const createUserSchema = z.object({
   managerId: z.string().optional(),
   isActive: z.boolean().optional(),
   isOnProbation: z.boolean().optional(),
+  probationMonths: z.number().nullable().optional(),
   joinedDate: z.string().optional(),
 })
 type UserFormData = z.infer<typeof createUserSchema>
@@ -332,9 +333,10 @@ function UserDialog({
           managerId: editing.managerId ? String(editing.managerId) : '',
           isActive: editing.isActive,
           isOnProbation: editing.isOnProbation,
+          probationMonths: null,
           joinedDate: editing.joinedDate ?? '',
         }
-      : { role: 'employee', isActive: true, isOnProbation: false, joinedDate: '' },
+      : { role: 'employee', isActive: true, isOnProbation: false, probationMonths: null, joinedDate: '' },
   })
 
   useEffect(() => {
@@ -349,9 +351,10 @@ function UserDialog({
               managerId: editing.managerId ? String(editing.managerId) : '',
               isActive: editing.isActive,
               isOnProbation: editing.isOnProbation,
+              probationMonths: null,
               joinedDate: editing.joinedDate ?? '',
             }
-          : { role: 'employee', isActive: true, isOnProbation: false, joinedDate: '' }
+          : { role: 'employee', isActive: true, isOnProbation: false, probationMonths: null, joinedDate: '' }
       )
     }
   }, [open, editing, reset])
@@ -360,7 +363,33 @@ function UserDialog({
   // Load ALL managers across all regions (cross-region reporting exists)
   const { data: managers } = useManagers()
 
+  const isOnProbationWatch = watch('isOnProbation')
+  const probationMonthsWatch = watch('probationMonths')
+  const joinedDateWatch = watch('joinedDate')
+
+  // Compute auto-calculated probation end date
+  const computedProbationEndDate = (() => {
+    if (!isOnProbationWatch || !probationMonthsWatch || !joinedDateWatch) return null
+    try {
+      const joined = parse(joinedDateWatch, 'yyyy-MM-dd', new Date())
+      const end = addMonths(joined, probationMonthsWatch)
+      return format(end, 'yyyy-MM-dd')
+    } catch {
+      return null
+    }
+  })()
+
   async function onSubmit(data: UserFormData) {
+    const probationEndDate = (() => {
+      if (!data.isOnProbation || !data.probationMonths || !data.joinedDate) return null
+      try {
+        const joined = parse(data.joinedDate, 'yyyy-MM-dd', new Date())
+        return format(addMonths(joined, data.probationMonths), 'yyyy-MM-dd')
+      } catch {
+        return null
+      }
+    })()
+
     const payload = {
       name: data.name,
       email: data.email,
@@ -369,6 +398,8 @@ function UserDialog({
       managerId: data.managerId && data.managerId !== '__none__' ? Number(data.managerId) : undefined,
       isActive: data.isActive,
       isOnProbation: data.isOnProbation ?? false,
+      probationMonths: data.probationMonths ?? null,
+      probationEndDate,
       joinedDate: data.joinedDate || null,
     }
 
@@ -493,6 +524,34 @@ function UserDialog({
             />
             <Label>On probation</Label>
           </div>
+
+          {isOnProbationWatch && (
+            <div className="space-y-1.5">
+              <Label>Probation length <span className="text-muted-foreground text-xs">(optional)</span></Label>
+              <Controller
+                name="probationMonths"
+                control={control}
+                render={({ field }) => (
+                  <Select
+                    value={field.value != null ? String(field.value) : ''}
+                    onValueChange={(v) => field.onChange(v ? Number(v) : null)}
+                  >
+                    <SelectTrigger><SelectValue placeholder="Select length…" /></SelectTrigger>
+                    <SelectContent>
+                      {[1,2,3,4,5,6,9,12].map((m) => (
+                        <SelectItem key={m} value={String(m)}>{m} month{m > 1 ? 's' : ''}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+              {computedProbationEndDate && (
+                <p className="text-xs text-muted-foreground">
+                  Probation ends: <span className="font-medium">{computedProbationEndDate}</span>
+                </p>
+              )}
+            </div>
+          )}
 
           <div className="space-y-1.5">
             <Label>Joined date <span className="text-muted-foreground text-xs">(optional)</span></Label>
@@ -1882,6 +1941,7 @@ const holidaySchema = z.object({
   // "CN" means all China regions; otherwise a numeric region ID as string
   regionId: z.string().min(1, 'Region required'),
   isRecurring: z.boolean(),
+  halfDay: z.enum(['AM', 'PM', '']).optional(),
 })
 type HolidayFormData = z.infer<typeof holidaySchema>
 
@@ -1903,7 +1963,7 @@ function HolidayDialog({
   })
 
   useEffect(() => {
-    if (open) reset({ regionId: defaultRegionId ?? '', isRecurring: false, name: '', date: '' })
+    if (open) reset({ regionId: defaultRegionId ?? '', isRecurring: false, name: '', date: '', halfDay: '' })
   }, [open, defaultRegionId, reset])
 
   async function onSubmit(data: HolidayFormData) {
@@ -1912,6 +1972,7 @@ function HolidayDialog({
       date: data.date,
       regionId: data.regionId === 'CN' ? 'CN' : Number(data.regionId),
       isRecurring: data.isRecurring,
+      halfDay: data.halfDay && data.halfDay !== '' ? data.halfDay : null,
     }
     await createHoliday.mutateAsync(payload)
     reset()
@@ -1956,6 +2017,23 @@ function HolidayDialog({
               )}
             />
             <FieldError msg={errors.regionId?.message} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Half day <span className="text-muted-foreground text-xs">(optional)</span></Label>
+            <Controller
+              name="halfDay"
+              control={control}
+              render={({ field }) => (
+                <Select value={field.value ?? ''} onValueChange={field.onChange}>
+                  <SelectTrigger><SelectValue placeholder="Full day" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">Full day</SelectItem>
+                    <SelectItem value="AM">AM only (morning off)</SelectItem>
+                    <SelectItem value="PM">PM only (afternoon off)</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
+            />
           </div>
           <Controller
             name="isRecurring"

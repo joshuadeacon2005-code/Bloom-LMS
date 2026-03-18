@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { db } from './index'
 import {
   regions,
@@ -27,6 +27,7 @@ async function seed() {
       { name: 'China', code: 'CN', timezone: 'Asia/Shanghai', currency: 'CNY' },
       { name: 'Australia', code: 'AU', timezone: 'Australia/Sydney', currency: 'AUD' },
       { name: 'New Zealand', code: 'NZ', timezone: 'Pacific/Auckland', currency: 'NZD' },
+      { name: 'United Kingdom', code: 'UK', timezone: 'Europe/London', currency: 'GBP' },
     ])
     .onConflictDoNothing()
     .returning()
@@ -736,6 +737,16 @@ async function seed() {
     { name: 'Christmas Day', date: '2026-12-25', regionCode: 'AU' },
     { name: 'Boxing Day', date: '2026-12-26', regionCode: 'AU' },
 
+    // United Kingdom
+    { name: "New Year's Day", date: '2026-01-01', regionCode: 'UK' },
+    { name: 'Good Friday', date: '2026-04-03', regionCode: 'UK' },
+    { name: 'Easter Monday', date: '2026-04-06', regionCode: 'UK' },
+    { name: 'Early May bank holiday', date: '2026-05-04', regionCode: 'UK' },
+    { name: 'Spring bank holiday', date: '2026-05-25', regionCode: 'UK' },
+    { name: 'Summer bank holiday', date: '2026-08-31', regionCode: 'UK' },
+    { name: 'Christmas Day', date: '2026-12-25', regionCode: 'UK' },
+    { name: 'Boxing Day (substitute)', date: '2026-12-28', regionCode: 'UK' },
+
     // New Zealand
     { name: "New Year's Day", date: '2026-01-01', regionCode: 'NZ' },
     { name: "New Year's Day (observed)", date: '2026-01-02', regionCode: 'NZ' },
@@ -782,6 +793,66 @@ async function seed() {
       .onConflictDoNothing()
     console.log('[seed] Super admin created: admin@bloomandgrowgroup.com')
     console.log('[seed] Default password: Admin@BloomGrow2026! (CHANGE THIS IMMEDIATELY)')
+  }
+
+  // ============================================================
+  // Data Fixes (idempotent — safe to run multiple times)
+  // ============================================================
+
+  // Fix: Time-off (1.5 hrs / Medical) restricted to HK and UK only
+  await db.update(leaveTypes).set({ regionRestriction: 'HK,UK' }).where(
+    sql`${leaveTypes.name} LIKE '%Time-off%' OR ${leaveTypes.code} = 'TOMED'`
+  )
+  console.log('[seed] Updated Time-off regionRestriction to HK,UK')
+
+  // Fix: Deactivate 'Unpaid Leave' - replaced by 'No Pay Leave'
+  await db.update(leaveTypes).set({ isActive: false }).where(eq(leaveTypes.name, 'Unpaid Leave'))
+  console.log('[seed] Deactivated "Unpaid Leave" leave type')
+
+  // Fix: Require attachments for Sick Leave, Compassionate Leave, Maternity Leave
+  await db.update(leaveTypes).set({ requiresAttachment: true }).where(
+    sql`${leaveTypes.name} ILIKE '%Sick Leave%' OR ${leaveTypes.name} ILIKE '%Compassionate Leave%' OR ${leaveTypes.name} ILIKE '%Maternity Leave%'`
+  )
+  console.log('[seed] Updated attachment requirements for Sick/Compassionate/Maternity leave')
+
+  // Fix: Update Indonesia 2026 public holidays (correct official calendar)
+  const idRegionRow = await db.select({ id: regions.id }).from(regions).where(eq(regions.code, 'ID')).limit(1)
+  if (idRegionRow[0]) {
+    const idRegionId = idRegionRow[0].id
+    const indonesia2026Holidays = [
+      { date: '2026-01-01', name: "New Year's Day" },
+      { date: '2026-01-16', name: "Isra and Mi'raj of the Prophet Muhammad (PBUH)" },
+      { date: '2026-02-16', name: 'Chinese New Year (Joint Leave)' },
+      { date: '2026-02-17', name: 'Chinese New Year' },
+      { date: '2026-03-18', name: 'Day of Silence / Nyepi (Joint Leave)' },
+      { date: '2026-03-19', name: 'Day of Silence / Nyepi (Saka New Year)' },
+      { date: '2026-03-20', name: 'Eid al-Fitr 1447H (Joint Leave)' },
+      { date: '2026-03-21', name: 'Eid al-Fitr 1447H' },
+      { date: '2026-03-22', name: 'Eid al-Fitr 1447H' },
+      { date: '2026-03-23', name: 'Eid al-Fitr 1447H (Joint Leave)' },
+      { date: '2026-03-24', name: 'Eid al-Fitr 1447H (Joint Leave)' },
+      { date: '2026-04-03', name: 'Good Friday' },
+      { date: '2026-05-01', name: 'Labour Day' },
+      { date: '2026-05-14', name: 'Ascension of Jesus Christ (Joint Leave)' },
+      { date: '2026-05-15', name: 'Ascension of Jesus Christ' },
+      { date: '2026-05-23', name: 'Vesak Day' },
+      { date: '2026-06-01', name: 'Pancasila Day' },
+      { date: '2026-07-27', name: 'Islamic New Year 1448H' },
+      { date: '2026-08-17', name: 'Independence Day' },
+      { date: '2026-10-05', name: "Prophet Muhammad's Birthday" },
+      { date: '2026-12-24', name: 'Christmas Eve (Joint Leave)' },
+      { date: '2026-12-25', name: 'Christmas Day' },
+    ]
+
+    for (const h of indonesia2026Holidays) {
+      await db.insert(publicHolidays).values({
+        name: h.name,
+        date: h.date,
+        regionId: idRegionId,
+        isRecurring: false,
+      }).onConflictDoNothing()
+    }
+    console.log('[seed] Indonesia 2026 public holidays updated')
   }
 
   console.log('[seed] Seed complete!')

@@ -121,6 +121,8 @@ export const users = pgTable(
     managerId: integer('manager_id').references((): AnyPgColumn => users.id),
     isActive: boolean('is_active').notNull().default(true),
     isOnProbation: boolean('is_on_probation').notNull().default(false),
+    probationMonths: integer('probation_months'),
+    probationEndDate: date('probation_end_date'),
     joinedDate: date('joined_date'),
     avatarUrl: text('avatar_url'),
     ...timestamps,
@@ -295,6 +297,7 @@ export const publicHolidays = pgTable(
       .notNull()
       .references(() => regions.id),
     isRecurring: boolean('is_recurring').notNull().default(false),
+    halfDay: varchar('half_day', { length: 2 }),  // 'AM', 'PM', or null (full day)
   },
   (table) => [
     index('public_holidays_region_id_idx').on(table.regionId),

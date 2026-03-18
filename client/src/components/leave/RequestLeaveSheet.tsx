@@ -485,8 +485,10 @@ export function RequestLeaveSheet({ open, onOpenChange }: RequestLeaveSheetProps
             <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
               <Upload className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               <span>
-                A supporting document (e.g. medical certificate) is required for this leave
-                type. You can attach it after submission.
+                {(selectedType.code === 'SL' || selectedType.name.toLowerCase().includes('sick'))
+                  ? 'A medical certificate is required for sick leave of 3 or more consecutive days.'
+                  : `An attachment is required for ${selectedType.name}.`}
+                {' '}You can attach it after submission.
               </span>
             </div>
           )}

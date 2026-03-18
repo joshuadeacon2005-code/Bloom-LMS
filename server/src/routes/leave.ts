@@ -178,7 +178,7 @@ router.get('/calculate-days', validate(calculateDaysSchema, 'query'), async (req
 
     // Fetch public holidays in the range for the user's region
     const holidayRows = await db
-      .select({ date: publicHolidays.date })
+      .select({ date: publicHolidays.date, halfDay: publicHolidays.halfDay })
       .from(publicHolidays)
       .where(
         and(
@@ -188,6 +188,7 @@ router.get('/calculate-days', validate(calculateDaysSchema, 'query'), async (req
         )
       )
     const holidaySet = new Set(holidayRows.map((h) => h.date))
+    const halfDayHolidayMap = new Map(holidayRows.filter((h) => h.halfDay).map((h) => [h.date, h.halfDay]))
 
     // Calendar days (raw)
     const start = parseDate(startDate)
@@ -234,6 +235,20 @@ router.get('/calculate-days', validate(calculateDaysSchema, 'query'), async (req
     } else if (halfDayPeriod && startDate !== endDate && totalDays >= 1) {
       // Multi-day with a half-day on first or last day (1.5-day style)
       totalDays = totalDays - 0.5
+    }
+
+    // Half-day holiday adjustment: add back 0.5 for each half-day public holiday
+    // (calculateWorkingDays excluded the full day, so we add back 0.5)
+    let halfDayAdjustment = 0
+    for (const [hDate] of halfDayHolidayMap) {
+      const d = new Date(hDate + 'T00:00:00Z')
+      const dow = d.getUTCDay()
+      if (dow !== 0 && dow !== 6) {  // only weekdays
+        halfDayAdjustment += 0.5
+      }
+    }
+    if (halfDayAdjustment > 0 && leaveType.dayCalculation !== 'calendar_days') {
+      totalDays += halfDayAdjustment
     }
 
     const data = {

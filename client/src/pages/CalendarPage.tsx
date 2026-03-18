@@ -61,7 +61,7 @@ interface Absence {
   startDate: string
   endDate: string
   halfDayPeriod?: string | null
-  leaveType?: { id: number; name: string }
+  leaveType?: { id: number; name: string; color?: string | null }
   user?: { id: number; name: string; avatarUrl?: string | null }
 }
 
@@ -122,44 +122,60 @@ function CalendarDayCell({
             <Tooltip key={h.id}>
               <TooltipTrigger asChild>
                 <div className="truncate rounded bg-red-200/80 px-1 py-0.5 text-xs font-medium text-red-900 dark:bg-red-800/60 dark:text-red-100">
-                  {h.name}
+                  {h.name}{h.halfDay ? ` (${h.halfDay} off)` : ''}
                 </div>
               </TooltipTrigger>
               <TooltipContent side="top" className="text-xs">
                 <p className="font-medium">{h.name}</p>
-                <p className="text-muted-foreground">Public Holiday</p>
+                <p className="text-muted-foreground">
+                  {h.halfDay ? `${h.halfDay === 'AM' ? 'Morning' : 'Afternoon'} off` : 'Public Holiday'}
+                </p>
               </TooltipContent>
             </Tooltip>
           ))}
 
           {/* Team absences */}
-          {dayAbsences.slice(0, 3).map((a) => (
-            <Tooltip key={a.id}>
-              <TooltipTrigger asChild>
-                <div
-                  className={`flex cursor-default items-center gap-1 rounded px-1 py-0.5 ${getLeaveColour(a.leaveType?.id ?? 0)} bg-opacity-15`}
-                >
+          {dayAbsences.slice(0, 3).map((a) => {
+            const dbColor = a.leaveType?.color
+            const bgClass = dbColor ? '' : getLeaveColour(a.leaveType?.id ?? 0)
+            // Compute the period label to show on this specific day
+            const period = (() => {
+              if (!a.halfDayPeriod) return null
+              if (a.startDate === a.endDate) return a.halfDayPeriod  // single day
+              if (dateStr === a.startDate) return a.halfDayPeriod    // first day of multi-day
+              if (dateStr === a.endDate) return a.halfDayPeriod === 'PM' ? 'AM' : null  // last day (opposite half)
+              return null  // middle day — no label
+            })()
+            return (
+              <Tooltip key={a.id}>
+                <TooltipTrigger asChild>
                   <div
-                    className={`h-1.5 w-1.5 shrink-0 rounded-full ${getLeaveColour(a.leaveType?.id ?? 0)}`}
-                  />
-                  <span className="truncate text-xs font-medium text-foreground">
-                    {a.user?.name.split(' ')[0]}
-                    {a.halfDayPeriod ? ` (${a.halfDayPeriod})` : ''}
-                  </span>
-                </div>
-              </TooltipTrigger>
-              <TooltipContent side="top" className="text-xs">
-                <p className="font-medium">{a.user?.name}</p>
-                <p className="text-muted-foreground">
-                  {a.leaveType?.name}{a.halfDayPeriod ? ` (${a.halfDayPeriod})` : ''}
-                </p>
-                <p className="text-muted-foreground">
-                  {format(new Date(a.startDate), 'd MMM')} –{' '}
-                  {format(new Date(a.endDate), 'd MMM yyyy')}
-                </p>
-              </TooltipContent>
-            </Tooltip>
-          ))}
+                    className={`flex cursor-default items-center gap-1 rounded px-1 py-0.5 ${bgClass} bg-opacity-15`}
+                    style={dbColor ? { backgroundColor: dbColor + '26' } : undefined}
+                  >
+                    <div
+                      className={`h-1.5 w-1.5 shrink-0 rounded-full ${dbColor ? '' : bgClass}`}
+                      style={dbColor ? { backgroundColor: dbColor } : undefined}
+                    />
+                    <span className="truncate text-xs font-medium text-foreground">
+                      {a.user?.name.split(' ')[0]}
+                      {period ? ` (${period})` : ''}
+                    </span>
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="text-xs">
+                  <p className="font-medium">{a.user?.name}</p>
+                  <p className="text-muted-foreground">
+                    {a.leaveType?.name}{a.halfDayPeriod ? ` (${a.halfDayPeriod})` : ''}
+                  </p>
+                  <p className="text-muted-foreground">
+                    {format(new Date(a.startDate), 'd MMM')} –{' '}
+                    {format(new Date(a.endDate), 'd MMM yyyy')}
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+            )
+          })}
           {dayAbsences.length > 3 && (
             <button
               onClick={() => setOverflowOpen(true)}
@@ -180,7 +196,8 @@ function CalendarDayCell({
             {dayAbsences.map((a) => (
               <div key={a.id} className="flex items-start gap-3">
                 <div
-                  className={`mt-1 h-2 w-2 shrink-0 rounded-full ${getLeaveColour(a.leaveType?.id ?? 0)}`}
+                  className={`mt-1 h-2 w-2 shrink-0 rounded-full ${a.leaveType?.color ? '' : getLeaveColour(a.leaveType?.id ?? 0)}`}
+                  style={a.leaveType?.color ? { backgroundColor: a.leaveType.color } : undefined}
                 />
                 <div className="min-w-0">
                   <p className="text-sm font-medium leading-tight">
@@ -351,7 +368,8 @@ export function CalendarPage() {
             {leaveTypes.map((lt) => (
               <div key={lt.id} className="flex items-center gap-1.5">
                 <div
-                  className={`h-2.5 w-2.5 rounded-full ${getLeaveColour(lt.id)}`}
+                  className={`h-2.5 w-2.5 rounded-full ${lt.color ? '' : getLeaveColour(lt.id)}`}
+                  style={lt.color ? { backgroundColor: lt.color } : undefined}
                 />
                 <span className="text-xs text-muted-foreground">{lt.name}</span>
               </div>
@@ -419,7 +437,10 @@ export function CalendarPage() {
                   <div className="min-w-[48px] text-sm font-medium text-red-700 dark:text-red-400">
                     {format(new Date(h.date), 'd MMM')}
                   </div>
-                  <span className="text-sm">{h.name}</span>
+                  <span className="text-sm">
+                    {h.name}
+                    {h.halfDay ? <span className="ml-1 text-xs text-muted-foreground">({h.halfDay} off)</span> : ''}
+                  </span>
                 </div>
               ))}
             </div>

@@ -29,6 +29,8 @@ export interface AdminUser {
   managerName: string | null
   isActive: boolean
   isOnProbation: boolean
+  probationMonths: number | null
+  probationEndDate: string | null
   joinedDate: string | null
   slackUserId: string | null
   avatarUrl: string | null
@@ -79,6 +81,7 @@ export interface CreateHolidayInput {
   /** A specific region ID, or "CN" to insert for both CN-GZ and CN-SH */
   regionId: number | 'CN'
   isRecurring: boolean
+  halfDay?: string | null
 }
 
 // ─── Regions ──────────────────────────────────────────────────────────────────

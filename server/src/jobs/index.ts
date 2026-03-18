@@ -1,6 +1,6 @@
 import cron from 'node-cron'
 import { WebClient } from '@slack/web-api'
-import { eq, and, gte, lte, inArray } from 'drizzle-orm'
+import { eq, and, gte, lte, inArray, isNull, or } from 'drizzle-orm'
 import { db } from '../db'
 import {
   users,
@@ -12,7 +12,7 @@ import {
   regions,
 } from '../db/schema'
 import { createNotification } from '../services/notification.service'
-import { parseDecimal } from '../utils/workingDays'
+import { parseDecimal, getTodayString } from '../utils/workingDays'
 import { validateEnv } from '../utils/env'
 
 // Region timezone → UTC offset (hours, standard time — good enough for scheduling windows)
@@ -24,6 +24,7 @@ const REGION_TIMEZONES: Record<string, string> = {
   CN: 'Asia/Shanghai',
   AU: 'Australia/Sydney',
   NZ: 'Pacific/Auckland',
+  UK: 'Europe/London',
 }
 
 function isNineAmIn(timezone: string): boolean {
@@ -264,6 +265,148 @@ async function runMonthlyAccrual() {
   console.log(`[jobs] Monthly accrual complete — ${accrued} balances updated`)
 }
 
+// ─── Job 4: Probation end check ──────────────────────────────────────────────
+
+async function checkProbationEnded(slack: WebClient | null) {
+  const today = getTodayString()
+
+  const expiredProbations = await db
+    .select({
+      id: users.id,
+      name: users.name,
+      email: users.email,
+      slackUserId: users.slackUserId,
+      probationEndDate: users.probationEndDate,
+      regionId: users.regionId,
+    })
+    .from(users)
+    .where(
+      and(
+        eq(users.isOnProbation, true),
+        lte(users.probationEndDate, today),
+        eq(users.isActive, true),
+        isNull(users.deletedAt)
+      )
+    )
+
+  if (expiredProbations.length === 0) return
+
+  for (const employee of expiredProbations) {
+    // 1. Clear probation status
+    await db
+      .update(users)
+      .set({ isOnProbation: false })
+      .where(eq(users.id, employee.id))
+
+    // 2. Notify employee via Slack
+    if (slack && employee.slackUserId) {
+      await slack.chat.postMessage({
+        channel: employee.slackUserId,
+        text: `Congratulations ${employee.name}! Your probation period has ended as of ${employee.probationEndDate}. Welcome to the permanent team!`,
+      }).catch((e) => console.error(`[jobs] Slack DM failed for probation end (user ${employee.id}):`, e))
+    }
+
+    // 3. In-app notification for employee
+    await createNotification({
+      userId: employee.id,
+      type: 'leave_approved',
+      title: 'Probation period ended',
+      message: `Your probation period has ended as of ${employee.probationEndDate}. Congratulations!`,
+      metadata: { probationEndDate: employee.probationEndDate },
+    })
+
+    // 4. Notify HR admins in the employee's region
+    const hrAdmins = await db
+      .select({ id: users.id, slackUserId: users.slackUserId })
+      .from(users)
+      .where(
+        and(
+          eq(users.regionId, employee.regionId),
+          or(eq(users.role, 'hr_admin'), eq(users.role, 'super_admin')),
+          eq(users.isActive, true),
+          isNull(users.deletedAt)
+        )
+      )
+
+    for (const hr of hrAdmins) {
+      await createNotification({
+        userId: hr.id,
+        type: 'leave_approved',
+        title: 'Probation ended: ' + employee.name,
+        message: `${employee.name}'s probation period has ended on ${employee.probationEndDate}. Status has been automatically updated.`,
+        metadata: { employeeId: employee.id, probationEndDate: employee.probationEndDate },
+      })
+
+      if (slack && hr.slackUserId) {
+        await slack.chat.postMessage({
+          channel: hr.slackUserId,
+          text: `${employee.name}'s probation period ended on ${employee.probationEndDate}. Status has been automatically updated in the LMS.`,
+        }).catch(() => {})
+      }
+    }
+
+    console.log(`[jobs] Probation ended for ${employee.name} (ID: ${employee.id})`)
+  }
+}
+
+// ─── Job 5: Probation ending soon reminder ────────────────────────────────────
+
+async function checkProbationEndingSoon(slack: WebClient | null) {
+  const today = new Date()
+  const in7Days = new Date(today)
+  in7Days.setDate(today.getDate() + 7)
+  const in7DaysStr = in7Days.toISOString().split('T')[0]!
+  const todayStr = getTodayString()
+
+  const expiringSoon = await db
+    .select({
+      id: users.id,
+      name: users.name,
+      probationEndDate: users.probationEndDate,
+      regionId: users.regionId,
+    })
+    .from(users)
+    .where(
+      and(
+        eq(users.isOnProbation, true),
+        gte(users.probationEndDate, todayStr),
+        lte(users.probationEndDate, in7DaysStr),
+        eq(users.isActive, true),
+        isNull(users.deletedAt)
+      )
+    )
+
+  for (const employee of expiringSoon) {
+    const hrAdmins = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(
+        and(
+          eq(users.regionId, employee.regionId),
+          or(eq(users.role, 'hr_admin'), eq(users.role, 'super_admin')),
+          eq(users.isActive, true),
+          isNull(users.deletedAt)
+        )
+      )
+
+    for (const hr of hrAdmins) {
+      await createNotification({
+        userId: hr.id,
+        type: 'approval_reminder',
+        title: `Probation ending soon: ${employee.name}`,
+        message: `${employee.name}'s probation period ends on ${employee.probationEndDate} (within 7 days). Please review.`,
+        metadata: { employeeId: employee.id, probationEndDate: employee.probationEndDate },
+      })
+    }
+  }
+
+  if (expiringSoon.length > 0) {
+    console.log(`[jobs] Probation ending soon reminders sent for ${expiringSoon.length} employee(s)`)
+  }
+
+  void slack // slack param reserved for future Slack DM support
+}
+
 // ─── Bootstrap ────────────────────────────────────────────────────────────────
 
 export function initJobs(slackToken?: string) {
@@ -293,5 +436,15 @@ export function initJobs(slackToken?: string) {
     }
   })
 
-  console.log('[jobs] Cron jobs scheduled — hourly reminders/digest, monthly accrual')
+  // Run daily at 00:05 UTC for probation checks
+  cron.schedule('5 0 * * *', async () => {
+    try {
+      await checkProbationEnded(slack)
+      await checkProbationEndingSoon(slack)
+    } catch (e) {
+      console.error('[jobs] Probation check error:', e)
+    }
+  })
+
+  console.log('[jobs] Cron jobs scheduled — hourly reminders/digest, monthly accrual, daily probation check')
 }

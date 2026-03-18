@@ -124,6 +124,7 @@ export interface PublicHoliday {
   date: string
   regionId: number
   isRecurring: boolean
+  halfDay?: string | null
 }
 
 export function usePublicHolidays(params: { regionId?: number; year?: number }) {

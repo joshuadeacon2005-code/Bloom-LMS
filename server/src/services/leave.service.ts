@@ -297,10 +297,15 @@ export async function createLeaveRequest(
   await checkOverlap(userId, data.startDate, data.endDate)
 
   // 7. Attachment requirement
-  if (leaveType.requiresAttachment && totalDays > 1 && !data.attachmentUrl) {
-    throw new ValidationError(
-      `A medical certificate or supporting document is required for ${leaveType.name} requests longer than 1 day`
-    )
+  if (leaveType.requiresAttachment && !data.attachmentUrl) {
+    const isSickLeave = leaveType.code === 'SL' || leaveType.name.toLowerCase().includes('sick')
+    const requiredAfterDays = isSickLeave ? 2 : 0  // sick: 3+ days; others: always required
+    if (totalDays > requiredAfterDays) {
+      const msg = isSickLeave
+        ? 'A medical certificate is required for sick leave of 3 or more consecutive days'
+        : `An attachment is required for ${leaveType.name}`
+      throw new ValidationError(msg)
+    }
   }
 
   // Max consecutive days validation
@@ -841,6 +846,7 @@ export async function getTeamAbsences(filters: {
         id: leaveTypes.id,
         name: leaveTypes.name,
         code: leaveTypes.code,
+        color: leaveTypes.color,
       },
     })
     .from(leaveRequests)

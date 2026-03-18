@@ -31,6 +31,8 @@ const createUserSchema = z.object({
   departmentId: z.number().int().positive().optional(),
   managerId: z.number().int().positive().optional(),
   isOnProbation: z.boolean().optional(),
+  probationMonths: z.number().int().positive().nullable().optional(),
+  probationEndDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   joinedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
 })
 
@@ -43,6 +45,8 @@ const updateUserSchema = z.object({
   managerId: z.number().int().positive().nullable().optional(),
   isActive: z.boolean().optional(),
   isOnProbation: z.boolean().optional(),
+  probationMonths: z.number().int().positive().nullable().optional(),
+  probationEndDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   slackUserId: z.string().max(50).nullable().optional(),
   joinedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
 })

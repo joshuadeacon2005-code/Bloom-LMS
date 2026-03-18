@@ -27,8 +27,25 @@ const router = Router()
 router.use(authenticate, requireRole('hr_admin'))
 
 // ============================================================
-// Regions (read-only for admin)
+// Regions
 // ============================================================
+
+const createRegionSchema = z.object({
+  name: z.string().min(2).max(100),
+  code: z.string().min(2).max(5).toUpperCase(),
+  timezone: z.string().min(3).max(50),
+  currency: z.string().length(3).toUpperCase(),
+})
+
+router.post('/regions', requireRole('super_admin'), validate(createRegionSchema), async (req, res, next) => {
+  try {
+    const [region] = await db.insert(regions).values(req.body).returning()
+    const response: ApiResponse<typeof region> = { success: true, data: region }
+    res.status(201).json(response)
+  } catch (err) {
+    next(err)
+  }
+})
 
 router.get('/regions', async (_req, res, next) => {
   try {
@@ -348,6 +365,7 @@ const createHolidaySchema = z.object({
   // regionId can be a positive integer OR the string "CN" (meaning all China regions)
   regionId: z.union([z.number().int().positive(), z.literal('CN')]),
   isRecurring: z.boolean().default(false),
+  halfDay: z.enum(['AM', 'PM']).optional().nullable(),
 })
 
 router.get('/holidays', async (req, res, next) => {
@@ -378,7 +396,7 @@ router.get('/holidays', async (req, res, next) => {
 
 router.post('/holidays', validate(createHolidaySchema), async (req, res, next) => {
   try {
-    const body = req.body as { name: string; date: string; regionId: number | 'CN'; isRecurring: boolean }
+    const body = req.body as { name: string; date: string; regionId: number | 'CN'; isRecurring: boolean; halfDay?: string | null }
 
     if (body.regionId === 'CN') {
       // Insert for both CN-GZ and CN-SH
@@ -406,7 +424,7 @@ router.post('/holidays', validate(createHolidaySchema), async (req, res, next) =
         }
         const [holiday] = await db
           .insert(publicHolidays)
-          .values({ name: body.name, date: body.date, regionId: region.id, isRecurring: body.isRecurring })
+          .values({ name: body.name, date: body.date, regionId: region.id, isRecurring: body.isRecurring, halfDay: body.halfDay ?? null })
           .returning()
         inserted.push(holiday)
       }
@@ -427,7 +445,7 @@ router.post('/holidays', validate(createHolidaySchema), async (req, res, next) =
       return
     }
 
-    const [holiday] = await db.insert(publicHolidays).values({ ...body, regionId: body.regionId as number }).returning()
+    const [holiday] = await db.insert(publicHolidays).values({ name: body.name, date: body.date, regionId: body.regionId as number, isRecurring: body.isRecurring, halfDay: body.halfDay ?? null }).returning()
     const response: ApiResponse<typeof holiday> = { success: true, data: holiday }
     res.status(201).json(response)
   } catch (err) {

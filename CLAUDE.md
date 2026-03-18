@@ -311,3 +311,4 @@ CLIENT_URL=http://localhost:5173
 - [ ] API rate limiting and security headers
 - [ ] Environment variables properly configured
 - [ ] Database migrations tracked and versioned
+launch a run 
