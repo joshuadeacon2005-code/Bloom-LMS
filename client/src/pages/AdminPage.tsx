@@ -1941,7 +1941,7 @@ const holidaySchema = z.object({
   // "CN" means all China regions; otherwise a numeric region ID as string
   regionId: z.string().min(1, 'Region required'),
   isRecurring: z.boolean(),
-  halfDay: z.enum(['AM', 'PM', '']).optional(),
+  halfDay: z.enum(['AM', 'PM']).optional().or(z.literal('')),
 })
 type HolidayFormData = z.infer<typeof holidaySchema>
 
@@ -1972,7 +1972,7 @@ function HolidayDialog({
       date: data.date,
       regionId: data.regionId === 'CN' ? 'CN' : Number(data.regionId),
       isRecurring: data.isRecurring,
-      halfDay: data.halfDay && data.halfDay !== '' ? data.halfDay : null,
+      halfDay: data.halfDay === 'AM' || data.halfDay === 'PM' ? data.halfDay : null,
     }
     await createHoliday.mutateAsync(payload)
     reset()

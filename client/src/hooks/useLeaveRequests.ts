@@ -16,7 +16,7 @@ export interface LeaveRequest {
   createdAt: string
   updatedAt: string
   user?: { id: number; name: string; email: string; avatarUrl: string | null }
-  leaveType?: { id: number; name: string; code: string }
+  leaveType?: { id: number; name: string; code: string; color?: string | null }
   approvals?: Array<{
     id: number
     level: number
