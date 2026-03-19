@@ -1256,27 +1256,16 @@ export async function runMigrations(): Promise<void> {
       WHERE code = 'TOMED'
     `)
 
-    // 9c. Add HK and UK leave policies for TOMED (4.5 hours/year = 4.5 units)
-    await client.query(`
-      INSERT INTO leave_policies (leave_type_id, region_id, entitlement_days, carry_over_max, probation_months)
-      SELECT lt.id, r.id, 4.5, 0, 0
-      FROM leave_types lt, regions r
-      WHERE lt.code = 'TOMED' AND r.code = 'HK'
-        AND NOT EXISTS (
-          SELECT 1 FROM leave_policies lp
-          WHERE lp.leave_type_id = lt.id AND lp.region_id = r.id
-        )
-    `)
-    await client.query(`
-      INSERT INTO leave_policies (leave_type_id, region_id, entitlement_days, carry_over_max, probation_months)
-      SELECT lt.id, r.id, 4.5, 0, 0
-      FROM leave_types lt, regions r
-      WHERE lt.code = 'TOMED' AND r.code = 'UK'
-        AND NOT EXISTS (
-          SELECT 1 FROM leave_policies lp
-          WHERE lp.leave_type_id = lt.id AND lp.region_id = r.id
-        )
-    `)
+    // 9c. Upsert HK and UK leave policies for TOMED (4.5 hours/year = 4.5 units)
+    for (const rCode of ['HK', 'UK']) {
+      await client.query(`
+        INSERT INTO leave_policies (leave_type_id, region_id, entitlement_days, carry_over_max, probation_months)
+        SELECT lt.id, r.id, 4.5, 0, 0
+        FROM leave_types lt, regions r
+        WHERE lt.code = 'TOMED' AND r.code = $1
+        ON CONFLICT (leave_type_id, region_id) DO UPDATE SET entitlement_days = 4.5
+      `, [rCode])
+    }
     console.log('[migrate] Activated TOMED leave type with HK/UK policies (4.5 hrs/year)')
 
     // 9d. Move Victoria Thomas to UK region

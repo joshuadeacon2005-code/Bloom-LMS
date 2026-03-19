@@ -166,7 +166,7 @@ function CalendarDayCell({
                 <TooltipContent side="top" className="text-xs">
                   <p className="font-medium">{a.user?.name}</p>
                   <p className="text-muted-foreground">
-                    {a.leaveType?.name}{a.halfDayPeriod ? ` (${a.halfDayPeriod})` : ''}
+                    {a.leaveType?.name}{period ? ` (${period})` : ''}
                   </p>
                   <p className="text-muted-foreground">
                     {format(new Date(a.startDate), 'd MMM')} –{' '}
@@ -193,7 +193,15 @@ function CalendarDayCell({
             <DialogTitle>{format(date, 'EEEE, d MMMM yyyy')}</DialogTitle>
           </DialogHeader>
           <div className="space-y-2 pt-1">
-            {dayAbsences.map((a) => (
+            {dayAbsences.map((a) => {
+              const dlgPeriod = (() => {
+                if (!a.halfDayPeriod) return null
+                if (a.startDate === a.endDate) return a.halfDayPeriod
+                if (dateStr === a.startDate) return a.halfDayPeriod
+                if (dateStr === a.endDate) return a.halfDayPeriod === 'PM' ? 'AM' : null
+                return null
+              })()
+              return (
               <div key={a.id} className="flex items-start gap-3">
                 <div
                   className={`mt-1 h-2 w-2 shrink-0 rounded-full ${a.leaveType?.color ? '' : getLeaveColour(a.leaveType?.id ?? 0)}`}
@@ -202,8 +210,8 @@ function CalendarDayCell({
                 <div className="min-w-0">
                   <p className="text-sm font-medium leading-tight">
                     {a.user?.name}
-                    {a.halfDayPeriod ? (
-                      <span className="ml-1 text-xs font-normal text-muted-foreground">({a.halfDayPeriod})</span>
+                    {dlgPeriod ? (
+                      <span className="ml-1 text-xs font-normal text-muted-foreground">({dlgPeriod})</span>
                     ) : null}
                   </p>
                   <p className="text-xs text-muted-foreground">{a.leaveType?.name}</p>
@@ -212,7 +220,7 @@ function CalendarDayCell({
                   </p>
                 </div>
               </div>
-            ))}
+            )})}
           </div>
         </DialogContent>
       </Dialog>
