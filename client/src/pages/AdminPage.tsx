@@ -1941,7 +1941,7 @@ const holidaySchema = z.object({
   // "CN" means all China regions; otherwise a numeric region ID as string
   regionId: z.string().min(1, 'Region required'),
   isRecurring: z.boolean(),
-  halfDay: z.enum(['AM', 'PM']).optional().or(z.literal('')),
+  halfDay: z.enum(['AM', 'PM', 'full']).default('full'),
 })
 type HolidayFormData = z.infer<typeof holidaySchema>
 
@@ -1963,7 +1963,7 @@ function HolidayDialog({
   })
 
   useEffect(() => {
-    if (open) reset({ regionId: defaultRegionId ?? '', isRecurring: false, name: '', date: '', halfDay: '' })
+    if (open) reset({ regionId: defaultRegionId ?? '', isRecurring: false, name: '', date: '', halfDay: 'full' })
   }, [open, defaultRegionId, reset])
 
   async function onSubmit(data: HolidayFormData) {
@@ -1972,7 +1972,7 @@ function HolidayDialog({
       date: data.date,
       regionId: data.regionId === 'CN' ? 'CN' : Number(data.regionId),
       isRecurring: data.isRecurring,
-      halfDay: data.halfDay === 'AM' || data.halfDay === 'PM' ? data.halfDay : null,
+      halfDay: data.halfDay === 'AM' || data.halfDay === 'PM' ? data.halfDay as 'AM' | 'PM' : null,
     }
     await createHoliday.mutateAsync(payload)
     reset()
@@ -2024,10 +2024,10 @@ function HolidayDialog({
               name="halfDay"
               control={control}
               render={({ field }) => (
-                <Select value={field.value ?? ''} onValueChange={field.onChange}>
+                <Select value={field.value ?? 'full'} onValueChange={field.onChange}>
                   <SelectTrigger><SelectValue placeholder="Full day" /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Full day</SelectItem>
+                    <SelectItem value="full">Full day</SelectItem>
                     <SelectItem value="AM">AM only (morning off)</SelectItem>
                     <SelectItem value="PM">PM only (afternoon off)</SelectItem>
                   </SelectContent>

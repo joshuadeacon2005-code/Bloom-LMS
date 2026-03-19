@@ -1235,6 +1235,58 @@ export async function runMigrations(): Promise<void> {
       if (ukCount > 0) console.log(`[migrate] Inserted/updated ${ukCount} UK 2026 holiday(s)`)
     }
 
+    // ── Phase 9: Elaine Round 2 fixes ────
+
+    // 9a. Activate Time-off (TOMED) leave type — was incorrectly deactivated
+    await client.query(`
+      UPDATE leave_types SET is_active = true
+      WHERE code IN ('TOMED') AND is_active = false
+    `)
+    // Deactivate the duplicate TIMEOFF code (keep only TOMED as the canonical one)
+    await client.query(`
+      UPDATE leave_types SET is_active = false
+      WHERE code = 'TIMEOFF' AND is_active = true
+    `)
+
+    // 9b. Set Time-off min_unit to '1_hour' and description
+    await client.query(`
+      UPDATE leave_types
+      SET min_unit = '1_hour',
+          description = '1.5 hours per use for medical treatment'
+      WHERE code = 'TOMED'
+    `)
+
+    // 9c. Add HK and UK leave policies for TOMED (4.5 hours/year = 4.5 units)
+    await client.query(`
+      INSERT INTO leave_policies (leave_type_id, region_id, entitlement_days, carry_over_max, probation_months)
+      SELECT lt.id, r.id, 4.5, 0, 0
+      FROM leave_types lt, regions r
+      WHERE lt.code = 'TOMED' AND r.code = 'HK'
+        AND NOT EXISTS (
+          SELECT 1 FROM leave_policies lp
+          WHERE lp.leave_type_id = lt.id AND lp.region_id = r.id
+        )
+    `)
+    await client.query(`
+      INSERT INTO leave_policies (leave_type_id, region_id, entitlement_days, carry_over_max, probation_months)
+      SELECT lt.id, r.id, 4.5, 0, 0
+      FROM leave_types lt, regions r
+      WHERE lt.code = 'TOMED' AND r.code = 'UK'
+        AND NOT EXISTS (
+          SELECT 1 FROM leave_policies lp
+          WHERE lp.leave_type_id = lt.id AND lp.region_id = r.id
+        )
+    `)
+    console.log('[migrate] Activated TOMED leave type with HK/UK policies (4.5 hrs/year)')
+
+    // 9d. Move Victoria Thomas to UK region
+    await client.query(`
+      UPDATE users SET region_id = (SELECT id FROM regions WHERE code = 'UK' LIMIT 1)
+      WHERE email = 'victoria@bloomandgrowasia.com'
+        AND region_id != (SELECT id FROM regions WHERE code = 'UK' LIMIT 1)
+    `)
+    console.log('[migrate] Phase 9 complete')
+
     console.log('[migrate] Migrations complete')
   } catch (err) {
     console.error('[migrate] Migration error:', err)
