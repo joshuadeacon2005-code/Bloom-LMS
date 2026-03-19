@@ -56,6 +56,14 @@ function getLeaveColour(leaveTypeId: number) {
   return LEAVE_COLOURS[leaveTypeId % LEAVE_COLOURS.length]
 }
 
+function getDayPeriod(a: { halfDayPeriod?: string | null; startDate: string; endDate: string }, dateStr: string): string | null {
+  if (!a.halfDayPeriod) return null
+  if (a.startDate === a.endDate) return a.halfDayPeriod
+  if (a.halfDayPeriod === 'PM' && dateStr === a.startDate) return 'PM'
+  if (a.halfDayPeriod === 'AM' && dateStr === a.endDate) return 'AM'
+  return null
+}
+
 interface Absence {
   id: number
   startDate: string
@@ -138,14 +146,7 @@ function CalendarDayCell({
           {dayAbsences.slice(0, 3).map((a) => {
             const dbColor = a.leaveType?.color
             const bgClass = dbColor ? '' : getLeaveColour(a.leaveType?.id ?? 0)
-            // Compute the period label to show on this specific day
-            const period = (() => {
-              if (!a.halfDayPeriod) return null
-              if (a.startDate === a.endDate) return a.halfDayPeriod  // single day
-              if (dateStr === a.startDate) return a.halfDayPeriod    // first day of multi-day
-              if (dateStr === a.endDate) return a.halfDayPeriod === 'PM' ? 'AM' : null  // last day (opposite half)
-              return null  // middle day — no label
-            })()
+            const period = getDayPeriod(a, dateStr)
             return (
               <Tooltip key={a.id}>
                 <TooltipTrigger asChild>
@@ -194,13 +195,7 @@ function CalendarDayCell({
           </DialogHeader>
           <div className="space-y-2 pt-1">
             {dayAbsences.map((a) => {
-              const dlgPeriod = (() => {
-                if (!a.halfDayPeriod) return null
-                if (a.startDate === a.endDate) return a.halfDayPeriod
-                if (dateStr === a.startDate) return a.halfDayPeriod
-                if (dateStr === a.endDate) return a.halfDayPeriod === 'PM' ? 'AM' : null
-                return null
-              })()
+              const dlgPeriod = getDayPeriod(a, dateStr)
               return (
               <div key={a.id} className="flex items-start gap-3">
                 <div
