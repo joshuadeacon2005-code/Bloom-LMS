@@ -1268,7 +1268,16 @@ export async function runMigrations(): Promise<void> {
     }
     console.log('[migrate] Activated TOMED leave type with HK/UK policies (4.5 hrs/year)')
 
-    // 9d. Move Victoria Thomas to UK region
+    // 9d. Add WFH policy for UK region (was missing — prevents UK staff from submitting WFH)
+    await client.query(`
+      INSERT INTO leave_policies (leave_type_id, region_id, entitlement_days, carry_over_max, probation_months)
+      SELECT lt.id, r.id, 0, 0, 0
+      FROM leave_types lt, regions r
+      WHERE lt.code = 'WFH' AND r.code = 'UK'
+      ON CONFLICT (leave_type_id, region_id) DO NOTHING
+    `)
+
+    // 9e. Move Victoria Thomas to UK region
     await client.query(`
       UPDATE users SET region_id = (SELECT id FROM regions WHERE code = 'UK' LIMIT 1)
       WHERE email = 'victoria@bloomandgrowasia.com'
