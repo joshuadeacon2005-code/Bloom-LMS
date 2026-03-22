@@ -64,6 +64,16 @@ export const overtimeStatusEnum = pgEnum('overtime_status', [
   'pending_hr',
 ])
 
+export const expenseStatusEnum = pgEnum('expense_status', [
+  'PENDING_REVIEW',
+  'AWAITING_APPROVAL',
+  'APPROVED',
+  'REJECTED',
+  'SYNCING',
+  'SYNCED',
+  'SYNC_FAILED',
+])
+
 // =============================================================================
 // Reusable column patterns
 // =============================================================================
@@ -442,6 +452,64 @@ export const policyTierAssignments = pgTable('policy_tier_assignments', {
   unique('policy_tier_assignments_tier_user_unique').on(table.tierId, table.userId),
 ])
 
+export const expenses = pgTable(
+  'expenses',
+  {
+    id: integer('id').generatedAlwaysAsIdentity().primaryKey(),
+    uploadedByUserId: integer('uploaded_by_user_id')
+      .notNull()
+      .references(() => users.id),
+    filename: varchar('filename', { length: 255 }).notNull(),
+    status: expenseStatusEnum('status').notNull().default('PENDING_REVIEW'),
+    slackMessageTs: varchar('slack_message_ts', { length: 50 }),
+    slackChannelId: varchar('slack_channel_id', { length: 50 }),
+    syncAttempts: integer('sync_attempts').notNull().default(0),
+    netsuiteId: varchar('netsuite_id', { length: 100 }),
+    rejectionNote: text('rejection_note'),
+    ...timestamps,
+  },
+  (table) => [
+    index('expenses_uploaded_by_idx').on(table.uploadedByUserId),
+    index('expenses_status_idx').on(table.status),
+  ]
+)
+
+export const expenseItems = pgTable(
+  'expense_items',
+  {
+    id: integer('id').generatedAlwaysAsIdentity().primaryKey(),
+    expenseId: integer('expense_id')
+      .notNull()
+      .references(() => expenses.id, { onDelete: 'cascade' }),
+    employeeEmail: varchar('employee_email', { length: 255 }).notNull(),
+    category: varchar('category', { length: 100 }),
+    amount: numeric('amount', { precision: 10, scale: 2 }).notNull(),
+    currency: varchar('currency', { length: 3 }).notNull().default('HKD'),
+    expenseDate: date('expense_date'),
+    description: text('description'),
+    rawData: jsonb('raw_data').$type<Record<string, string>>(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('expense_items_expense_id_idx').on(table.expenseId)]
+)
+
+export const expenseAuditLog = pgTable(
+  'expense_audit_log',
+  {
+    id: integer('id').generatedAlwaysAsIdentity().primaryKey(),
+    expenseId: integer('expense_id')
+      .notNull()
+      .references(() => expenses.id, { onDelete: 'cascade' }),
+    fromStatus: expenseStatusEnum('from_status'),
+    toStatus: expenseStatusEnum('to_status').notNull(),
+    actorId: integer('actor_id').references(() => users.id),
+    actorName: varchar('actor_name', { length: 100 }),
+    note: text('note'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('expense_audit_log_expense_id_idx').on(table.expenseId)]
+)
+
 export const compLeaveRules = pgTable('comp_leave_rules', {
   id: integer('id').generatedAlwaysAsIdentity().primaryKey(),
   regionId: integer('region_id')
@@ -589,4 +657,19 @@ export const overtimeEntriesRelations = relations(overtimeEntries, ({ one }) => 
 
 export const compLeaveRulesRelations = relations(compLeaveRules, ({ one }) => ({
   region: one(regions, { fields: [compLeaveRules.regionId], references: [regions.id] }),
+}))
+
+export const expensesRelations = relations(expenses, ({ one, many }) => ({
+  uploadedBy: one(users, { fields: [expenses.uploadedByUserId], references: [users.id] }),
+  items: many(expenseItems),
+  auditLog: many(expenseAuditLog),
+}))
+
+export const expenseItemsRelations = relations(expenseItems, ({ one }) => ({
+  expense: one(expenses, { fields: [expenseItems.expenseId], references: [expenses.id] }),
+}))
+
+export const expenseAuditLogRelations = relations(expenseAuditLog, ({ one }) => ({
+  expense: one(expenses, { fields: [expenseAuditLog.expenseId], references: [expenses.id] }),
+  actor: one(users, { fields: [expenseAuditLog.actorId], references: [users.id] }),
 }))

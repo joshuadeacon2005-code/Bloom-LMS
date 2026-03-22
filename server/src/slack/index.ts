@@ -12,6 +12,7 @@ import { registerCompApproveHandlers } from './handlers/comp-approve'
 import { registerCompHrHandlers } from './handlers/comp-hr'
 import { registerLeaveApplyHandlers } from './handlers/leave-apply'
 import { registerLeaveCommandHandlers } from './handlers/leave-commands'
+import { registerExpenseApproveHandlers } from './handlers/expense-approve'
 
 export async function initSlack(_expressApp: Application): Promise<void> {
   const env = validateEnv()
@@ -46,6 +47,7 @@ export async function initSlack(_expressApp: Application): Promise<void> {
   registerCompHrHandlers(boltApp)
   registerLeaveApplyHandlers(boltApp)
   registerLeaveCommandHandlers(boltApp)
+  registerExpenseApproveHandlers(boltApp)
 
   console.log('[slack] CompLeaveBot ready — all handlers registered')
 }

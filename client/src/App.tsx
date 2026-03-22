@@ -10,6 +10,7 @@ import { ReportsPage } from '@/pages/ReportsPage'
 import { AdminPage } from '@/pages/AdminPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 import GuidePage from '@/pages/GuidePage'
+import ExpensesPage from '@/pages/ExpensesPage'
 
 export default function App() {
   return (
@@ -27,6 +28,7 @@ export default function App() {
           <Route path="/reports" element={<ReportsPage />} />
           <Route path="/admin" element={<AdminPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/expenses" element={<ExpensesPage />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/dashboard" replace />} />

@@ -8,6 +8,7 @@ import adminRouter from './admin'
 import notificationsRouter from './notifications'
 import reportsRouter from './reports'
 import overtimeRouter from './overtime'
+import expensesRouter from './expenses'
 
 const router = Router()
 
@@ -20,5 +21,6 @@ router.use('/admin', adminRouter)
 router.use('/notifications', notificationsRouter)
 router.use('/reports', reportsRouter)
 router.use('/overtime', overtimeRouter)
+router.use('/expenses', expensesRouter)
 
 export default router
