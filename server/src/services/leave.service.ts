@@ -293,8 +293,11 @@ export async function createLeaveRequest(
     }
   }
 
-  // 6. Overlap detection
-  await checkOverlap(userId, data.startDate, data.endDate)
+  // 6. Overlap detection (skip for hourly leave types — they allow multiple bookings on the same dates)
+  const minUnit = leaveType.minUnit ?? '1_day'
+  if (minUnit !== '1_hour' && minUnit !== '2_hours') {
+    await checkOverlap(userId, data.startDate, data.endDate)
+  }
 
   // 7. Attachment requirement
   if (leaveType.requiresAttachment && !data.attachmentUrl) {
