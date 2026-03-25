@@ -126,6 +126,50 @@ export async function uploadExpenses(
 }
 
 // ---------------------------------------------------------------------------
+// Manual entry
+// ---------------------------------------------------------------------------
+
+export interface ManualExpenseItem {
+  employeeEmail: string
+  category?: string
+  amount: number
+  currency?: string
+  expenseDate?: string
+  description?: string
+}
+
+export async function createManualExpense(
+  userId: number,
+  items: ManualExpenseItem[]
+): Promise<typeof expenses.$inferSelect> {
+  if (items.length === 0) throw new Error('At least one expense item is required')
+
+  const [expense] = await db
+    .insert(expenses)
+    .values({ uploadedByUserId: userId, filename: 'Manual entry', status: 'PENDING_REVIEW' })
+    .returning()
+
+  if (!expense) throw new Error('Failed to create expense record')
+
+  const dbItems = items.map((item) => ({
+    expenseId: expense.id,
+    employeeEmail: item.employeeEmail,
+    amount: String(item.amount),
+    currency: item.currency || 'HKD',
+    expenseDate: item.expenseDate || undefined,
+    category: item.category || undefined,
+    description: item.description || undefined,
+    rawData: item as unknown as Record<string, string>,
+  }))
+
+  await db.insert(expenseItems).values(dbItems)
+
+  await logAudit(expense.id, null, 'PENDING_REVIEW', userId, null, `Manual entry — ${items.length} item(s)`)
+
+  return expense
+}
+
+// ---------------------------------------------------------------------------
 // List & Get
 // ---------------------------------------------------------------------------
 

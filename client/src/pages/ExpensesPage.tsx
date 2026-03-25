@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import React, { useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { format } from 'date-fns'
@@ -11,6 +11,9 @@ import {
   ChevronUp,
   Receipt,
   FileSpreadsheet,
+  Plus,
+  Trash2,
+  PenLine,
 } from 'lucide-react'
 import api from '@/lib/api'
 import { useAuthStore, isHrOrAbove } from '@/stores/authStore'
@@ -31,6 +34,21 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -139,9 +157,235 @@ async function resubmit(id: number): Promise<Expense> {
   return data.data
 }
 
+async function createManualExpense(items: ManualItemInput[]): Promise<Expense> {
+  const { data } = await api.post<{ data: Expense }>('/expenses/manual', { items })
+  return data.data
+}
+
 async function fetchExpenseDetail(id: number): Promise<Expense> {
   const { data } = await api.get<{ data: Expense }>(`/expenses/${id}`)
   return data.data
+}
+
+// ---------------------------------------------------------------------------
+// Manual Expense Types
+// ---------------------------------------------------------------------------
+
+interface ManualItemInput {
+  employeeEmail: string
+  category: string
+  amount: number
+  currency: string
+  expenseDate: string
+  description: string
+}
+
+const CURRENCIES = ['HKD', 'SGD', 'MYR', 'IDR', 'CNY', 'AUD', 'NZD', 'GBP', 'USD', 'EUR']
+
+const CATEGORIES = [
+  'Travel',
+  'Meals & Entertainment',
+  'Office Supplies',
+  'Transportation',
+  'Accommodation',
+  'Communication',
+  'Training',
+  'Software & Subscriptions',
+  'Medical',
+  'Other',
+]
+
+function emptyItem(email: string): ManualItemInput {
+  return { employeeEmail: email, category: '', amount: 0, currency: 'HKD', expenseDate: '', description: '' }
+}
+
+// ---------------------------------------------------------------------------
+// Manual Expense Dialog
+// ---------------------------------------------------------------------------
+
+function ManualExpenseDialog({
+  open,
+  onOpenChange,
+  onCreated,
+  userEmail,
+}: {
+  open: boolean
+  onOpenChange: (v: boolean) => void
+  onCreated: () => void
+  userEmail: string
+}) {
+  const [items, setItems] = useState<ManualItemInput[]>([emptyItem(userEmail)])
+  const [submitting, setSubmitting] = useState(false)
+
+  function updateItem(idx: number, patch: Partial<ManualItemInput>) {
+    setItems((prev) => prev.map((it, i) => (i === idx ? { ...it, ...patch } : it)))
+  }
+
+  function addRow() {
+    setItems((prev) => [...prev, emptyItem(userEmail)])
+  }
+
+  function removeRow(idx: number) {
+    setItems((prev) => (prev.length <= 1 ? prev : prev.filter((_, i) => i !== idx)))
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    const incomplete = items.filter((it) => (it.employeeEmail || it.amount) && (!it.employeeEmail || !it.amount || it.amount <= 0))
+    if (incomplete.length > 0) {
+      toast.error('Some items are missing a required email or amount')
+      return
+    }
+    const valid = items.filter((it) => it.employeeEmail && it.amount > 0)
+    if (valid.length === 0) {
+      toast.error('Please add at least one item with an email and amount')
+      return
+    }
+    setSubmitting(true)
+    try {
+      await createManualExpense(valid)
+      toast.success('Expense created successfully')
+      onCreated()
+      setItems([emptyItem(userEmail)])
+      onOpenChange(false)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to create expense')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  function handleOpen(v: boolean) {
+    if (v) setItems([emptyItem(userEmail)])
+    onOpenChange(v)
+  }
+
+  const total = items.reduce((acc, it) => acc + (it.amount || 0), 0)
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpen}>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Add Expense Manually</DialogTitle>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4 pt-2">
+          {items.map((item, idx) => (
+            <div key={idx} className="rounded-md border p-3 space-y-3 relative">
+              {items.length > 1 && (
+                <div className="absolute top-2 right-2 flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground font-medium">Item {idx + 1}</span>
+                  <button
+                    type="button"
+                    onClick={() => removeRow(idx)}
+                    className="text-muted-foreground hover:text-destructive transition-colors"
+                    aria-label="Remove item"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Employee email</Label>
+                  <Input
+                    type="email"
+                    value={item.employeeEmail}
+                    onChange={(e) => updateItem(idx, { employeeEmail: e.target.value })}
+                    placeholder="name@company.com"
+                    required
+                    className="h-8 text-sm"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Category</Label>
+                  <Select value={item.category} onValueChange={(v) => updateItem(idx, { category: v })}>
+                    <SelectTrigger className="h-8 text-sm">
+                      <SelectValue placeholder="Select category" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CATEGORIES.map((c) => (
+                        <SelectItem key={c} value={c}>{c}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Amount</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    value={item.amount || ''}
+                    onChange={(e) => updateItem(idx, { amount: parseFloat(e.target.value) || 0 })}
+                    placeholder="0.00"
+                    required
+                    className="h-8 text-sm"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Currency</Label>
+                  <Select value={item.currency} onValueChange={(v) => updateItem(idx, { currency: v })}>
+                    <SelectTrigger className="h-8 text-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CURRENCIES.map((c) => (
+                        <SelectItem key={c} value={c}>{c}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Date</Label>
+                  <Input
+                    type="date"
+                    value={item.expenseDate}
+                    onChange={(e) => updateItem(idx, { expenseDate: e.target.value })}
+                    className="h-8 text-sm"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs">Description</Label>
+                <Input
+                  value={item.description}
+                  onChange={(e) => updateItem(idx, { description: e.target.value })}
+                  placeholder="Brief description of the expense"
+                  className="h-8 text-sm"
+                />
+              </div>
+            </div>
+          ))}
+
+          <Button type="button" variant="outline" size="sm" onClick={addRow} className="w-full">
+            <Plus className="mr-1.5 h-3.5 w-3.5" />
+            Add another item
+          </Button>
+
+          {total > 0 && (
+            <div className="rounded-md bg-muted/50 px-3 py-2 text-sm font-medium flex justify-between">
+              <span>Total ({items.length} item{items.length !== 1 ? 's' : ''})</span>
+              <span>{items[0]?.currency ?? 'HKD'} {total.toFixed(2)}</span>
+            </div>
+          )}
+
+          <div className="flex gap-3 pt-2">
+            <Button type="button" variant="outline" className="flex-1" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" className="flex-1" disabled={submitting}>
+              {submitting ? 'Creating...' : 'Create Expense'}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -154,6 +398,7 @@ export default function ExpensesPage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [expandedId, setExpandedId] = useState<number | null>(null)
+  const [manualOpen, setManualOpen] = useState(false)
 
   const { data: expenseList = [], isLoading } = useQuery({
     queryKey: ['expenses'],
@@ -223,7 +468,7 @@ export default function ExpensesPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Expenses</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Upload expense CSVs, send for approval, and track NetSuite sync status.
+            Add expenses manually or upload CSVs, send for approval, and track sync status.
           </p>
         </div>
         <div className="flex gap-2">
@@ -234,6 +479,13 @@ export default function ExpensesPage() {
             className="hidden"
             onChange={handleFileChange}
           />
+          <Button
+            variant="outline"
+            onClick={() => setManualOpen(true)}
+          >
+            <PenLine className="mr-2 h-4 w-4" />
+            Add Expense
+          </Button>
           <Button
             onClick={() => fileInputRef.current?.click()}
             disabled={uploadMutation.isPending}
@@ -270,7 +522,7 @@ export default function ExpensesPage() {
           ) : expenseList.length === 0 ? (
             <div className="py-16 text-center">
               <FileSpreadsheet className="mx-auto h-10 w-10 text-muted-foreground/40 mb-3" />
-              <p className="text-sm text-muted-foreground">No expenses yet — upload a CSV to get started.</p>
+              <p className="text-sm text-muted-foreground">No expenses yet — add one manually or upload a CSV to get started.</p>
             </div>
           ) : (
             <Table>
@@ -289,9 +541,8 @@ export default function ExpensesPage() {
               </TableHeader>
               <TableBody>
                 {expenseList.map((expense) => (
-                  <>
+                  <React.Fragment key={expense.id}>
                     <TableRow
-                      key={expense.id}
                       className="cursor-pointer hover:bg-muted/30"
                       onClick={() => setExpandedId(expandedId === expense.id ? null : expense.id)}
                     >
@@ -367,7 +618,7 @@ export default function ExpensesPage() {
 
                     {/* Expanded items sub-table */}
                     {expandedId === expense.id && (
-                      <TableRow key={`${expense.id}-items`} className="bg-muted/20">
+                      <TableRow className="bg-muted/20">
                         <TableCell colSpan={isHr ? 9 : 8} className="py-2 px-6">
                           {expense.rejectionNote && (
                             <p className="text-xs text-destructive mb-2">
@@ -406,7 +657,7 @@ export default function ExpensesPage() {
                         </TableCell>
                       </TableRow>
                     )}
-                  </>
+                  </React.Fragment>
                 ))}
               </TableBody>
             </Table>
@@ -459,6 +710,14 @@ export default function ExpensesPage() {
           )}
         </SheetContent>
       </Sheet>
+
+      {/* Manual expense dialog */}
+      <ManualExpenseDialog
+        open={manualOpen}
+        onOpenChange={setManualOpen}
+        onCreated={() => qc.invalidateQueries({ queryKey: ['expenses'] })}
+        userEmail={user?.email ?? ''}
+      />
     </div>
   )
 }
