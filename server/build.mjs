@@ -8,6 +8,7 @@ await build({
   format: 'esm',
   outfile: 'dist/index.js',
   packages: 'external',
+  resolveExtensions: ['.ts', '.tsx', '.js', '.jsx', '.json'],
   banner: {
     js: `
 import { createRequire as __createRequire } from 'module';
