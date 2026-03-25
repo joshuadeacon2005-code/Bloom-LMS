@@ -166,6 +166,7 @@ Key points:
 - Add `-pooler` to endpoint hostnames to use pooled connections.
 - Pooling is especially important in serverless runtimes with bursty concurrency.
 
+
 Link: https://neon.com/docs/connect/connection-pooling.md
 
 ## IP Allow Lists

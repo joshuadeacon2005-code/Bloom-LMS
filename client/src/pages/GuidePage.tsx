@@ -109,7 +109,7 @@ export default function GuidePage() {
           Click <strong>My Leave</strong> in the sidebar, then click the <strong>Apply for Leave</strong> button (top right).
         </Step>
         <Step n={2}>
-          Choose a <strong>Leave Type</strong> from the dropdown (e.g. Annual Leave, Sick Leave, Birthday Leave).
+          Choose a <strong>Leave Type</strong> from the dropdown (e.g. Annual Leave, Full Pay Sick Leave, Birthday Leave).
         </Step>
         <Step n={3}>
           Select your <strong>Start Date</strong> and <strong>End Date</strong>. The system will calculate the number of working days automatically, skipping public holidays.
@@ -118,7 +118,7 @@ export default function GuidePage() {
           Add a short <strong>reason</strong> (required for most leave types).
         </Step>
         <Step n={5}>
-          If your leave type requires supporting documents (e.g. Sick Leave for extended absences), upload the file using the attachment field.
+          If your leave type requires supporting documents (e.g. Full Pay Sick Leave for extended absences), upload the file using the attachment field.
         </Step>
         <Step n={6}>
           Click <strong>Submit Request</strong>. You'll see a confirmation and your request will appear with a <em>Pending</em> status.

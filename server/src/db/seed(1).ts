@@ -84,7 +84,7 @@ async function seed() {
         regionId: null,
       },
       {
-        name: 'Sick Leave',
+        name: 'Full Pay Sick Leave',
         code: 'SL',
         description: 'Medical leave for illness or injury',
         isPaid: true,
@@ -478,7 +478,7 @@ async function seed() {
     { leaveTypeCode: 'AL', regionCode: 'CN', entitlementDays: '5', carryOverMax: '0', probationMonths: 12 },
     { leaveTypeCode: 'AL', regionCode: 'AU', entitlementDays: '20', carryOverMax: '20', probationMonths: 0 },
     { leaveTypeCode: 'AL', regionCode: 'NZ', entitlementDays: '20', carryOverMax: '20', probationMonths: 12 },
-    // Sick Leave
+    // Full Pay Sick Leave
     { leaveTypeCode: 'SL', regionCode: 'HK', entitlementDays: '14', carryOverMax: '0', probationMonths: 1 },
     { leaveTypeCode: 'SL', regionCode: 'SG', entitlementDays: '14', carryOverMax: '0', probationMonths: 3 },
     { leaveTypeCode: 'SL', regionCode: 'MY', entitlementDays: '14', carryOverMax: '0', probationMonths: 0 },
@@ -530,7 +530,7 @@ async function seed() {
     { leaveTypeCode: 'OTC', regionCode: 'MY', entitlementDays: '0', carryOverMax: '0', probationMonths: 0 },
     { leaveTypeCode: 'OTC', regionCode: 'ID', entitlementDays: '0', carryOverMax: '0', probationMonths: 0 },
     { leaveTypeCode: 'OTC', regionCode: 'CN', entitlementDays: '0', carryOverMax: '0', probationMonths: 0 },
-    // Time In Lieu (AU/NZ only) — stored as fractional days (hours / 8), carryover = 20 days = 160 hours
+    // Time In Lieu (AU/NZ only) — tracked in hours, carryover = 160 hours
     { leaveTypeCode: 'TIL', regionCode: 'AU', entitlementDays: '0', carryOverMax: '20', probationMonths: 0 },
     { leaveTypeCode: 'TIL', regionCode: 'NZ', entitlementDays: '0', carryOverMax: '20', probationMonths: 0 },
     // Birthday Leave (1 day, all regions)

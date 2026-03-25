@@ -72,7 +72,7 @@ export async function seedBaseData(): Promise<void> {
 
     const leaveTypeData = [
       ['Annual Leave', 'AL', 'Paid annual leave entitlement', true, false, null],
-      ['Sick Leave', 'SL', 'Medical leave for illness or injury', true, false, null],
+      ['Full Pay Sick Leave', 'SL', 'Medical leave for illness or injury', true, false, null],
       ['Maternity Leave', 'ML', 'Paid leave for the birth or adoption of a child (primary caregiver)', true, true, null],
       ['Paternity Leave', 'PL', 'Paid leave for the birth or adoption of a child (secondary caregiver)', true, false, null],
       ['Compassionate Leave', 'CL', 'Leave for bereavement or serious family illness', true, false, 5],
