@@ -6,6 +6,7 @@ import { WebClient } from '@slack/web-api'
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore — xlsx ships its own types but tsconfig path resolution misses them in workspace
 import * as XLSX from 'xlsx'
+import crypto from 'crypto'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -484,37 +485,6 @@ async function syncToNetSuite(expenseId: number, attempt: number): Promise<void>
       console.log(`[expense] MOCK NetSuite sync for expense #${expenseId} (attempt ${attempt})`)
       netsuiteId = `NS-MOCK-${expenseId}-${Date.now()}`
     } else {
-      // ---------------------------------------------------------------------------
-      // TODO (Naveen): Implement real NetSuite TBA OAuth1 API call.
-      //
-      // Credentials are read from environment variables:
-      //   NS_ACCOUNT_ID       — NetSuite account ID (e.g. "1234567")
-      //   NS_TOKEN_ID         — Token-Based Auth token ID
-      //   NS_TOKEN_SECRET     — Token-Based Auth token secret
-      //   NS_CONSUMER_KEY     — Integration consumer key
-      //   NS_CONSUMER_SECRET  — Integration consumer secret
-      //
-      // Endpoint pattern:
-      //   POST https://{NS_ACCOUNT_ID}.suitetalk.api.netsuite.com/services/rest/record/v1/expenseReport
-      //
-      // Payload shape (confirm with Naveen):
-      //   {
-      //     "employee": { "id": "<netsuite_employee_id>" },
-      //     "expenseReportCurrency": { "refName": expense.items[0].currency },
-      //     "expenseLines": expense.items.map(item => ({
-      //       "expenseDate": item.expenseDate,
-      //       "amount": parseFloat(item.amount),
-      //       "category": { "refName": item.category },
-      //       "memo": item.description,
-      //     }))
-      //   }
-      //
-      // On success, extract the record ID from the response Location header or body.id
-      // and assign it to netsuiteId below.
-      //
-      // Required: NS_ACCOUNT_ID, NS_TOKEN_ID, NS_TOKEN_SECRET, NS_CONSUMER_KEY, NS_CONSUMER_SECRET
-      // ---------------------------------------------------------------------------
-
       const nsAccountId = process.env['NS_ACCOUNT_ID']
       const nsTokenId = process.env['NS_TOKEN_ID']
       const nsTokenSecret = process.env['NS_TOKEN_SECRET']
@@ -525,9 +495,55 @@ async function syncToNetSuite(expenseId: number, attempt: number): Promise<void>
         throw new Error('NetSuite credentials not configured — set NS_ACCOUNT_ID, NS_TOKEN_ID, NS_TOKEN_SECRET, NS_CONSUMER_KEY, NS_CONSUMER_SECRET in .env')
       }
 
-      // TODO: Replace stub below with real OAuth1-signed POST to NetSuite REST API
-      console.log(`[expense] NetSuite sync stubbed for expense #${expenseId} (attempt ${attempt}) — awaiting API implementation`)
-      netsuiteId = `NS-STUB-${expenseId}-${Date.now()}`
+      const accountSlug = nsAccountId.replace(/_/g, '-').toLowerCase()
+      const baseUrl = `https://${accountSlug}.suitetalk.api.netsuite.com/services/rest/record/v1/expenseReport`
+
+      const payload = {
+        tranDate: expense.createdAt ? new Date(expense.createdAt).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
+        memo: `Bloom LMS Expense #${expenseId} — ${expense.filename}`,
+        expenseReportCurrency: { refName: expense.items?.[0]?.currency ?? 'HKD' },
+        expense: {
+          items: (expense.items ?? []).map((item: any) => ({
+            expenseDate: item.expenseDate ?? new Date().toISOString().slice(0, 10),
+            amount: parseFloat(item.amount),
+            currency: { refName: item.currency ?? 'HKD' },
+            category: item.category ? { refName: item.category } : undefined,
+            memo: item.description ?? '',
+          })),
+        },
+      }
+
+      const oauthHeader = buildNetSuiteOAuth1Header(
+        'POST', baseUrl, nsConsumerKey, nsConsumerSecret, nsTokenId, nsTokenSecret, nsAccountId
+      )
+
+      console.log(`[expense] Syncing expense #${expenseId} to NetSuite (attempt ${attempt})...`)
+
+      const response = await fetch(baseUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': oauthHeader,
+          'prefer': 'respond-async',
+        },
+        body: JSON.stringify(payload),
+      })
+
+      if (!response.ok) {
+        const errorBody = await response.text()
+        throw new Error(`NetSuite API returned ${response.status}: ${errorBody}`)
+      }
+
+      const location = response.headers.get('location')
+      if (location) {
+        const idMatch = location.match(/\/(\d+)$/)
+        netsuiteId = idMatch ? idMatch[1] : location
+      } else {
+        const body = await response.json().catch(() => null) as Record<string, any> | null
+        netsuiteId = body?.id ? String(body.id) : `NS-${expenseId}-${Date.now()}`
+      }
+
+      console.log(`[expense] Successfully synced expense #${expenseId} → NetSuite ID: ${netsuiteId}`)
     }
 
     await db
@@ -549,4 +565,48 @@ async function syncToNetSuite(expenseId: number, attempt: number): Promise<void>
       setTimeout(() => startSync(expenseId, null, null), 5000 * attempt)
     }
   }
+}
+
+function buildNetSuiteOAuth1Header(
+  method: string,
+  url: string,
+  consumerKey: string,
+  consumerSecret: string,
+  tokenId: string,
+  tokenSecret: string,
+  accountId: string
+): string {
+  const nonce = crypto.randomBytes(16).toString('hex')
+  const timestamp = Math.floor(Date.now() / 1000).toString()
+
+  const params: Record<string, string> = {
+    oauth_consumer_key: consumerKey,
+    oauth_token: tokenId,
+    oauth_nonce: nonce,
+    oauth_timestamp: timestamp,
+    oauth_signature_method: 'HMAC-SHA256',
+    oauth_version: '1.0',
+  }
+
+  const sortedKeys = Object.keys(params).sort()
+  const paramString = sortedKeys.map(k => `${encodeRFC3986(k)}=${encodeRFC3986(params[k]!)}`).join('&')
+  const baseString = `${method.toUpperCase()}&${encodeRFC3986(url)}&${encodeRFC3986(paramString)}`
+  const signingKey = `${encodeRFC3986(consumerSecret)}&${encodeRFC3986(tokenSecret)}`
+
+  const signature = crypto
+    .createHmac('sha256', signingKey)
+    .update(baseString)
+    .digest('base64')
+
+  params['oauth_signature'] = signature
+  params['realm'] = accountId
+
+  const headerParts = ['realm', 'oauth_consumer_key', 'oauth_token', 'oauth_nonce', 'oauth_timestamp', 'oauth_signature_method', 'oauth_version', 'oauth_signature']
+  const headerString = headerParts.map(k => `${k}="${encodeRFC3986(params[k]!)}"`).join(', ')
+
+  return `OAuth ${headerString}`
+}
+
+function encodeRFC3986(str: string): string {
+  return encodeURIComponent(str).replace(/[!'()*]/g, c => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)
 }

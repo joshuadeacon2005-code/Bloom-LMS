@@ -82,6 +82,14 @@ bloom-lms/
 - Upload route: POST /api/leave/upload
 - Attachment links shown in MyLeave history and admin employee history views
 
+## NetSuite Integration
+- Expense reports sync to NetSuite via REST API after approval
+- Uses Token-Based Authentication (TBA) with OAuth1 HMAC-SHA256 signing
+- Secrets: NS_ACCOUNT_ID, NS_TOKEN_ID, NS_TOKEN_SECRET, NS_CONSUMER_KEY, NS_CONSUMER_SECRET
+- Endpoint: POST https://{account}.suitetalk.api.netsuite.com/services/rest/record/v1/expenseReport
+- Auto-retries up to 3 attempts with exponential backoff on failure
+- MOCK_EXTERNAL env var can be set to 'true' in development to skip real API calls
+
 ## Key Decisions
 - Switched from Neon serverless driver to standard `pg` pool for Replit's built-in PostgreSQL
 - Vite dev server runs on port 5000 (required for Replit webview)
