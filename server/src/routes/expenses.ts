@@ -4,11 +4,13 @@ import { z } from 'zod'
 import { authenticate } from '../middleware/auth'
 import { validate } from '../middleware/validate'
 import * as expenseService from '../services/expense.service'
+import { uploadAttachment } from '../services/cloudinary.service'
 import type { ApiResponse } from './types'
 
 const router = Router()
 router.use(authenticate)
 
+// CSV/XLSX upload (for expense batch import)
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
@@ -19,6 +21,20 @@ const upload = multer({
       cb(null, true)
     } else {
       cb(new Error('Only CSV/XLSX files are allowed'))
+    }
+  },
+})
+
+// Receipt/attachment upload (images and PDFs)
+const attachmentUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB
+  fileFilter: (_req, file, cb) => {
+    const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf']
+    if (allowed.includes(file.mimetype) || file.originalname.match(/\.(jpg|jpeg|png|gif|webp|pdf)$/i)) {
+      cb(null, true)
+    } else {
+      cb(new Error('Only image files (JPG, PNG, GIF, WebP) or PDF are allowed'))
     }
   },
 })
@@ -106,28 +122,43 @@ router.get('/:id', async (req, res, next) => {
   }
 })
 
+// ── POST /api/expenses/:id/attachments ────────────────────────────────────
+router.post('/:id/attachments', attachmentUpload.single('file'), async (req, res, next) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, error: 'No file uploaded' })
+    }
+    const id = parseInt(req.params['id'] as string)
+    const url = await uploadAttachment(req.file.buffer, req.file.originalname)
+    const attachment = await expenseService.addAttachment(id, url, req.file.originalname)
+    const response: ApiResponse<typeof attachment> = { success: true, data: attachment }
+    res.status(201).json(response)
+  } catch (err) {
+    next(err)
+  }
+})
+
 // ── POST /api/expenses/:id/send-approval ──────────────────────────────────
 router.post('/:id/send-approval', async (req, res, next) => {
   try {
     const id = parseInt(req.params['id'] as string)
-    const result = await expenseService.sendForApproval(id, req.user!.userId)
-
-    // If Slack is configured, post the approval message here so we have access
-    // to the Slack web client via the bot token from env.
-    if (!result.slackMessageTs && process.env['MOCK_EXTERNAL'] !== 'true') {
-      const { postExpenseApprovalMessage } = await import('../slack/handlers/expense-approve')
-      const expense = await expenseService.getExpense(id)
-      const slackResult = await postExpenseApprovalMessage(expense).catch((e: Error) => {
-        console.warn('[expense] Slack post failed:', e.message)
-        return null
-      })
-      if (slackResult) {
-        await expenseService.saveSlackMessage(id, slackResult.ts, slackResult.channel)
-      }
-    }
-
+    await expenseService.sendForApproval(id, req.user!.userId)
     const expense = await expenseService.getExpense(id)
     const response: ApiResponse<typeof expense> = { success: true, data: expense }
+    res.json(response)
+  } catch (err) {
+    next(err)
+  }
+})
+
+// ── POST /api/expenses/send-bulk-approval ─────────────────────────────────
+router.post('/send-bulk-approval', async (req, res, next) => {
+  try {
+    const submittedIds = await expenseService.sendBulkForApproval(req.user!.userId)
+    const response: ApiResponse<{ submittedIds: number[]; count: number }> = {
+      success: true,
+      data: { submittedIds, count: submittedIds.length },
+    }
     res.json(response)
   } catch (err) {
     next(err)

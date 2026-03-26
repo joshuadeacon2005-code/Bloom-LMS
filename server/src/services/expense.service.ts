@@ -1,6 +1,8 @@
 import { db } from '../db/index'
-import { expenses, expenseItems, expenseAuditLog } from '../db/schema'
-import { eq, desc } from 'drizzle-orm'
+import { expenses, expenseItems, expenseAuditLog, expenseAttachments } from '../db/schema'
+import { eq, desc, inArray } from 'drizzle-orm'
+import { getSupervisorSlackId, getUserById } from '../slack/db-service'
+import { WebClient } from '@slack/web-api'
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore — xlsx ships its own types but tsconfig path resolution misses them in workspace
 import * as XLSX from 'xlsx'
@@ -181,7 +183,11 @@ export async function listExpenses(
   const isHrOrAbove = ['hr_admin', 'super_admin'].includes(role)
 
   const rows = await db.query.expenses.findMany({
-    with: { uploadedBy: { columns: { id: true, name: true, email: true } }, items: true },
+    with: {
+      uploadedBy: { columns: { id: true, name: true, email: true } },
+      items: true,
+      attachments: true,
+    },
     orderBy: [desc(expenses.createdAt)],
   })
 
@@ -203,6 +209,7 @@ export async function getExpense(id: number) {
       uploadedBy: { columns: { id: true, name: true, email: true } },
       items: true,
       auditLog: { orderBy: [desc(expenseAuditLog.createdAt)] },
+      attachments: true,
     },
   })
   if (!expense) throw new Error('Expense not found')
@@ -210,13 +217,81 @@ export async function getExpense(id: number) {
 }
 
 // ---------------------------------------------------------------------------
-// Send for Approval
+// Slack DM helper
+// ---------------------------------------------------------------------------
+
+async function dmManagerAboutExpenses(
+  submitterId: number,
+  expenseIds: number[],
+  appUrl: string
+): Promise<void> {
+  if (isMockExternal()) {
+    console.log(`[expense] MOCK — would DM manager about expenses: ${expenseIds.join(', ')}`)
+    return
+  }
+
+  const botToken = process.env['SLACK_BOT_TOKEN']
+  if (!botToken) {
+    console.warn('[expense] SLACK_BOT_TOKEN not set — skipping manager DM')
+    return
+  }
+
+  const managerSlackId = await getSupervisorSlackId(submitterId)
+  if (!managerSlackId) {
+    console.warn(`[expense] No manager Slack ID found for user ${submitterId} — skipping DM`)
+    return
+  }
+
+  const submitter = await getUserById(submitterId)
+  const employeeName = submitter?.name ?? `User #${submitterId}`
+  const count = expenseIds.length
+
+  // Fetch expense details for total amount
+  const expenseRows = await db.query.expenses.findMany({
+    where: inArray(expenses.id, expenseIds),
+    with: { items: true },
+  })
+  const totalAmount = expenseRows.reduce((sum, e) =>
+    sum + e.items.reduce((s, i) => s + parseFloat(i.amount || '0'), 0), 0
+  )
+  const currency = expenseRows[0]?.items[0]?.currency ?? 'HKD'
+
+  const reviewUrl = `${appUrl}/expenses`
+  const submitText = count === 1
+    ? `${employeeName} has submitted 1 expense for your approval`
+    : `${employeeName} has submitted ${count} expenses for your approval`
+
+  const client = new WebClient(botToken)
+  await client.chat.postMessage({
+    channel: managerSlackId,
+    text: submitText,
+    blocks: [
+      { type: 'header', text: { type: 'plain_text', text: '💰 Expense Approval Required' } },
+      { type: 'divider' },
+      {
+        type: 'section',
+        fields: [
+          { type: 'mrkdwn', text: `*Submitted by:*\n${employeeName}` },
+          { type: 'mrkdwn', text: `*Expenses:*\n${count}` },
+          { type: 'mrkdwn', text: `*Total Amount:*\n${currency} ${totalAmount.toFixed(2)}` },
+        ],
+      },
+      {
+        type: 'section',
+        text: { type: 'mrkdwn', text: `<${reviewUrl}|View and approve in the Bloom LMS →>` },
+      },
+    ],
+  }).catch((err: Error) => console.error('[expense] Manager DM failed:', err.message))
+}
+
+// ---------------------------------------------------------------------------
+// Send for Approval (single)
 // ---------------------------------------------------------------------------
 
 export async function sendForApproval(
   expenseId: number,
   userId: number
-): Promise<{ slackMessageTs: string | null; channelId: string | null }> {
+): Promise<void> {
   const expense = await db.query.expenses.findFirst({
     where: eq(expenses.id, expenseId),
     with: { items: true, uploadedBy: { columns: { id: true, name: true } } },
@@ -233,14 +308,36 @@ export async function sendForApproval(
 
   await logAudit(expenseId, 'PENDING_REVIEW', 'AWAITING_APPROVAL', userId, null, 'Sent for approval')
 
-  if (isMockExternal()) {
-    console.log(`[expense] MOCK — would post Slack approval message for expense #${expenseId}`)
-    return { slackMessageTs: null, channelId: null }
+  const appUrl = process.env['CLIENT_URL'] ?? 'http://localhost:5173'
+  await dmManagerAboutExpenses(userId, [expenseId], appUrl)
+}
+
+// ---------------------------------------------------------------------------
+// Send Bulk for Approval (all PENDING_REVIEW for this user)
+// ---------------------------------------------------------------------------
+
+export async function sendBulkForApproval(userId: number): Promise<number[]> {
+  const pending = await db.query.expenses.findMany({
+    where: eq(expenses.uploadedByUserId, userId),
+  })
+  const toSubmit = pending.filter((e) => e.status === 'PENDING_REVIEW')
+  if (toSubmit.length === 0) throw new Error('No pending expenses to submit')
+
+  const ids = toSubmit.map((e) => e.id)
+
+  await db
+    .update(expenses)
+    .set({ status: 'AWAITING_APPROVAL' })
+    .where(inArray(expenses.id, ids))
+
+  for (const id of ids) {
+    await logAudit(id, 'PENDING_REVIEW', 'AWAITING_APPROVAL', userId, null, 'Bulk sent for approval')
   }
 
-  // Real Slack posting is done in the route (needs the Slack client from bolt context)
-  // Return sentinel so the route can post and then call saveSlackMessage
-  return { slackMessageTs: null, channelId: null }
+  const appUrl = process.env['CLIENT_URL'] ?? 'http://localhost:5173'
+  await dmManagerAboutExpenses(userId, ids, appUrl)
+
+  return ids
 }
 
 export async function saveSlackMessage(
@@ -252,6 +349,26 @@ export async function saveSlackMessage(
     .update(expenses)
     .set({ slackMessageTs: messageTs, slackChannelId: channelId })
     .where(eq(expenses.id, expenseId))
+}
+
+// ---------------------------------------------------------------------------
+// Attachments
+// ---------------------------------------------------------------------------
+
+export async function addAttachment(
+  expenseId: number,
+  url: string,
+  originalName: string
+): Promise<typeof expenseAttachments.$inferSelect> {
+  const expense = await db.query.expenses.findFirst({ where: eq(expenses.id, expenseId) })
+  if (!expense) throw new Error('Expense not found')
+
+  const [attachment] = await db
+    .insert(expenseAttachments)
+    .values({ expenseId, url, originalName })
+    .returning()
+  if (!attachment) throw new Error('Failed to save attachment')
+  return attachment
 }
 
 // ---------------------------------------------------------------------------
@@ -361,42 +478,74 @@ async function syncToNetSuite(expenseId: number, attempt: number): Promise<void>
   if (!expense) return
 
   try {
-    let success = false
     let netsuiteId: string | null = null
 
     if (isMockExternal()) {
-      // In mock mode, always succeed
       console.log(`[expense] MOCK NetSuite sync for expense #${expenseId} (attempt ${attempt})`)
-      success = true
       netsuiteId = `NS-MOCK-${expenseId}-${Date.now()}`
     } else {
-      // TODO: Replace with real NetSuite API call.
-      // Employees matched by email: expense.items[n].employeeEmail → NetSuite employee record
-      // Example stub — always succeeds for now
-      console.log(`[expense] NetSuite sync for expense #${expenseId} (attempt ${attempt})`)
-      success = true
-      netsuiteId = `NS-${expenseId}-${Date.now()}`
+      // ---------------------------------------------------------------------------
+      // TODO (Naveen): Implement real NetSuite TBA OAuth1 API call.
+      //
+      // Credentials are read from environment variables:
+      //   NS_ACCOUNT_ID       — NetSuite account ID (e.g. "1234567")
+      //   NS_TOKEN_ID         — Token-Based Auth token ID
+      //   NS_TOKEN_SECRET     — Token-Based Auth token secret
+      //   NS_CONSUMER_KEY     — Integration consumer key
+      //   NS_CONSUMER_SECRET  — Integration consumer secret
+      //
+      // Endpoint pattern:
+      //   POST https://{NS_ACCOUNT_ID}.suitetalk.api.netsuite.com/services/rest/record/v1/expenseReport
+      //
+      // Payload shape (confirm with Naveen):
+      //   {
+      //     "employee": { "id": "<netsuite_employee_id>" },
+      //     "expenseReportCurrency": { "refName": expense.items[0].currency },
+      //     "expenseLines": expense.items.map(item => ({
+      //       "expenseDate": item.expenseDate,
+      //       "amount": parseFloat(item.amount),
+      //       "category": { "refName": item.category },
+      //       "memo": item.description,
+      //     }))
+      //   }
+      //
+      // On success, extract the record ID from the response Location header or body.id
+      // and assign it to netsuiteId below.
+      //
+      // Required: NS_ACCOUNT_ID, NS_TOKEN_ID, NS_TOKEN_SECRET, NS_CONSUMER_KEY, NS_CONSUMER_SECRET
+      // ---------------------------------------------------------------------------
+
+      const nsAccountId = process.env['NS_ACCOUNT_ID']
+      const nsTokenId = process.env['NS_TOKEN_ID']
+      const nsTokenSecret = process.env['NS_TOKEN_SECRET']
+      const nsConsumerKey = process.env['NS_CONSUMER_KEY']
+      const nsConsumerSecret = process.env['NS_CONSUMER_SECRET']
+
+      if (!nsAccountId || !nsTokenId || !nsTokenSecret || !nsConsumerKey || !nsConsumerSecret) {
+        throw new Error('NetSuite credentials not configured — set NS_ACCOUNT_ID, NS_TOKEN_ID, NS_TOKEN_SECRET, NS_CONSUMER_KEY, NS_CONSUMER_SECRET in .env')
+      }
+
+      // TODO: Replace stub below with real OAuth1-signed POST to NetSuite REST API
+      console.log(`[expense] NetSuite sync stubbed for expense #${expenseId} (attempt ${attempt}) — awaiting API implementation`)
+      netsuiteId = `NS-STUB-${expenseId}-${Date.now()}`
     }
 
-    if (success) {
-      await db
-        .update(expenses)
-        .set({ status: 'SYNCED', netsuiteId })
-        .where(eq(expenses.id, expenseId))
-      await logAudit(expenseId, 'SYNCING', 'SYNCED', null, 'System', `NetSuite ID: ${netsuiteId}`)
-    }
+    await db
+      .update(expenses)
+      .set({ status: 'SYNCED', netsuiteId })
+      .where(eq(expenses.id, expenseId))
+    await logAudit(expenseId, 'SYNCING', 'SYNCED', null, 'System', `NetSuite ID: ${netsuiteId}`)
   } catch (err) {
-    const expense = await db.query.expenses.findFirst({ where: eq(expenses.id, expenseId) })
-    if (!expense) return
+    const current = await db.query.expenses.findFirst({ where: eq(expenses.id, expenseId) })
+    if (!current) return
 
     if (attempt >= MAX_SYNC_ATTEMPTS) {
       await db
         .update(expenses)
         .set({ status: 'SYNC_FAILED' })
         .where(eq(expenses.id, expenseId))
-      await logAudit(expenseId, 'SYNCING', 'SYNC_FAILED', null, 'System', `Failed after ${attempt} attempts`)
+      await logAudit(expenseId, 'SYNCING', 'SYNC_FAILED', null, 'System', `Failed after ${attempt} attempts: ${err instanceof Error ? err.message : String(err)}`)
     } else {
-      // Retry via startSync (will increment attempts)
       setTimeout(() => startSync(expenseId, null, null), 5000 * attempt)
     }
   }

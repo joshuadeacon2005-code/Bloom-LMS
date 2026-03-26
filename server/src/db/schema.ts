@@ -510,6 +510,20 @@ export const expenseAuditLog = pgTable(
   (table) => [index('expense_audit_log_expense_id_idx').on(table.expenseId)]
 )
 
+export const expenseAttachments = pgTable(
+  'expense_attachments',
+  {
+    id: integer('id').generatedAlwaysAsIdentity().primaryKey(),
+    expenseId: integer('expense_id')
+      .notNull()
+      .references(() => expenses.id, { onDelete: 'cascade' }),
+    url: text('url').notNull(),
+    originalName: varchar('original_name', { length: 255 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('expense_attachments_expense_id_idx').on(table.expenseId)]
+)
+
 export const compLeaveRules = pgTable('comp_leave_rules', {
   id: integer('id').generatedAlwaysAsIdentity().primaryKey(),
   regionId: integer('region_id')
@@ -663,6 +677,7 @@ export const expensesRelations = relations(expenses, ({ one, many }) => ({
   uploadedBy: one(users, { fields: [expenses.uploadedByUserId], references: [users.id] }),
   items: many(expenseItems),
   auditLog: many(expenseAuditLog),
+  attachments: many(expenseAttachments),
 }))
 
 export const expenseItemsRelations = relations(expenseItems, ({ one }) => ({
@@ -672,4 +687,8 @@ export const expenseItemsRelations = relations(expenseItems, ({ one }) => ({
 export const expenseAuditLogRelations = relations(expenseAuditLog, ({ one }) => ({
   expense: one(expenses, { fields: [expenseAuditLog.expenseId], references: [expenses.id] }),
   actor: one(users, { fields: [expenseAuditLog.actorId], references: [users.id] }),
+}))
+
+export const expenseAttachmentsRelations = relations(expenseAttachments, ({ one }) => ({
+  expense: one(expenses, { fields: [expenseAttachments.expenseId], references: [expenses.id] }),
 }))
