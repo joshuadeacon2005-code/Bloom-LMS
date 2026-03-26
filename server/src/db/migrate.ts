@@ -118,28 +118,31 @@ export async function runMigrations(): Promise<void> {
       { code: 'NPL',          name: 'No Pay Leave',                    description: 'Unpaid leave approved by HR',                                                               isPaid: false, requiresAttachment: false, approvalFlow: 'multi_level',  minNoticeDays: 0, regionId: null },
       { code: 'WFH',          name: 'Work From Home',                  description: 'Work from home day — no balance deduction',                                                 isPaid: true,  requiresAttachment: false, approvalFlow: 'auto_approve', minNoticeDays: 0, regionId: null },
       { code: 'BT',           name: 'Business Trip',                   description: 'Approved business travel — no leave balance deduction',                                     isPaid: true,  requiresAttachment: false, approvalFlow: 'auto_approve', minNoticeDays: 1, regionId: null },
-      { code: 'FPSL',         name: 'Full Pay Sick Leave',             description: 'Full pay sick leave (explicit variant used in some regions)',                               isPaid: true,  requiresAttachment: false, approvalFlow: 'standard',     minNoticeDays: 0, regionId: null },
+      // FPSL removed — replaced by SL (Full Paid Sick Leave) + SL_CN (Sick Leave) in Phase 11
       { code: 'WR',           name: 'Work Remotely',                   description: 'Working remotely from outside hometown — no balance deduction',                             isPaid: true,  requiresAttachment: false, approvalFlow: 'auto_approve', minNoticeDays: 1, regionId: null },
-      { code: 'BFL_CN',       name: 'Breastfeeding Leave (CN)',        description: '1 hour per day breastfeeding break (China statutory, up to 12 months)',                    isPaid: true,  requiresAttachment: false, approvalFlow: 'hr_required',  minNoticeDays: 0, regionId: 6    },
-      { code: 'RSL_SG',       name: 'Reservist Leave (SG)',            description: 'NS/reservist training leave — Singapore statutory',                                         isPaid: true,  requiresAttachment: true,  approvalFlow: 'hr_required',  minNoticeDays: 0, regionId: 3    },
-      { code: 'AL_AU',        name: 'Annual Leave (AU)',               description: 'Annual leave for Australia — Fair Work Act entitlement',                                    isPaid: true,  requiresAttachment: false, approvalFlow: 'standard',     minNoticeDays: 3, regionId: 7    },
-      { code: 'FPSL_AU',      name: 'Full Pay Sick Leave (AU)',        description: "Personal/carer's leave — Australia Fair Work Act",                                         isPaid: true,  requiresAttachment: false, approvalFlow: 'standard',     minNoticeDays: 0, regionId: 7    },
-      { code: 'LSL_AU',       name: 'Long Service Leave (AU)',         description: 'Long service leave after qualifying period — Australia',                                    isPaid: true,  requiresAttachment: false, approvalFlow: 'multi_level',  minNoticeDays: 14, regionId: 7   },
-      { code: 'ML_AU',        name: 'Maternity Leave (AU)',            description: 'Parental leave for primary caregiver — Australia Fair Work Act',                            isPaid: true,  requiresAttachment: true,  approvalFlow: 'hr_required',  minNoticeDays: 0, regionId: 7    },
-      { code: 'NPL_AU',       name: 'No Pay Leave (AU)',               description: 'Unpaid leave — Australia',                                                                  isPaid: false, requiresAttachment: false, approvalFlow: 'multi_level',  minNoticeDays: 0, regionId: 7    },
-      { code: 'AL_NZ',        name: 'Annual Leave (NZ)',               description: 'Annual leave — New Zealand Holidays Act entitlement',                                       isPaid: true,  requiresAttachment: false, approvalFlow: 'standard',     minNoticeDays: 3, regionId: 8    },
-      { code: 'FPSL_NZ',      name: 'Full Pay Sick Leave (NZ)',        description: 'Sick leave — New Zealand Holidays Act',                                                     isPaid: true,  requiresAttachment: false, approvalFlow: 'standard',     minNoticeDays: 0, regionId: 8    },
-      { code: 'LSL_NZ',       name: 'Long Service Leave (NZ)',         description: 'Long service leave after qualifying period — New Zealand',                                  isPaid: true,  requiresAttachment: false, approvalFlow: 'multi_level',  minNoticeDays: 14, regionId: 8   },
-      { code: 'ML_NZ',        name: 'Maternity Leave (NZ)',            description: 'Parental leave for primary caregiver — New Zealand',                                        isPaid: true,  requiresAttachment: true,  approvalFlow: 'hr_required',  minNoticeDays: 0, regionId: 8    },
-      { code: 'NPL_NZ',       name: 'No Pay Leave (NZ)',               description: 'Unpaid leave — New Zealand',                                                                isPaid: false, requiresAttachment: false, approvalFlow: 'multi_level',  minNoticeDays: 0, regionId: 8    },
+      { code: 'BFL_CN',       name: 'Breastfeeding Leave (CN)',        description: '1 hour per day breastfeeding break (China statutory, up to 12 months)',                    isPaid: true,  requiresAttachment: false, approvalFlow: 'hr_required',  minNoticeDays: 0, regionCode: 'CN'  },
+      { code: 'RSL_SG',       name: 'Reservist Leave (SG)',            description: 'NS/reservist training leave — Singapore statutory',                                         isPaid: true,  requiresAttachment: true,  approvalFlow: 'hr_required',  minNoticeDays: 0, regionCode: 'SG'  },
+      { code: 'AL_AU',        name: 'Annual Leave (AU)',               description: 'Annual leave for Australia — Fair Work Act entitlement',                                    isPaid: true,  requiresAttachment: false, approvalFlow: 'standard',     minNoticeDays: 3, regionCode: 'AU'  },
+      { code: 'FPSL_AU',      name: 'Full Pay Sick Leave (AU)',        description: "Personal/carer's leave — Australia Fair Work Act",                                         isPaid: true,  requiresAttachment: false, approvalFlow: 'standard',     minNoticeDays: 0, regionCode: 'AU'  },
+      { code: 'LSL_AU',       name: 'Long Service Leave (AU)',         description: 'Long service leave after qualifying period — Australia',                                    isPaid: true,  requiresAttachment: false, approvalFlow: 'multi_level',  minNoticeDays: 14, regionCode: 'AU' },
+      { code: 'ML_AU',        name: 'Maternity Leave (AU)',            description: 'Parental leave for primary caregiver — Australia Fair Work Act',                            isPaid: true,  requiresAttachment: true,  approvalFlow: 'hr_required',  minNoticeDays: 0, regionCode: 'AU'  },
+      { code: 'NPL_AU',       name: 'No Pay Leave (AU)',               description: 'Unpaid leave — Australia',                                                                  isPaid: false, requiresAttachment: false, approvalFlow: 'multi_level',  minNoticeDays: 0, regionCode: 'AU'  },
+      { code: 'AL_NZ',        name: 'Annual Leave (NZ)',               description: 'Annual leave — New Zealand Holidays Act entitlement',                                       isPaid: true,  requiresAttachment: false, approvalFlow: 'standard',     minNoticeDays: 3, regionCode: 'NZ'  },
+      { code: 'FPSL_NZ',      name: 'Full Pay Sick Leave (NZ)',        description: 'Sick leave — New Zealand Holidays Act',                                                     isPaid: true,  requiresAttachment: false, approvalFlow: 'standard',     minNoticeDays: 0, regionCode: 'NZ'  },
+      { code: 'LSL_NZ',       name: 'Long Service Leave (NZ)',         description: 'Long service leave after qualifying period — New Zealand',                                  isPaid: true,  requiresAttachment: false, approvalFlow: 'multi_level',  minNoticeDays: 14, regionCode: 'NZ' },
+      { code: 'ML_NZ',        name: 'Maternity Leave (NZ)',            description: 'Parental leave for primary caregiver — New Zealand',                                        isPaid: true,  requiresAttachment: true,  approvalFlow: 'hr_required',  minNoticeDays: 0, regionCode: 'NZ'  },
+      { code: 'NPL_NZ',       name: 'No Pay Leave (NZ)',               description: 'Unpaid leave — New Zealand',                                                                isPaid: false, requiresAttachment: false, approvalFlow: 'multi_level',  minNoticeDays: 0, regionCode: 'NZ'  },
     ]
     let newTypeCount = 0
     for (const lt of newLeaveTypes) {
+      const regionId = 'regionCode' in lt && lt.regionCode
+        ? (await client.query(`SELECT id FROM regions WHERE code = $1 LIMIT 1`, [lt.regionCode])).rows[0]?.id ?? null
+        : (lt as any).regionId ?? null
       const res = await client.query(
         `INSERT INTO leave_types (name, code, description, is_paid, requires_attachment, approval_flow, region_id)
          SELECT $1::varchar,$2::varchar,$3::text,$4::boolean,$5::boolean,$6::varchar,$7
          WHERE NOT EXISTS (SELECT 1 FROM leave_types WHERE code = $2::varchar)`,
-        [lt.name, lt.code, lt.description, lt.isPaid, lt.requiresAttachment, lt.approvalFlow, lt.regionId]
+        [lt.name, lt.code, lt.description, lt.isPaid, lt.requiresAttachment, lt.approvalFlow, regionId]
       )
       if (res.rowCount) newTypeCount++
     }
@@ -159,11 +162,7 @@ export async function runMigrations(): Promise<void> {
       { ltCode: 'BT',          rCode: 'CN', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
       { ltCode: 'BT',          rCode: 'AU', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
       { ltCode: 'BT',          rCode: 'NZ', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
-      { ltCode: 'FPSL',        rCode: 'HK', entitlementDays: 14,  carryOverMax: 0,  probationMonths: 1  },
-      { ltCode: 'FPSL',        rCode: 'SG', entitlementDays: 14,  carryOverMax: 0,  probationMonths: 3  },
-      { ltCode: 'FPSL',        rCode: 'MY', entitlementDays: 14,  carryOverMax: 0,  probationMonths: 0  },
-      { ltCode: 'FPSL',        rCode: 'ID', entitlementDays: 12,  carryOverMax: 0,  probationMonths: 0  },
-      { ltCode: 'FPSL',        rCode: 'CN', entitlementDays: 12,  carryOverMax: 0,  probationMonths: 0  },
+      // FPSL policies removed — replaced by SL + SL_CN in Phase 11
       { ltCode: 'WR',          rCode: 'HK', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
       { ltCode: 'WR',          rCode: 'SG', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
       { ltCode: 'WR',          rCode: 'MY', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
@@ -1352,6 +1351,82 @@ export async function runMigrations(): Promise<void> {
     `)
     await client.query(`CREATE INDEX IF NOT EXISTS expense_attachments_expense_id_idx ON expense_attachments(expense_id)`)
     console.log('[migrate] Phase 10 (expense tables) complete')
+
+    // ── Phase 11: Sick leave dedup — SL for AU/NZ/HK/SG/MY/ID/UK, SL_CN for GZ/SH/CN ──
+    // Rename SL to "Full Paid Sick Leave"
+    await client.query(`UPDATE leave_types SET name = 'Full Paid Sick Leave' WHERE code = 'SL'`)
+
+    // Ensure SL_CN exists: either repurpose FPSL or create it
+    const slCnCheck = await client.query(`SELECT id FROM leave_types WHERE code = 'SL_CN'`)
+    if (slCnCheck.rowCount === 0) {
+      const fpslCheck = await client.query(`SELECT id FROM leave_types WHERE code = 'FPSL' AND region_id IS NULL`)
+      if (fpslCheck.rowCount && fpslCheck.rowCount > 0) {
+        await client.query(`UPDATE leave_types SET name = 'Sick Leave', code = 'SL_CN' WHERE code = 'FPSL' AND region_id IS NULL`)
+      } else {
+        await client.query(`
+          INSERT INTO leave_types (name, code, description, is_paid, requires_attachment, approval_flow)
+          VALUES ('Sick Leave', 'SL_CN', 'Sick leave for China regions', true, false, 'standard')
+        `)
+      }
+    } else {
+      await client.query(`UPDATE leave_types SET name = 'Sick Leave' WHERE code = 'SL_CN'`)
+    }
+
+    // Move any China leave requests from SL to SL_CN
+    await client.query(`
+      UPDATE leave_requests lr
+      SET leave_type_id = (SELECT id FROM leave_types WHERE code = 'SL_CN' LIMIT 1)
+      FROM users u
+      JOIN regions r ON r.id = u.region_id
+      WHERE lr.user_id = u.id
+        AND lr.leave_type_id = (SELECT id FROM leave_types WHERE code = 'SL' LIMIT 1)
+        AND r.code IN ('CN','CN-GZ','CN-SH')
+    `)
+
+    // Remove SL policies for China regions (they use SL_CN)
+    await client.query(`
+      DELETE FROM leave_policies
+      WHERE leave_type_id = (SELECT id FROM leave_types WHERE code = 'SL' LIMIT 1)
+        AND region_id IN (SELECT id FROM regions WHERE code IN ('CN','CN-GZ','CN-SH'))
+    `)
+
+    // Remove SL_CN policies for non-China regions
+    await client.query(`
+      DELETE FROM leave_policies
+      WHERE leave_type_id = (SELECT id FROM leave_types WHERE code = 'SL_CN' LIMIT 1)
+        AND region_id NOT IN (SELECT id FROM regions WHERE code IN ('CN','CN-GZ','CN-SH'))
+    `)
+
+    // Ensure SL_CN has policies for CN, CN-GZ, CN-SH
+    for (const rCode of ['CN', 'CN-GZ', 'CN-SH']) {
+      await client.query(`
+        INSERT INTO leave_policies (leave_type_id, region_id, entitlement_days, carry_over_max, probation_months)
+        SELECT lt.id, r.id, 12, 0, 0
+        FROM leave_types lt, regions r
+        WHERE lt.code = 'SL_CN' AND r.code = $1
+        ON CONFLICT (leave_type_id, region_id) DO NOTHING
+      `, [rCode])
+    }
+
+    // Ensure SL has a UK policy
+    await client.query(`
+      INSERT INTO leave_policies (leave_type_id, region_id, entitlement_days, carry_over_max, probation_months)
+      SELECT lt.id, r.id, 14, 0, 0
+      FROM leave_types lt, regions r
+      WHERE lt.code = 'SL' AND r.code = 'UK'
+      ON CONFLICT (leave_type_id, region_id) DO NOTHING
+    `)
+
+    // Activate SL_CN
+    await client.query(`UPDATE leave_types SET is_active = true WHERE code = 'SL_CN'`)
+
+    // Remove duplicate types: FPSL, FPSL_AU, FPSL_NZ, FPSL_AUNZ (0 requests, redundant)
+    for (const code of ['FPSL', 'FPSL_AU', 'FPSL_NZ', 'FPSL_AUNZ']) {
+      await client.query(`DELETE FROM leave_balances WHERE leave_type_id IN (SELECT id FROM leave_types WHERE code = $1)`, [code])
+      await client.query(`DELETE FROM leave_policies WHERE leave_type_id IN (SELECT id FROM leave_types WHERE code = $1)`, [code])
+      await client.query(`DELETE FROM leave_types WHERE code = $1`, [code])
+    }
+    console.log('[migrate] Phase 11 (sick leave dedup) complete')
 
     console.log('[migrate] Migrations complete')
   } catch (err) {
