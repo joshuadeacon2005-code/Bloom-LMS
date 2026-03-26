@@ -20,6 +20,7 @@ import {
   WifiOff,
   History,
   CheckSquare,
+  Paperclip,
 } from 'lucide-react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
@@ -251,7 +252,8 @@ function EmployeeHistorySheet({
           ) : (
             history.map((req: EmployeeLeaveRequest) => {
               const days = parseFloat(req.totalDays)
-              const dayLabel = days === 0.5 ? '0.5 days (half day)' : `${days} day${days !== 1 ? 's' : ''}`
+              const halfDayLabel = req.halfDayPeriod ? ` (${req.halfDayPeriod === 'AM' ? 'morning' : 'afternoon'})` : ''
+              const dayLabel = days === 0.5 ? `0.5 days${halfDayLabel}` : `${days} day${days !== 1 ? 's' : ''}${halfDayLabel}`
               const dateLabel =
                 req.startDate === req.endDate
                   ? req.startDate
@@ -273,9 +275,22 @@ function EmployeeHistorySheet({
                   {req.reason && (
                     <p className="text-xs text-muted-foreground italic line-clamp-2">{req.reason}</p>
                   )}
-                  <p className="text-xs text-muted-foreground/60">
-                    Submitted {format(new Date(req.createdAt), 'd MMM yyyy')}
-                  </p>
+                  <div className="flex items-center gap-3">
+                    <p className="text-xs text-muted-foreground/60">
+                      Submitted {format(new Date(req.createdAt), 'd MMM yyyy')}
+                    </p>
+                    {req.attachmentUrl && (
+                      <a
+                        href={req.attachmentUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
+                      >
+                        <Paperclip className="h-3 w-3" />
+                        Attachment
+                      </a>
+                    )}
+                  </div>
                 </div>
               )
             })
@@ -898,6 +913,7 @@ const leaveTypeSchema = z.object({
   dayCalculation: z.enum(['working_days', 'calendar_days']).default('working_days'),
   staffRestriction: z.array(z.string()).optional(),
   minUnit: z.enum(['1_day', 'half_day', '2_hours', '1_hour']).default('1_day'),
+  unit: z.enum(['days', 'hours']).default('days'),
 })
 type LeaveTypeFormData = z.infer<typeof leaveTypeSchema>
 
@@ -1092,7 +1108,7 @@ function LeaveTypeDialog({
 
   const { register, control, handleSubmit, reset, formState: { errors } } = useForm<LeaveTypeFormData>({
     resolver: zodResolver(leaveTypeSchema),
-    defaultValues: { isPaid: true, requiresAttachment: false, approvalFlow: 'standard', dayCalculation: 'working_days', regionRestriction: [], staffRestriction: [], minUnit: '1_day', regionId: '' },
+    defaultValues: { isPaid: true, requiresAttachment: false, approvalFlow: 'standard', dayCalculation: 'working_days', regionRestriction: [], staffRestriction: [], minUnit: '1_day', unit: 'days', regionId: '' },
   })
 
   useEffect(() => {
@@ -1111,9 +1127,10 @@ function LeaveTypeDialog({
         dayCalculation: editing.dayCalculation ?? 'working_days',
         staffRestriction: editing.staffRestriction ? editing.staffRestriction.split(',').map((s) => s.trim()).filter(Boolean) : [],
         minUnit: (editing as LeaveType & { minUnit?: LeaveTypeFormData['minUnit'] }).minUnit ?? '1_day',
+        unit: editing.unit ?? 'days',
       })
     } else if (open && !editing) {
-      reset({ isPaid: true, requiresAttachment: false, approvalFlow: 'standard', dayCalculation: 'working_days', regionRestriction: [], staffRestriction: [], minUnit: '1_day', regionId: '' })
+      reset({ isPaid: true, requiresAttachment: false, approvalFlow: 'standard', dayCalculation: 'working_days', regionRestriction: [], staffRestriction: [], minUnit: '1_day', unit: 'days', regionId: '' })
     }
   }, [open, editing, reset])
 
@@ -1141,6 +1158,7 @@ function LeaveTypeDialog({
       dayCalculation: data.dayCalculation,
       staffRestriction: staffRestrictionValue,
       minUnit: data.minUnit,
+      unit: data.unit,
     }
     if (editing) {
       await updateLT.mutateAsync({ id: editing.id, data: payload })
@@ -1258,23 +1276,41 @@ function LeaveTypeDialog({
             />
           </div>
 
-          <div className="space-y-1.5">
-            <Label>Minimum booking unit</Label>
-            <Controller
-              name="minUnit"
-              control={control}
-              render={({ field }) => (
-                <Select value={field.value || '1_day'} onValueChange={field.onChange}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="1_day">Full day (1 day)</SelectItem>
-                    <SelectItem value="half_day">Half day</SelectItem>
-                    <SelectItem value="2_hours">2 hours</SelectItem>
-                    <SelectItem value="1_hour">1 hour</SelectItem>
-                  </SelectContent>
-                </Select>
-              )}
-            />
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <Label>Unit of time</Label>
+              <Controller
+                name="unit"
+                control={control}
+                render={({ field }) => (
+                  <Select value={field.value || 'days'} onValueChange={field.onChange}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="days">Days</SelectItem>
+                      <SelectItem value="hours">Hours</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Minimum booking unit</Label>
+              <Controller
+                name="minUnit"
+                control={control}
+                render={({ field }) => (
+                  <Select value={field.value || '1_day'} onValueChange={field.onChange}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="1_day">Full day (1 day)</SelectItem>
+                      <SelectItem value="half_day">Half day</SelectItem>
+                      <SelectItem value="2_hours">2 hours</SelectItem>
+                      <SelectItem value="1_hour">1 hour</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+            </div>
           </div>
 
           <div className="space-y-1.5">
@@ -1385,6 +1421,7 @@ function LeaveTypesTab() {
             <tr>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Name</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Code</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Unit</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Region</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Approval Flow</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Max Days</th>
@@ -1408,6 +1445,7 @@ function LeaveTypesTab() {
                     <td className="px-4 py-3">
                       <code className="rounded bg-muted px-1.5 py-0.5 text-xs">{lt.code}</code>
                     </td>
+                    <td className="px-4 py-3 text-muted-foreground text-xs capitalize">{lt.unit ?? 'days'}</td>
                     <td className="px-4 py-3">
                       {lt.regionRestriction ? (
                         <div className="flex flex-wrap gap-1">
@@ -1947,7 +1985,7 @@ function PoliciesTab() {
 const holidaySchema = z.object({
   name: z.string().min(2, 'Name required'),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD format'),
-  // "CN" means all China regions; otherwise a numeric region ID as string
+  endDate: z.string().optional(),
   regionId: z.string().min(1, 'Region required'),
   isRecurring: z.boolean(),
   halfDay: z.enum(['AM', 'PM', 'full']).default('full'),
@@ -1972,13 +2010,14 @@ function HolidayDialog({
   })
 
   useEffect(() => {
-    if (open) reset({ regionId: defaultRegionId ?? '', isRecurring: false, name: '', date: '', halfDay: 'full' })
+    if (open) reset({ regionId: defaultRegionId ?? '', isRecurring: false, name: '', date: '', endDate: '', halfDay: 'full' })
   }, [open, defaultRegionId, reset])
 
   async function onSubmit(data: HolidayFormData) {
     const payload: CreateHolidayInput = {
       name: data.name,
       date: data.date,
+      endDate: data.endDate && data.endDate > data.date ? data.endDate : null,
       regionId: data.regionId === 'CN' ? 'CN' : Number(data.regionId),
       isRecurring: data.isRecurring,
       halfDay: data.halfDay === 'AM' || data.halfDay === 'PM' ? data.halfDay as 'AM' | 'PM' : null,
@@ -2000,10 +2039,16 @@ function HolidayDialog({
             <Input {...register('name')} placeholder="Christmas Day" />
             <FieldError msg={errors.name?.message} />
           </div>
-          <div className="space-y-1.5">
-            <Label>Date</Label>
-            <Input {...register('date')} type="date" />
-            <FieldError msg={errors.date?.message} />
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Start date</Label>
+              <Input {...register('date')} type="date" />
+              <FieldError msg={errors.date?.message} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>End date <span className="text-muted-foreground text-xs">(optional)</span></Label>
+              <Input {...register('endDate')} type="date" />
+            </div>
           </div>
           <div className="space-y-1.5">
             <Label>Region</Label>

@@ -1,9 +1,9 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { format, isSameDay } from 'date-fns'
-import { CalendarIcon, Upload, Info, Clock } from 'lucide-react'
+import { CalendarIcon, Upload, Info, Clock, Paperclip, X } from 'lucide-react'
 import type { DateRange } from 'react-day-picker'
 import {
   Sheet,
@@ -30,6 +30,8 @@ import { cn } from '@/lib/utils'
 import { useLeaveTypes, useCalculateDays } from '@/hooks/useLeaveTypes'
 import { useCreateLeaveRequest } from '@/hooks/useLeaveRequests'
 import { useAuthStore } from '@/stores/authStore'
+import { toast } from 'sonner'
+import api from '@/lib/api'
 
 // Half-hour time slots from 07:30 to 19:00
 const TIME_SLOTS: string[] = []
@@ -65,6 +67,10 @@ export function RequestLeaveSheet({ open, onOpenChange }: RequestLeaveSheetProps
   const { data: leaveTypes, isLoading: loadingTypes } = useLeaveTypes(user?.regionId)
   const createRequest = useCreateLeaveRequest()
   const [datePickerOpen, setDatePickerOpen] = useState(false)
+  const [attachmentUrl, setAttachmentUrl] = useState<string | null>(null)
+  const [attachmentName, setAttachmentName] = useState<string | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const {
     control,
@@ -123,6 +129,24 @@ export function RequestLeaveSheet({ open, onOpenChange }: RequestLeaveSheetProps
     regionId: user?.regionId,
   })
 
+  async function handleFileUpload(file: File) {
+    setUploading(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const res = await api.post<{ data: { url: string } }>('/leave/upload', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      setAttachmentUrl(res.data.data.url)
+      setAttachmentName(file.name)
+      toast.success('File uploaded')
+    } catch {
+      toast.error('Failed to upload file')
+    } finally {
+      setUploading(false)
+    }
+  }
+
   const onSubmit = async (data: FormData) => {
     const startDate = format(data.dateRange.from, 'yyyy-MM-dd')
     const endDate = data.dateRange.to
@@ -139,14 +163,20 @@ export function RequestLeaveSheet({ open, onOpenChange }: RequestLeaveSheetProps
       halfDayPeriod: halfDayPeriod ?? null,
       reason: data.reason || undefined,
       ...(isHourly ? { startTime: data.startTime ?? null, endTime: data.endTime ?? null } : {}),
+      ...(attachmentUrl ? { attachmentUrl } : {}),
     })
 
     reset()
+    setAttachmentUrl(null)
+    setAttachmentName(null)
     onOpenChange(false)
   }
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
+    <Sheet open={open} onOpenChange={(v) => {
+      if (!v) { setAttachmentUrl(null); setAttachmentName(null) }
+      onOpenChange(v)
+    }}>
       <SheetContent className="w-full sm:max-w-xl overflow-y-auto">
         <SheetHeader>
           <SheetTitle>Request Leave</SheetTitle>
@@ -480,16 +510,53 @@ export function RequestLeaveSheet({ open, onOpenChange }: RequestLeaveSheetProps
             </div>
           )}
 
-          {/* Attachment note */}
+          {/* Attachment upload */}
           {selectedType?.requiresAttachment && (
-            <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
-              <Upload className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-              <span>
-                {(selectedType.code === 'SL' || selectedType.name.toLowerCase().includes('sick'))
-                  ? 'A medical certificate is required for sick leave of 3 or more consecutive days.'
-                  : `An attachment is required for ${selectedType.name}.`}
-                {' '}You can attach it after submission.
-              </span>
+            <div className="space-y-2">
+              <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                <Upload className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>
+                  {(selectedType.code === 'SL' || selectedType.name.toLowerCase().includes('sick'))
+                    ? 'A medical certificate is required for sick leave of 3 or more consecutive days.'
+                    : `An attachment is required for ${selectedType.name}.`}
+                </span>
+              </div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                className="hidden"
+                accept=".jpg,.jpeg,.png,.webp,.pdf"
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  if (file) handleFileUpload(file)
+                  e.target.value = ''
+                }}
+              />
+              {attachmentUrl ? (
+                <div className="flex items-center gap-2 rounded-md border bg-green-50 border-green-200 px-3 py-2 text-xs text-green-800">
+                  <Paperclip className="h-3.5 w-3.5 shrink-0" />
+                  <span className="flex-1 truncate">{attachmentName}</span>
+                  <button
+                    type="button"
+                    onClick={() => { setAttachmentUrl(null); setAttachmentName(null) }}
+                    className="text-green-600 hover:text-green-800"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={uploading}
+                  onClick={() => fileInputRef.current?.click()}
+                  className="w-full"
+                >
+                  <Paperclip className="mr-1.5 h-3.5 w-3.5" />
+                  {uploading ? 'Uploading…' : 'Attach file (JPG, PNG, PDF — max 5 MB)'}
+                </Button>
+              )}
             </div>
           )}
 
@@ -505,9 +572,9 @@ export function RequestLeaveSheet({ open, onOpenChange }: RequestLeaveSheetProps
             <Button
               type="submit"
               className="flex-1"
-              disabled={createRequest.isPending}
+              disabled={createRequest.isPending || uploading}
             >
-              {createRequest.isPending ? 'Submitting...' : 'Submit Request'}
+              {createRequest.isPending ? 'Submitting...' : uploading ? 'Uploading…' : 'Submit Request'}
             </Button>
           </div>
         </form>

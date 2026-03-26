@@ -94,6 +94,7 @@ const createLeaveTypeSchema = z.object({
   dayCalculation: z.enum(['working_days', 'calendar_days']).default('working_days'),
   staffRestriction: z.string().nullable().optional(),
   minUnit: z.enum(['1_hour', '2_hours', 'half_day', '1_day']).optional().default('1_day'),
+  unit: z.enum(['days', 'hours']).optional().default('days'),
 })
 
 router.get('/leave-types', async (req, res, next) => {
@@ -390,7 +391,7 @@ router.delete('/policies/:id/tiers/:tierId', async (req, res, next) => {
 const createHolidaySchema = z.object({
   name: z.string().min(2).max(200),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  // regionId can be a positive integer OR the string "CN" (meaning all China regions)
+  endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
   regionId: z.union([z.number().int().positive(), z.literal('CN')]),
   isRecurring: z.boolean().default(false),
   halfDay: z.enum(['AM', 'PM']).optional().nullable(),
@@ -424,10 +425,41 @@ router.get('/holidays', async (req, res, next) => {
 
 router.post('/holidays', validate(createHolidaySchema), async (req, res, next) => {
   try {
-    const body = req.body as { name: string; date: string; regionId: number | 'CN'; isRecurring: boolean; halfDay?: string | null }
+    const body = req.body as { name: string; date: string; endDate?: string | null; regionId: number | 'CN'; isRecurring: boolean; halfDay?: string | null }
+
+    const dates: string[] = []
+    if (body.endDate && body.endDate > body.date) {
+      const cur = new Date(body.date + 'T00:00:00Z')
+      const end = new Date(body.endDate + 'T00:00:00Z')
+      while (cur <= end) {
+        dates.push(cur.toISOString().slice(0, 10))
+        cur.setUTCDate(cur.getUTCDate() + 1)
+      }
+    } else {
+      dates.push(body.date)
+    }
+
+    const insertForRegions = async (regionIds: { id: number; code: string }[]) => {
+      const inserted: typeof publicHolidays.$inferSelect[] = []
+      for (const dateStr of dates) {
+        for (const region of regionIds) {
+          const [existing] = await db
+            .select({ id: publicHolidays.id })
+            .from(publicHolidays)
+            .where(and(eq(publicHolidays.regionId, region.id), eq(publicHolidays.date, dateStr), eq(publicHolidays.name, body.name)))
+            .limit(1)
+          if (existing) continue
+          const [holiday] = await db
+            .insert(publicHolidays)
+            .values({ name: body.name, date: dateStr, regionId: region.id, isRecurring: body.isRecurring, halfDay: body.halfDay ?? null })
+            .returning()
+          inserted.push(holiday)
+        }
+      }
+      return inserted
+    }
 
     if (body.regionId === 'CN') {
-      // Insert for both CN-GZ and CN-SH
       const cnRegions = await db
         .select({ id: regions.id, code: regions.code })
         .from(regions)
@@ -438,43 +470,25 @@ router.post('/holidays', validate(createHolidaySchema), async (req, res, next) =
         return
       }
 
-      const inserted: typeof publicHolidays.$inferSelect[] = []
-      for (const region of cnRegions) {
-        // Duplicate check
-        const [existing] = await db
-          .select({ id: publicHolidays.id })
-          .from(publicHolidays)
-          .where(and(eq(publicHolidays.regionId, region.id), eq(publicHolidays.date, body.date), eq(publicHolidays.name, body.name)))
-          .limit(1)
-        if (existing) {
-          res.status(409).json({ success: false, error: `Holiday already exists for ${region.code} on ${body.date}` })
-          return
-        }
-        const [holiday] = await db
-          .insert(publicHolidays)
-          .values({ name: body.name, date: body.date, regionId: region.id, isRecurring: body.isRecurring, halfDay: body.halfDay ?? null })
-          .returning()
-        inserted.push(holiday)
+      const inserted = await insertForRegions(cnRegions)
+      if (inserted.length === 0) {
+        res.status(409).json({ success: false, error: 'All holidays in this range already exist for China regions' })
+        return
       }
-
       const response: ApiResponse<typeof inserted> = { success: true, data: inserted }
       res.status(201).json(response)
       return
     }
 
-    // Single region — duplicate check
-    const [existing] = await db
-      .select({ id: publicHolidays.id })
-      .from(publicHolidays)
-      .where(and(eq(publicHolidays.regionId, body.regionId as number), eq(publicHolidays.date, body.date), eq(publicHolidays.name, body.name)))
-      .limit(1)
-    if (existing) {
-      res.status(409).json({ success: false, error: `Holiday already exists for this region on ${body.date}` })
+    const regionCode = await db.select({ code: regions.code }).from(regions).where(eq(regions.id, body.regionId as number)).limit(1)
+    const inserted = await insertForRegions([{ id: body.regionId as number, code: regionCode[0]?.code ?? '' }])
+
+    if (inserted.length === 0) {
+      res.status(409).json({ success: false, error: 'All holidays in this range already exist for this region' })
       return
     }
 
-    const [holiday] = await db.insert(publicHolidays).values({ name: body.name, date: body.date, regionId: body.regionId as number, isRecurring: body.isRecurring, halfDay: body.halfDay ?? null }).returning()
-    const response: ApiResponse<typeof holiday> = { success: true, data: holiday }
+    const response: ApiResponse<typeof inserted> = { success: true, data: inserted }
     res.status(201).json(response)
   } catch (err) {
     next(err)
@@ -908,6 +922,7 @@ router.get('/users/:id/leave-requests', async (req, res, next) => {
         status: leaveRequests.status,
         reason: leaveRequests.reason,
         halfDayPeriod: leaveRequests.halfDayPeriod,
+        attachmentUrl: leaveRequests.attachmentUrl,
         createdAt: leaveRequests.createdAt,
       })
       .from(leaveRequests)

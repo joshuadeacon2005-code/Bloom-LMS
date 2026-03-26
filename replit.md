@@ -67,6 +67,21 @@ bloom-lms/
 - Super admin: josh@bloomandgrowgroup.com / C00k1eD0g
 - Default employee password: Welcome2026!
 
+## Leave Type Features
+- Each leave type has a `unit` field (days/hours) — editable in the leave type form
+- Minimum booking unit options: 1 day, half day, 2 hours, 1 hour
+- Unit column visible in the Leave Types admin table
+
+## Public Holidays
+- Holidays can be created with a date range (start date + optional end date)
+- One entry is created per day in the range, with duplicate detection (skips existing)
+- China (CN) holidays are auto-created for both CN-GZ and CN-SH regions
+
+## Leave Request Attachments
+- File upload (JPG, PNG, PDF, max 5MB) available on leave request form via Cloudinary
+- Upload route: POST /api/leave/upload
+- Attachment links shown in MyLeave history and admin employee history views
+
 ## Key Decisions
 - Switched from Neon serverless driver to standard `pg` pool for Replit's built-in PostgreSQL
 - Vite dev server runs on port 5000 (required for Replit webview)

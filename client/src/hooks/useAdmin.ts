@@ -52,6 +52,7 @@ export interface LeaveType {
   dayCalculation: 'working_days' | 'calendar_days'
   staffRestriction: string | null
   minUnit: '1_day' | 'half_day' | '2_hours' | '1_hour'
+  unit: 'days' | 'hours'
 }
 
 export interface LeavePolicy {
@@ -78,7 +79,7 @@ export interface PublicHoliday {
 export interface CreateHolidayInput {
   name: string
   date: string
-  /** A specific region ID, or "CN" to insert for both CN-GZ and CN-SH */
+  endDate?: string | null
   regionId: number | 'CN'
   isRecurring: boolean
   halfDay?: string | null
@@ -626,6 +627,7 @@ export interface EmployeeLeaveRequest {
   status: string
   reason: string | null
   halfDayPeriod: string | null
+  attachmentUrl: string | null
   createdAt: string
 }
 

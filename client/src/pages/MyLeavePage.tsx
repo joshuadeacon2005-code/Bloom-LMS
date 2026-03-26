@@ -133,7 +133,14 @@ export function MyLeavePage() {
     {
       accessorKey: 'totalDays',
       header: 'Days',
-      cell: ({ getValue }) => `${getValue()}d`,
+      cell: ({ row, getValue }) => {
+        const days = getValue() as string
+        const hdp = row.original.halfDayPeriod
+        if (hdp && parseFloat(days) === 0.5) {
+          return `0.5d (${hdp === 'AM' ? 'AM' : 'PM'})`
+        }
+        return `${days}d${hdp ? ` (${hdp})` : ''}`
+      },
     },
     {
       accessorKey: 'reason',

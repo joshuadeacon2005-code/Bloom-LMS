@@ -535,6 +535,7 @@ export async function getLeaveRequests(filters: {
       totalDays: leaveRequests.totalDays,
       reason: leaveRequests.reason,
       status: leaveRequests.status,
+      halfDayPeriod: leaveRequests.halfDayPeriod,
       attachmentUrl: leaveRequests.attachmentUrl,
       createdAt: leaveRequests.createdAt,
       updatedAt: leaveRequests.updatedAt,
