@@ -164,6 +164,7 @@ router.delete('/leave-types/:id', requireRole('hr_admin'), async (req, res, next
       await db.update(leaveTypes).set({ isActive: false }).where(eq(leaveTypes.id, id))
       res.json({ success: true, data: { deleted: false, deactivated: true, reason: 'Has existing leave requests — deactivated instead' } })
     } else {
+      await db.delete(leavePolicies).where(eq(leavePolicies.leaveTypeId, id))
       await db.delete(leaveTypes).where(eq(leaveTypes.id, id))
       res.json({ success: true, data: { deleted: true, deactivated: false } })
     }
