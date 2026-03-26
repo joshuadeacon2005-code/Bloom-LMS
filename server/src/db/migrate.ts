@@ -122,16 +122,7 @@ export async function runMigrations(): Promise<void> {
       { code: 'WR',           name: 'Work Remotely',                   description: 'Working remotely from outside hometown — no balance deduction',                             isPaid: true,  requiresAttachment: false, approvalFlow: 'auto_approve', minNoticeDays: 1, regionId: null },
       { code: 'BFL_CN',       name: 'Breastfeeding Leave (CN)',        description: '1 hour per day breastfeeding break (China statutory, up to 12 months)',                    isPaid: true,  requiresAttachment: false, approvalFlow: 'hr_required',  minNoticeDays: 0, regionCode: 'CN'  },
       { code: 'RSL_SG',       name: 'Reservist Leave (SG)',            description: 'NS/reservist training leave — Singapore statutory',                                         isPaid: true,  requiresAttachment: true,  approvalFlow: 'hr_required',  minNoticeDays: 0, regionCode: 'SG'  },
-      { code: 'AL_AU',        name: 'Annual Leave (AU)',               description: 'Annual leave for Australia — Fair Work Act entitlement',                                    isPaid: true,  requiresAttachment: false, approvalFlow: 'standard',     minNoticeDays: 3, regionCode: 'AU'  },
-      { code: 'FPSL_AU',      name: 'Full Pay Sick Leave (AU)',        description: "Personal/carer's leave — Australia Fair Work Act",                                         isPaid: true,  requiresAttachment: false, approvalFlow: 'standard',     minNoticeDays: 0, regionCode: 'AU'  },
-      { code: 'LSL_AU',       name: 'Long Service Leave (AU)',         description: 'Long service leave after qualifying period — Australia',                                    isPaid: true,  requiresAttachment: false, approvalFlow: 'multi_level',  minNoticeDays: 14, regionCode: 'AU' },
-      { code: 'ML_AU',        name: 'Maternity Leave (AU)',            description: 'Parental leave for primary caregiver — Australia Fair Work Act',                            isPaid: true,  requiresAttachment: true,  approvalFlow: 'hr_required',  minNoticeDays: 0, regionCode: 'AU'  },
-      { code: 'NPL_AU',       name: 'No Pay Leave (AU)',               description: 'Unpaid leave — Australia',                                                                  isPaid: false, requiresAttachment: false, approvalFlow: 'multi_level',  minNoticeDays: 0, regionCode: 'AU'  },
-      { code: 'AL_NZ',        name: 'Annual Leave (NZ)',               description: 'Annual leave — New Zealand Holidays Act entitlement',                                       isPaid: true,  requiresAttachment: false, approvalFlow: 'standard',     minNoticeDays: 3, regionCode: 'NZ'  },
-      { code: 'FPSL_NZ',      name: 'Full Pay Sick Leave (NZ)',        description: 'Sick leave — New Zealand Holidays Act',                                                     isPaid: true,  requiresAttachment: false, approvalFlow: 'standard',     minNoticeDays: 0, regionCode: 'NZ'  },
-      { code: 'LSL_NZ',       name: 'Long Service Leave (NZ)',         description: 'Long service leave after qualifying period — New Zealand',                                  isPaid: true,  requiresAttachment: false, approvalFlow: 'multi_level',  minNoticeDays: 14, regionCode: 'NZ' },
-      { code: 'ML_NZ',        name: 'Maternity Leave (NZ)',            description: 'Parental leave for primary caregiver — New Zealand',                                        isPaid: true,  requiresAttachment: true,  approvalFlow: 'hr_required',  minNoticeDays: 0, regionCode: 'NZ'  },
-      { code: 'NPL_NZ',       name: 'No Pay Leave (NZ)',               description: 'Unpaid leave — New Zealand',                                                                isPaid: false, requiresAttachment: false, approvalFlow: 'multi_level',  minNoticeDays: 0, regionCode: 'NZ'  },
+      
     ]
     let newTypeCount = 0
     for (const lt of newLeaveTypes) {
@@ -172,16 +163,6 @@ export async function runMigrations(): Promise<void> {
       { ltCode: 'WR',          rCode: 'NZ', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
       { ltCode: 'BFL_CN',      rCode: 'CN', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
       { ltCode: 'RSL_SG',      rCode: 'SG', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
-      { ltCode: 'AL_AU',       rCode: 'AU', entitlementDays: 20,  carryOverMax: 20, probationMonths: 0  },
-      { ltCode: 'FPSL_AU',     rCode: 'AU', entitlementDays: 10,  carryOverMax: 10, probationMonths: 0  },
-      { ltCode: 'LSL_AU',      rCode: 'AU', entitlementDays: 33,  carryOverMax: 0,  probationMonths: 84 },
-      { ltCode: 'ML_AU',       rCode: 'AU', entitlementDays: 365, carryOverMax: 0,  probationMonths: 12 },
-      { ltCode: 'NPL_AU',      rCode: 'AU', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
-      { ltCode: 'AL_NZ',       rCode: 'NZ', entitlementDays: 20,  carryOverMax: 20, probationMonths: 12 },
-      { ltCode: 'FPSL_NZ',     rCode: 'NZ', entitlementDays: 10,  carryOverMax: 20, probationMonths: 0  },
-      { ltCode: 'LSL_NZ',      rCode: 'NZ', entitlementDays: 65,  carryOverMax: 0,  probationMonths: 120 },
-      { ltCode: 'ML_NZ',       rCode: 'NZ', entitlementDays: 365, carryOverMax: 0,  probationMonths: 6  },
-      { ltCode: 'NPL_NZ',      rCode: 'NZ', entitlementDays: 0,   carryOverMax: 0,  probationMonths: 0  },
     ]
     let newPolicyCount = 0
     for (const p of newPolicies) {
@@ -535,7 +516,6 @@ export async function runMigrations(): Promise<void> {
     // Uses code as unique key; updates name/settings if already present.
     const masterLeaveTypes = [
       { code: 'AL',        name: 'Annual Leave',                              description: 'Paid annual leave entitlement',                                         isPaid: true,  deducts: true,  reqAttach: false, approvalFlow: 'standard',     minNotice: 0,  regionRestriction: null,    unit: 'days', color: '#3B82F6' },
-      { code: 'AL_AUNZ',   name: 'Annual Leave - AU/NZ',                      description: 'Annual leave for Australia & New Zealand',                              isPaid: true,  deducts: true,  reqAttach: false, approvalFlow: 'standard',     minNotice: 3,  regionRestriction: 'AU,NZ', unit: 'days', color: '#2563EB' },
       { code: 'BDL',       name: 'Birthday Leave',                            description: '1 day per year on or around your birthday',                            isPaid: true,  deducts: true,  reqAttach: false, approvalFlow: 'standard',     minNotice: 0,  regionRestriction: null,    unit: 'days', color: '#F59E0B' },
       { code: 'BFL_CN',    name: 'Breast-feeding Leave - CN',                 description: '1 hour per day breastfeeding break (China statutory)',                  isPaid: true,  deducts: true,  reqAttach: false, approvalFlow: 'standard',     minNotice: 0,  regionRestriction: 'CN,CN-GZ,CN-SH', unit: 'hours', color: '#EC4899' },
       { code: 'BT',        name: 'Business Trip',                             description: 'Approved business travel — no balance deduction',                      isPaid: true,  deducts: false, reqAttach: false, approvalFlow: 'standard',     minNotice: 1,  regionRestriction: null,    unit: 'days', color: '#64748B' },
@@ -556,7 +536,6 @@ export async function runMigrations(): Promise<void> {
       { code: 'NPL',       name: 'No Pay Leave',                              description: 'Unpaid leave — multi-level approval',                                  isPaid: false, deducts: true,  reqAttach: false, approvalFlow: 'multi_level',  minNotice: 0,  regionRestriction: null,    unit: 'days', color: '#6B7280' },
       { code: 'NPL_AUNZ',  name: 'No Pay Leave - AU/NZ',                      description: 'Unpaid leave for Australia & New Zealand',                            isPaid: false, deducts: true,  reqAttach: false, approvalFlow: 'multi_level',  minNotice: 0,  regionRestriction: 'AU,NZ', unit: 'days', color: '#4B5563' },
       { code: 'NPSL',      name: 'No Pay Sick Leave',                         description: 'Unpaid sick leave',                                                    isPaid: false, deducts: true,  reqAttach: false, approvalFlow: 'standard',     minNotice: 0,  regionRestriction: null,    unit: 'days', color: '#9CA3AF' },
-      { code: 'OTC',       name: 'OT Claim',                                  description: 'Overtime compensation claim — credits Comp Leave or cash payment',    isPaid: true,  deducts: false, reqAttach: false, approvalFlow: 'standard',     minNotice: 0,  regionRestriction: null,    unit: 'days', color: '#F59E0B' },
       { code: 'PARL_CN',   name: 'Parental Leave - CN',                       description: 'China parental leave',                                                 isPaid: true,  deducts: true,  reqAttach: true,  approvalFlow: 'hr_required',  minNotice: 0,  regionRestriction: 'CN,CN-GZ,CN-SH', unit: 'days', color: '#C026D3' },
       { code: 'PL',        name: 'Paternity Leave',                           description: 'Paid paternity leave — requires attachment. Manager then HR.',         isPaid: true,  deducts: true,  reqAttach: true,  approvalFlow: 'hr_required',  minNotice: 0,  regionRestriction: null,    unit: 'days', color: '#8B5CF6' },
       { code: 'PEL_CN',    name: 'Prenatal Examination Leave - CN',           description: 'China prenatal examination leave',                                     isPaid: true,  deducts: true,  reqAttach: false, approvalFlow: 'standard',     minNotice: 0,  regionRestriction: 'CN,CN-GZ,CN-SH', unit: 'days', color: '#A855F7' },
@@ -617,22 +596,6 @@ export async function runMigrations(): Promise<void> {
             JOIN leave_types lt2 ON lt2.id = lp.leave_type_id
             JOIN regions r2 ON r2.id = lp.region_id
             WHERE lt2.code = 'WFH' AND r2.code = $1
-          )
-      `, [rCode])
-    }
-
-    // Add OTC (OT Claim) policies for AU and NZ
-    for (const rCode of ['AU', 'NZ']) {
-      await client.query(`
-        INSERT INTO leave_policies (leave_type_id, region_id, entitlement_days, carry_over_max, probation_months)
-        SELECT lt.id, r.id, 0, 0, 0
-        FROM leave_types lt, regions r
-        WHERE lt.code = 'OTC' AND r.code = $1 AND lt.region_id IS NULL
-          AND NOT EXISTS (
-            SELECT 1 FROM leave_policies lp
-            JOIN leave_types lt2 ON lt2.id = lp.leave_type_id
-            JOIN regions r2 ON r2.id = lp.region_id
-            WHERE lt2.code = 'OTC' AND r2.code = $1
           )
       `, [rCode])
     }
@@ -813,7 +776,6 @@ export async function runMigrations(): Promise<void> {
     `)
 
     // Fix 6: Correct region_restriction assignments
-    await client.query(`UPDATE leave_types SET region_restriction = 'AU,NZ' WHERE code = 'AL_AUNZ'`)
     await client.query(`UPDATE leave_types SET region_restriction = 'CN' WHERE code IN ('BFL_CN', 'CARE_CN', 'CL_CN', 'PARL_CN', 'PEL_CN', 'SPL_CN')`)
     await client.query(`UPDATE leave_types SET region_restriction = 'SG' WHERE code = 'CCL_SG'`)
     await client.query(`UPDATE leave_types SET region_restriction = 'SG' WHERE code = 'RSL_SG'`)
@@ -974,29 +936,40 @@ export async function runMigrations(): Promise<void> {
 
     // ── Phase 6: Leave type cleanup & HK holiday substitutes (March 2026 feedback) ──
 
-    // Deactivate 13 legacy/regional leave types that are no longer in use.
-    // Using is_active = false preserves historical leave request data.
-    const phase6DeactivateCodes = [
+    const phase6DeleteCodes = [
       'CCL',       // Child Care Leave (global) — replaced by region-specific CCL_SG
-      'AL_AU',     // Annual Leave (AU) — superseded by AL_AUNZ or global AL
-      'AL_NZ',     // Annual Leave (NZ) — superseded by AL_AUNZ or global AL
+      'AL_AU',     // Annual Leave (AU) — replaced by global AL
+      'AL_NZ',     // Annual Leave (NZ) — replaced by global AL
       'AL_AUNZ',   // Annual Leave AU/NZ combined — replaced by global AL
-      'FPSL_AU',   // Full Pay Sick Leave (AU) — superseded by FPSL_AUNZ or global FPSL
-      'FPSL_NZ',   // Full Pay Sick Leave (NZ) — superseded by FPSL_AUNZ or global FPSL
-      'FPSL_AUNZ', // Full Pay Sick Leave AU/NZ — replaced by global FPSL
+      'FPSL_AU',   // Full Pay Sick Leave (AU) — replaced by FPSL_AUNZ
+      'FPSL_NZ',   // Full Pay Sick Leave (NZ) — replaced by FPSL_AUNZ
       'LSL_AU',    // Long Service Leave (AU) — replaced by LSL_AUNZ
       'LSL_NZ',    // Long Service Leave (NZ) — replaced by LSL_AUNZ
       'ML_AU',     // Maternity Leave (AU) — replaced by ML_AUNZ
       'ML_NZ',     // Maternity Leave (NZ) — replaced by ML_AUNZ
+      'NPL_AU',    // No Pay Leave (AU) — replaced by NPL_AUNZ
+      'NPL_NZ',    // No Pay Leave (NZ) — replaced by NPL_AUNZ
       'OTC',       // OT Claim — replaced by overtime_entries workflow
-      'TOMED',     // Time-off (1.5 hours medical) — no longer offered
     ]
-    const phase6DeactivateResult = await client.query(
-      `UPDATE leave_types SET is_active = false WHERE code = ANY($1) AND is_active = true`,
-      [phase6DeactivateCodes]
+    const typesWithRequests = await client.query(
+      `SELECT DISTINCT lt.code FROM leave_types lt
+       JOIN leave_requests lr ON lr.leave_type_id = lt.id
+       WHERE lt.code = ANY($1)`,
+      [phase6DeleteCodes]
     )
-    if (phase6DeactivateResult.rowCount && phase6DeactivateResult.rowCount > 0) {
-      console.log(`[migrate] Deactivated ${phase6DeactivateResult.rowCount} legacy leave type(s)`)
+    const codesWithRequests = new Set(typesWithRequests.rows.map((r: any) => r.code))
+    const codesToDelete = phase6DeleteCodes.filter(c => !codesWithRequests.has(c))
+    const codesToDeactivate = phase6DeleteCodes.filter(c => codesWithRequests.has(c))
+    if (codesToDelete.length > 0) {
+      await client.query(`DELETE FROM leave_policies WHERE leave_type_id IN (SELECT id FROM leave_types WHERE code = ANY($1))`, [codesToDelete])
+      const delResult = await client.query(`DELETE FROM leave_types WHERE code = ANY($1)`, [codesToDelete])
+      if (delResult.rowCount && delResult.rowCount > 0) {
+        console.log(`[migrate] Deleted ${delResult.rowCount} legacy leave type(s): ${codesToDelete.join(', ')}`)
+      }
+    }
+    if (codesToDeactivate.length > 0) {
+      await client.query(`UPDATE leave_types SET is_active = false WHERE code = ANY($1)`, [codesToDeactivate])
+      console.log(`[migrate] Deactivated ${codesToDeactivate.length} legacy leave type(s) with existing requests: ${codesToDeactivate.join(', ')}`)
     }
 
     // Drop min_notice_days column — notice periods are not used in Bloom & Grow LMS

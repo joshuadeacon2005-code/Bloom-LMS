@@ -224,14 +224,6 @@ async function seed() {
         requiresAttachment: false,
         regionId: null,
       },
-      {
-        name: 'OT Claim',
-        code: 'OTC',
-        description: 'Overtime cash claim — request payment for approved overtime hours',
-        isPaid: true,
-        requiresAttachment: true,
-        regionId: null,
-      },
       // ── CN-specific types ─────────────────────────────────────
       {
         name: 'Breastfeeding Leave (CN)',
@@ -308,88 +300,6 @@ async function seed() {
         requiresAttachment: true,
         regionId: regionMap['SG'] ?? null,
       },
-      // ── AU-specific types ─────────────────────────────────────
-      {
-        name: 'Annual Leave (AU)',
-        code: 'AL_AU',
-        description: 'Annual leave for Australia — Fair Work Act entitlement',
-        isPaid: true,
-        requiresAttachment: false,
-        regionId: regionMap['AU'] ?? null,
-      },
-      {
-        name: 'Full Pay Sick Leave (AU)',
-        code: 'FPSL_AU',
-        description: 'Personal/carer\'s leave — Australia Fair Work Act',
-        isPaid: true,
-        requiresAttachment: false,
-        regionId: regionMap['AU'] ?? null,
-      },
-      {
-        name: 'Long Service Leave (AU)',
-        code: 'LSL_AU',
-        description: 'Long service leave after qualifying period — Australia',
-        isPaid: true,
-        requiresAttachment: false,
-        regionId: regionMap['AU'] ?? null,
-      },
-      {
-        name: 'Maternity Leave (AU)',
-        code: 'ML_AU',
-        description: 'Parental leave for primary caregiver — Australia Fair Work Act',
-        isPaid: true,
-        requiresAttachment: true,
-        regionId: regionMap['AU'] ?? null,
-      },
-      {
-        name: 'No Pay Leave (AU)',
-        code: 'NPL_AU',
-        description: 'Unpaid leave — Australia',
-        isPaid: false,
-        requiresAttachment: false,
-        regionId: regionMap['AU'] ?? null,
-      },
-      // ── NZ-specific types ─────────────────────────────────────
-      {
-        name: 'Annual Leave (NZ)',
-        code: 'AL_NZ',
-        description: 'Annual leave — New Zealand Holidays Act entitlement',
-        isPaid: true,
-        requiresAttachment: false,
-        regionId: regionMap['NZ'] ?? null,
-      },
-      {
-        name: 'Full Pay Sick Leave (NZ)',
-        code: 'FPSL_NZ',
-        description: 'Sick leave — New Zealand Holidays Act',
-        isPaid: true,
-        requiresAttachment: false,
-        regionId: regionMap['NZ'] ?? null,
-      },
-      {
-        name: 'Long Service Leave (NZ)',
-        code: 'LSL_NZ',
-        description: 'Long service leave after qualifying period — New Zealand',
-        isPaid: true,
-        requiresAttachment: false,
-        regionId: regionMap['NZ'] ?? null,
-      },
-      {
-        name: 'Maternity Leave (NZ)',
-        code: 'ML_NZ',
-        description: 'Parental leave for primary caregiver — New Zealand',
-        isPaid: true,
-        requiresAttachment: true,
-        regionId: regionMap['NZ'] ?? null,
-      },
-      {
-        name: 'No Pay Leave (NZ)',
-        code: 'NPL_NZ',
-        description: 'Unpaid leave — New Zealand',
-        isPaid: false,
-        requiresAttachment: false,
-        regionId: regionMap['NZ'] ?? null,
-      },
     ])
     .onConflictDoNothing()
     .returning()
@@ -412,7 +322,6 @@ async function seed() {
     { code: 'NPL', approvalFlow: 'multi_level', minNoticeDays: 0 },
     { code: 'MRL', approvalFlow: 'standard', minNoticeDays: 3 },
     { code: 'CCL', approvalFlow: 'standard', minNoticeDays: 0 },
-    { code: 'OTC', approvalFlow: 'hr_required', minNoticeDays: 0 },
     // New global types
     { code: 'BL', approvalFlow: 'standard', minNoticeDays: 3, maxConsecutiveDays: 1 },
     { code: 'BT', approvalFlow: 'auto_approve', minNoticeDays: 1 },
@@ -433,18 +342,6 @@ async function seed() {
     { code: 'FAM_ID', approvalFlow: 'standard', minNoticeDays: 0, maxConsecutiveDays: 2 },
     // SG-specific
     { code: 'RSL_SG', approvalFlow: 'hr_required', minNoticeDays: 0 },
-    // AU-specific
-    { code: 'AL_AU', approvalFlow: 'standard', minNoticeDays: 3 },
-    { code: 'FPSL_AU', approvalFlow: 'standard', minNoticeDays: 0 },
-    { code: 'LSL_AU', approvalFlow: 'multi_level', minNoticeDays: 14 },
-    { code: 'ML_AU', approvalFlow: 'hr_required', minNoticeDays: 0 },
-    { code: 'NPL_AU', approvalFlow: 'multi_level', minNoticeDays: 0 },
-    // NZ-specific
-    { code: 'AL_NZ', approvalFlow: 'standard', minNoticeDays: 3 },
-    { code: 'FPSL_NZ', approvalFlow: 'standard', minNoticeDays: 0 },
-    { code: 'LSL_NZ', approvalFlow: 'multi_level', minNoticeDays: 14 },
-    { code: 'ML_NZ', approvalFlow: 'hr_required', minNoticeDays: 0 },
-    { code: 'NPL_NZ', approvalFlow: 'multi_level', minNoticeDays: 0 },
   ] as { code: string; approvalFlow: string; minNoticeDays?: number; maxConsecutiveDays?: number }[]
   for (const update of approvalFlowUpdates) {
     const id = ltMap[update.code]
@@ -525,11 +422,6 @@ async function seed() {
     { leaveTypeCode: 'NPL', regionCode: 'ID', entitlementDays: '0', carryOverMax: '0', probationMonths: 0 },
     { leaveTypeCode: 'NPL', regionCode: 'CN', entitlementDays: '0', carryOverMax: '0', probationMonths: 0 },
     // OT Claim (non-AU/NZ — cash overtime claim)
-    { leaveTypeCode: 'OTC', regionCode: 'HK', entitlementDays: '0', carryOverMax: '0', probationMonths: 0 },
-    { leaveTypeCode: 'OTC', regionCode: 'SG', entitlementDays: '0', carryOverMax: '0', probationMonths: 0 },
-    { leaveTypeCode: 'OTC', regionCode: 'MY', entitlementDays: '0', carryOverMax: '0', probationMonths: 0 },
-    { leaveTypeCode: 'OTC', regionCode: 'ID', entitlementDays: '0', carryOverMax: '0', probationMonths: 0 },
-    { leaveTypeCode: 'OTC', regionCode: 'CN', entitlementDays: '0', carryOverMax: '0', probationMonths: 0 },
     // Time In Lieu (AU/NZ only) — tracked in hours, carryover = 160 hours
     { leaveTypeCode: 'TIL', regionCode: 'AU', entitlementDays: '0', carryOverMax: '20', probationMonths: 0 },
     { leaveTypeCode: 'TIL', regionCode: 'NZ', entitlementDays: '0', carryOverMax: '20', probationMonths: 0 },
@@ -592,18 +484,6 @@ async function seed() {
     { leaveTypeCode: 'FAM_ID', regionCode: 'ID', entitlementDays: '2', carryOverMax: '0', probationMonths: 0 },
     // SG-specific
     { leaveTypeCode: 'RSL_SG', regionCode: 'SG', entitlementDays: '0', carryOverMax: '0', probationMonths: 0 },
-    // AU-specific leave policies
-    { leaveTypeCode: 'AL_AU', regionCode: 'AU', entitlementDays: '20', carryOverMax: '20', probationMonths: 0 },
-    { leaveTypeCode: 'FPSL_AU', regionCode: 'AU', entitlementDays: '10', carryOverMax: '10', probationMonths: 0 },
-    { leaveTypeCode: 'LSL_AU', regionCode: 'AU', entitlementDays: '33', carryOverMax: '0', probationMonths: 84 },
-    { leaveTypeCode: 'ML_AU', regionCode: 'AU', entitlementDays: '365', carryOverMax: '0', probationMonths: 12 },
-    { leaveTypeCode: 'NPL_AU', regionCode: 'AU', entitlementDays: '0', carryOverMax: '0', probationMonths: 0 },
-    // NZ-specific leave policies
-    { leaveTypeCode: 'AL_NZ', regionCode: 'NZ', entitlementDays: '20', carryOverMax: '20', probationMonths: 12 },
-    { leaveTypeCode: 'FPSL_NZ', regionCode: 'NZ', entitlementDays: '10', carryOverMax: '20', probationMonths: 0 },
-    { leaveTypeCode: 'LSL_NZ', regionCode: 'NZ', entitlementDays: '65', carryOverMax: '0', probationMonths: 120 },
-    { leaveTypeCode: 'ML_NZ', regionCode: 'NZ', entitlementDays: '365', carryOverMax: '0', probationMonths: 6 },
-    { leaveTypeCode: 'NPL_NZ', regionCode: 'NZ', entitlementDays: '0', carryOverMax: '0', probationMonths: 0 },
   ]
 
   const policyRows = policies
