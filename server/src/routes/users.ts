@@ -19,7 +19,7 @@ const getUsersQuerySchema = z.object({
     .transform((v) => (v === undefined ? undefined : v === 'true')),
   role: z.enum(['employee', 'manager', 'hr_admin', 'super_admin']).optional(),
   page: z.coerce.number().int().min(1).default(1),
-  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+  pageSize: z.coerce.number().int().min(1).max(500).default(20),
 })
 
 const createUserSchema = z.object({

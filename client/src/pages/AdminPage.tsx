@@ -912,6 +912,7 @@ const ALL_REGIONS = [
   { code: 'CN-SH', label: 'China - Shanghai' },
   { code: 'AU', label: 'Australia' },
   { code: 'NZ', label: 'New Zealand' },
+  { code: 'UK', label: 'United Kingdom' },
 ]
 
 function RegionMultiSelect({
@@ -921,7 +922,7 @@ function RegionMultiSelect({
   value: string[]
   onChange: (v: string[]) => void
 }) {
-  const allSelected = value.length === 0 || value.length === ALL_REGIONS.length
+  const allSelected = value.length === ALL_REGIONS.length
 
   function toggleAll() {
     onChange(allSelected ? [] : ALL_REGIONS.map((r) => r.code))
@@ -929,8 +930,7 @@ function RegionMultiSelect({
 
   function toggle(code: string) {
     if (value.includes(code)) {
-      const next = value.filter((c) => c !== code)
-      onChange(next)
+      onChange(value.filter((c) => c !== code))
     } else {
       onChange([...value, code])
     }
@@ -945,7 +945,7 @@ function RegionMultiSelect({
           onCheckedChange={toggleAll}
         />
         <label htmlFor="region-all" className="text-sm font-medium cursor-pointer select-none">
-          All Regions
+          Select All
         </label>
       </div>
       <div className="grid grid-cols-2 gap-1.5 pt-1 border-t">
@@ -953,15 +953,8 @@ function RegionMultiSelect({
           <div key={r.code} className="flex items-center gap-2">
             <Checkbox
               id={`region-${r.code}`}
-              checked={allSelected || value.includes(r.code)}
-              onCheckedChange={() => {
-                // When currently all-selected, toggling one means "deselect all others"
-                if (allSelected) {
-                  onChange(ALL_REGIONS.map((x) => x.code).filter((c) => c !== r.code))
-                } else {
-                  toggle(r.code)
-                }
-              }}
+              checked={value.includes(r.code)}
+              onCheckedChange={() => toggle(r.code)}
             />
             <label htmlFor={`region-${r.code}`} className="text-xs cursor-pointer select-none">
               {r.label}
@@ -1099,7 +1092,7 @@ function LeaveTypeDialog({
 
   const { register, control, handleSubmit, reset, formState: { errors } } = useForm<LeaveTypeFormData>({
     resolver: zodResolver(leaveTypeSchema),
-    defaultValues: { isPaid: true, requiresAttachment: false, approvalFlow: 'standard', dayCalculation: 'working_days', regionRestriction: [], staffRestriction: [], minUnit: '1_day' },
+    defaultValues: { isPaid: true, requiresAttachment: false, approvalFlow: 'standard', dayCalculation: 'working_days', regionRestriction: [], staffRestriction: [], minUnit: '1_day', regionId: '' },
   })
 
   useEffect(() => {
@@ -1120,7 +1113,7 @@ function LeaveTypeDialog({
         minUnit: (editing as LeaveType & { minUnit?: LeaveTypeFormData['minUnit'] }).minUnit ?? '1_day',
       })
     } else if (open && !editing) {
-      reset({ isPaid: true, requiresAttachment: false, approvalFlow: 'standard', dayCalculation: 'working_days', regionRestriction: [], staffRestriction: [], minUnit: '1_day' })
+      reset({ isPaid: true, requiresAttachment: false, approvalFlow: 'standard', dayCalculation: 'working_days', regionRestriction: [], staffRestriction: [], minUnit: '1_day', regionId: '' })
     }
   }, [open, editing, reset])
 
@@ -1197,9 +1190,9 @@ function LeaveTypeDialog({
                 control={control}
                 render={({ field }) => (
                   <Select value={field.value || '__none__'} onValueChange={field.onChange}>
-                    <SelectTrigger><SelectValue placeholder="All regions" /></SelectTrigger>
+                    <SelectTrigger><SelectValue placeholder="Select region" /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="__none__">All regions</SelectItem>
+                      <SelectItem value="__none__">No region (all regions)</SelectItem>
                       {regions?.map((r) => (
                         <SelectItem key={r.id} value={String(r.id)}>{r.name}</SelectItem>
                       ))}
@@ -1213,7 +1206,7 @@ function LeaveTypeDialog({
           <div className="space-y-1.5">
             <Label>
               Region restriction{' '}
-              <span className="text-muted-foreground text-xs">(leave all checked = all regions)</span>
+              <span className="text-muted-foreground text-xs">(leave all unchecked = all regions)</span>
             </Label>
             <Controller
               name="regionRestriction"
@@ -1342,27 +1335,43 @@ function LeaveTypesTab() {
   const isHrAdmin = me?.role === 'hr_admin' || me?.role === 'super_admin'
   const { data: regions } = useRegions()
   const [filterRegion, setFilterRegion] = useState<string>('__none__')
+  const [searchLT, setSearchLT] = useState('')
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<LeaveType | null>(null)
   const [deletingLT, setDeletingLT] = useState<LeaveType | null>(null)
   const deleteLeaveType = useDeleteLeaveType()
 
-  const { data: leaveTypes, isLoading } = useAdminLeaveTypes(
+  const { data: rawLeaveTypes, isLoading } = useAdminLeaveTypes(
     filterRegion && filterRegion !== '__none__' ? Number(filterRegion) : undefined
+  )
+
+  const leaveTypes = rawLeaveTypes?.filter((lt) =>
+    !searchLT || lt.name.toLowerCase().includes(searchLT.toLowerCase()) || lt.code.toLowerCase().includes(searchLT.toLowerCase())
   )
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <Select value={filterRegion} onValueChange={setFilterRegion}>
-          <SelectTrigger className="w-44"><SelectValue placeholder="All regions" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__none__">All regions</SelectItem>
-            {regions?.map((r) => (
-              <SelectItem key={r.id} value={String(r.id)}>{r.name}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-1 items-center gap-2">
+          <div className="relative flex-1 max-w-64">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search leave types…"
+              value={searchLT}
+              onChange={(e) => setSearchLT(e.target.value)}
+              className="pl-8"
+            />
+          </div>
+          <Select value={filterRegion} onValueChange={setFilterRegion}>
+            <SelectTrigger className="w-44"><SelectValue placeholder="All regions" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">All regions</SelectItem>
+              {regions?.map((r) => (
+                <SelectItem key={r.id} value={String(r.id)}>{r.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
         {isHrAdmin && (
           <Button size="sm" onClick={() => { setEditing(null); setDialogOpen(true) }}>
             <Plus className="mr-1.5 h-4 w-4" /> New Leave Type

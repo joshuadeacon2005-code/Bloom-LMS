@@ -56,6 +56,17 @@ bloom-lms/
 - The Entitlements tab shows the "Region Default" alongside each user's entitled days
 - Color-coded comparison: green = more than default, orange = less than default
 
+## Region Restriction System
+- Leave types have a `regionRestriction` field (comma-separated region codes like "HK,SG,CN-GZ")
+- If `regionRestriction` is NULL, the leave type is available to all regions
+- The Policies and Leave Types admin endpoints filter using both the legacy `regionId` field and the `regionRestriction` codes
+- When creating a new leave type, the Legacy Region defaults to "Select region" (none selected) and all region restriction checkboxes default to unchecked
+- Available region codes: HK, SG, MY, ID, CN-GZ, CN-SH, AU, NZ, UK
+
+## Admin User Credentials
+- Super admin: josh@bloomandgrowgroup.com / C00k1eD0g
+- Default employee password: Welcome2026!
+
 ## Key Decisions
 - Switched from Neon serverless driver to standard `pg` pool for Replit's built-in PostgreSQL
 - Vite dev server runs on port 5000 (required for Replit webview)

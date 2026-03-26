@@ -99,11 +99,24 @@ const createLeaveTypeSchema = z.object({
 router.get('/leave-types', async (req, res, next) => {
   try {
     const regionId = req.query.regionId ? parseInt(req.query.regionId as string, 10) : undefined
-    const rows = await db
+    let rows = await db
       .select()
       .from(leaveTypes)
-      .where(regionId ? eq(leaveTypes.regionId, regionId) : undefined)
       .orderBy(leaveTypes.name)
+
+    if (regionId) {
+      const [region] = await db.select({ code: regions.code }).from(regions).where(eq(regions.id, regionId)).limit(1)
+      const regionCode = region?.code
+      if (regionCode) {
+        rows = rows.filter((lt) => {
+          const legacyMatch = lt.regionId === null || lt.regionId === regionId
+          if (!lt.regionRestriction) return legacyMatch
+          const codes = lt.regionRestriction.split(',').map((c) => c.trim())
+          return codes.includes(regionCode)
+        })
+      }
+    }
+
     const response: ApiResponse<typeof rows> = { success: true, data: rows }
     res.json(response)
   } catch (err) {
@@ -190,10 +203,25 @@ router.get('/policies', async (req, res, next) => {
       .groupBy(policyEntitlementTiers.leavePolicyId)
     const tierCountMap = new Map(tierCounts.map((t) => [t.policyId, t.count]))
 
-    const enriched = rows.map((r) => ({
+    let enriched = rows.map((r) => ({
       ...r,
       tierCount: tierCountMap.get(r.id) ?? 0,
     }))
+
+    if (regionId) {
+      const [region] = await db.select({ code: regions.code }).from(regions).where(eq(regions.id, regionId)).limit(1)
+      const regionCode = region?.code
+      if (regionCode) {
+        const allLeaveTypes = await db.select({ id: leaveTypes.id, regionRestriction: leaveTypes.regionRestriction }).from(leaveTypes)
+        const ltMap = new Map(allLeaveTypes.map((lt) => [lt.id, lt.regionRestriction]))
+        enriched = enriched.filter((p) => {
+          const restriction = ltMap.get(p.leaveTypeId)
+          if (!restriction) return true
+          const codes = restriction.split(',').map((c) => c.trim())
+          return codes.includes(regionCode)
+        })
+      }
+    }
 
     const response: ApiResponse<typeof enriched> = { success: true, data: enriched }
     res.json(response)

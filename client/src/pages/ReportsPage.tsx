@@ -46,7 +46,7 @@ const CHART_COLORS = [
 const currentYear = new Date().getFullYear()
 const YEARS = [currentYear - 1, currentYear, currentYear + 1]
 const EXPORT_MONTHS = [
-  { value: '', label: 'Full year' },
+  { value: '__all__', label: 'Full year' },
   ...MONTHS.map((m, i) => ({ value: String(i + 1), label: m })),
 ]
 
@@ -95,7 +95,7 @@ function LoadingSkeleton() {
 
 export function ReportsPage() {
   const [year, setYear] = useState(currentYear)
-  const [exportMonth, setExportMonth] = useState('')
+  const [exportMonth, setExportMonth] = useState('__all__')
   const [exporting, setExporting] = useState(false)
   const [exportingLR, setExportingLR] = useState(false)
   const [exportingEnt, setExportingEnt] = useState(false)
@@ -126,7 +126,7 @@ export function ReportsPage() {
     try {
       await downloadPayrollXlsx({
         year,
-        month: exportMonth ? Number(exportMonth) : undefined,
+        month: exportMonth && exportMonth !== '__all__' ? Number(exportMonth) : undefined,
       })
       toast.success('Export downloaded')
     } catch {
@@ -428,7 +428,7 @@ export function ReportsPage() {
                   </div>
                   <Button onClick={handleExport} disabled={exporting} className="w-full sm:w-auto">
                     <Download className="mr-2 h-4 w-4" />
-                    {exporting ? 'Exporting…' : `Download XLSX — ${year}${exportMonth ? ` ${MONTHS[Number(exportMonth) - 1]}` : ''}`}
+                    {exporting ? 'Exporting…' : `Download XLSX — ${year}${exportMonth && exportMonth !== '__all__' ? ` ${MONTHS[Number(exportMonth) - 1]}` : ''}`}
                   </Button>
                 </CardContent>
               </Card>
