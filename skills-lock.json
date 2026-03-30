@@ -1,10 +1,50 @@
 {
   "version": 1,
   "skills": {
+    "agent-tools": {
+      "source": "inf-sh/skills",
+      "sourceType": "github",
+      "computedHash": "b7dc4bc5a5fe0aee778ed86e3a24cbf8c26377cf0c7e57c7b5cba63f6a23bb00"
+    },
+    "audit-website": {
+      "source": "squirrelscan/skills",
+      "sourceType": "github",
+      "computedHash": "2c060290f90340e8bb6009502ec936b8ebb3ff889332a43e24bf210528ebba9f"
+    },
+    "browser-use": {
+      "source": "browser-use/browser-use",
+      "sourceType": "github",
+      "computedHash": "f974fac2783f80ac2a1a2cb45d576b5cca55123015dc73db8adfd02277002461"
+    },
+    "find-skills": {
+      "source": "vercel-labs/skills",
+      "sourceType": "github",
+      "computedHash": "d31e234f0c90694a670222cdd1dafa853e051d7066beda389f1097c22dadd461"
+    },
+    "frontend-design": {
+      "source": "anthropics/skills",
+      "sourceType": "github",
+      "computedHash": "063a0e6448123cd359ad0044cc46b0e490cc7964d45ef4bb9fd842bd2ffbca67"
+    },
     "neon-postgres": {
       "source": "neondatabase/agent-skills",
       "sourceType": "github",
       "computedHash": "574cf4b7c901ebc7d88d34e2c3e3d08fdec127bd0047f888de148ff0af787d4e"
+    },
+    "seo-audit": {
+      "source": "coreyhaines31/marketingskills",
+      "sourceType": "github",
+      "computedHash": "1eef04180a5278a6869fab117c75fa2acf512bfda0a4b16569409b88b7bcb343"
+    },
+    "skill-creator": {
+      "source": "anthropics/skills",
+      "sourceType": "github",
+      "computedHash": "b122f4d1e91aa1d83027e050b5b37c3156203ee85458d7b1360bc48167c9e02a"
+    },
+    "web-design-guidelines": {
+      "source": "vercel-labs/agent-skills",
+      "sourceType": "github",
+      "computedHash": "a6a44d5498f7e8f68289902f3dedfc6f38ae0cee1e96527c80724cf27f727c2a"
     }
   }
 }
