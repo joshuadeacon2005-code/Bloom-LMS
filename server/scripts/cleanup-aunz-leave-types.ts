@@ -13,7 +13,6 @@
  *   npx tsx scripts/cleanup-aunz-leave-types.ts
  */
 
-import 'dotenv/config'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import pg from 'pg'
 import { eq, inArray, sql } from 'drizzle-orm'
