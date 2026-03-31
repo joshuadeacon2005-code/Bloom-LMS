@@ -936,6 +936,23 @@ export async function runMigrations(): Promise<void> {
 
     // ── Phase 6: Leave type cleanup & HK holiday substitutes (March 2026 feedback) ──
 
+    const cclReassign = await client.query(`
+      SELECT lt_old.id AS old_id, lt_new.id AS new_id
+      FROM leave_types lt_old, leave_types lt_new
+      WHERE lt_old.code = 'CCL' AND lt_new.code = 'CCL_SG'
+    `)
+    if (cclReassign.rows.length > 0) {
+      const { old_id, new_id } = cclReassign.rows[0]
+      const reassigned = await client.query(
+        `UPDATE leave_requests SET leave_type_id = $1 WHERE leave_type_id = $2`,
+        [new_id, old_id]
+      )
+      if (reassigned.rowCount && reassigned.rowCount > 0) {
+        console.log(`[migrate] Reassigned ${reassigned.rowCount} CCL leave request(s) to CCL_SG`)
+      }
+      await client.query(`DELETE FROM leave_balances WHERE leave_type_id = $1`, [old_id])
+    }
+
     const phase6DeleteCodes = [
       'CCL',       // Child Care Leave (global) — replaced by region-specific CCL_SG
       'AL_AU',     // Annual Leave (AU) — replaced by global AL
@@ -951,25 +968,19 @@ export async function runMigrations(): Promise<void> {
       'NPL_NZ',    // No Pay Leave (NZ) — replaced by NPL_AUNZ
       'OTC',       // OT Claim — replaced by overtime_entries workflow
     ]
-    const typesWithRequests = await client.query(
-      `SELECT DISTINCT lt.code FROM leave_types lt
-       JOIN leave_requests lr ON lr.leave_type_id = lt.id
-       WHERE lt.code = ANY($1)`,
-      [phase6DeleteCodes]
-    )
-    const codesWithRequests = new Set(typesWithRequests.rows.map((r: any) => r.code))
-    const codesToDelete = phase6DeleteCodes.filter(c => !codesWithRequests.has(c))
-    const codesToDeactivate = phase6DeleteCodes.filter(c => codesWithRequests.has(c))
-    if (codesToDelete.length > 0) {
-      await client.query(`DELETE FROM leave_policies WHERE leave_type_id IN (SELECT id FROM leave_types WHERE code = ANY($1))`, [codesToDelete])
-      const delResult = await client.query(`DELETE FROM leave_types WHERE code = ANY($1)`, [codesToDelete])
-      if (delResult.rowCount && delResult.rowCount > 0) {
-        console.log(`[migrate] Deleted ${delResult.rowCount} legacy leave type(s): ${codesToDelete.join(', ')}`)
-      }
-    }
-    if (codesToDeactivate.length > 0) {
-      await client.query(`UPDATE leave_types SET is_active = false WHERE code = ANY($1)`, [codesToDeactivate])
-      console.log(`[migrate] Deactivated ${codesToDeactivate.length} legacy leave type(s) with existing requests: ${codesToDeactivate.join(', ')}`)
+    await client.query(`DELETE FROM leave_balances WHERE leave_type_id IN (SELECT id FROM leave_types WHERE code = ANY($1))`, [phase6DeleteCodes])
+    await client.query(`DELETE FROM leave_policies WHERE leave_type_id IN (SELECT id FROM leave_types WHERE code = ANY($1))`, [phase6DeleteCodes])
+    await client.query(`
+      DELETE FROM approval_workflows WHERE leave_request_id IN (
+        SELECT lr.id FROM leave_requests lr
+        JOIN leave_types lt ON lr.leave_type_id = lt.id
+        WHERE lt.code = ANY($1)
+      )
+    `, [phase6DeleteCodes])
+    await client.query(`DELETE FROM leave_requests WHERE leave_type_id IN (SELECT id FROM leave_types WHERE code = ANY($1))`, [phase6DeleteCodes])
+    const delResult = await client.query(`DELETE FROM leave_types WHERE code = ANY($1)`, [phase6DeleteCodes])
+    if (delResult.rowCount && delResult.rowCount > 0) {
+      console.log(`[migrate] Permanently deleted ${delResult.rowCount} legacy leave type(s)`)
     }
 
     // Drop min_notice_days column — notice periods are not used in Bloom & Grow LMS
