@@ -91,8 +91,20 @@ export function registerExpenseApproveHandlers(app: App) {
       const expenseId = parseInt(('value' in action ? action.value : '') || '0')
 
       const slackUser = await dbService.getUserBySlackId(body.user.id)
-      const actorId = slackUser?.id ?? null
-      const actorName = slackUser?.name ?? ('username' in body.user ? body.user.username : body.user.id)
+      if (!slackUser) {
+        await client.chat.postMessage({ channel: body.user.id, text: 'You are not linked to a system account — cannot approve.' })
+        return
+      }
+      const actorId = slackUser.id
+      const actorName = slackUser.name ?? ('username' in body.user ? body.user.username : body.user.id)
+
+      const expense = await expenseService.getExpense(expenseId)
+      const isHr = ['hr_admin', 'super_admin'].includes(slackUser.role ?? '')
+      const isMgr = await expenseService.isManagerOf(actorId, expense.uploadedBy?.id)
+      if (!isHr && !isMgr) {
+        await client.chat.postMessage({ channel: body.user.id, text: 'You do not have permission to approve this expense.' })
+        return
+      }
 
       await expenseService.approveExpense(expenseId, actorId, actorName)
 
@@ -134,8 +146,20 @@ export function registerExpenseApproveHandlers(app: App) {
       const expenseId = parseInt(('value' in action ? action.value : '') || '0')
 
       const slackUser = await dbService.getUserBySlackId(body.user.id)
-      const actorId = slackUser?.id ?? null
-      const actorName = slackUser?.name ?? ('username' in body.user ? body.user.username : body.user.id)
+      if (!slackUser) {
+        await client.chat.postMessage({ channel: body.user.id, text: 'You are not linked to a system account — cannot reject.' })
+        return
+      }
+      const actorId = slackUser.id
+      const actorName = slackUser.name ?? ('username' in body.user ? body.user.username : body.user.id)
+
+      const expense = await expenseService.getExpense(expenseId)
+      const isHr = ['hr_admin', 'super_admin'].includes(slackUser.role ?? '')
+      const isMgr = await expenseService.isManagerOf(actorId, expense.uploadedBy?.id)
+      if (!isHr && !isMgr) {
+        await client.chat.postMessage({ channel: body.user.id, text: 'You do not have permission to reject this expense.' })
+        return
+      }
 
       await expenseService.rejectExpense(expenseId, actorId, actorName)
 

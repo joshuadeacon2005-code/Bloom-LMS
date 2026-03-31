@@ -165,6 +165,45 @@ router.post('/send-bulk-approval', async (req, res, next) => {
   }
 })
 
+// ── POST /api/expenses/:id/approve ────────────────────────────────────────
+router.post('/:id/approve', async (req, res, next) => {
+  try {
+    const id = parseInt(req.params['id'] as string)
+    const isHr = ['hr_admin', 'super_admin'].includes(req.user!.role)
+    const expense = await expenseService.getExpense(id)
+    const isManagerOfSubmitter = await expenseService.isManagerOf(req.user!.userId, expense.uploadedBy?.id)
+    if (!isHr && !isManagerOfSubmitter) {
+      return res.status(403).json({ success: false, error: 'Only managers or HR can approve expenses' })
+    }
+    await expenseService.approveExpense(id, req.user!.userId, req.user!.name ?? 'Unknown')
+    const updated = await expenseService.getExpense(id)
+    const response: ApiResponse<typeof updated> = { success: true, data: updated }
+    res.json(response)
+  } catch (err) {
+    next(err)
+  }
+})
+
+// ── POST /api/expenses/:id/reject ─────────────────────────────────────────
+router.post('/:id/reject', async (req, res, next) => {
+  try {
+    const id = parseInt(req.params['id'] as string)
+    const isHr = ['hr_admin', 'super_admin'].includes(req.user!.role)
+    const expense = await expenseService.getExpense(id)
+    const isManagerOfSubmitter = await expenseService.isManagerOf(req.user!.userId, expense.uploadedBy?.id)
+    if (!isHr && !isManagerOfSubmitter) {
+      return res.status(403).json({ success: false, error: 'Only managers or HR can reject expenses' })
+    }
+    const note = req.body?.note as string | undefined
+    await expenseService.rejectExpense(id, req.user!.userId, req.user!.name ?? 'Unknown', note)
+    const updated = await expenseService.getExpense(id)
+    const response: ApiResponse<typeof updated> = { success: true, data: updated }
+    res.json(response)
+  } catch (err) {
+    next(err)
+  }
+})
+
 // ── POST /api/expenses/:id/retry-sync ─────────────────────────────────────
 router.post('/:id/retry-sync', async (req, res, next) => {
   try {

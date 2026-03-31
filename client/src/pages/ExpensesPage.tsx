@@ -16,6 +16,8 @@ import {
   PenLine,
   Paperclip,
   SendHorizonal,
+  Check,
+  X,
 } from 'lucide-react'
 import api from '@/lib/api'
 import { useAuthStore, isHrOrAbove } from '@/stores/authStore'
@@ -160,6 +162,16 @@ async function retrySync(id: number): Promise<Expense> {
 
 async function resubmit(id: number): Promise<Expense> {
   const { data } = await api.post<{ data: Expense }>(`/expenses/${id}/resubmit`)
+  return data.data
+}
+
+async function approveExpense(id: number): Promise<Expense> {
+  const { data } = await api.post<{ data: Expense }>(`/expenses/${id}/approve`)
+  return data.data
+}
+
+async function rejectExpense({ id, note }: { id: number; note?: string }): Promise<Expense> {
+  const { data } = await api.post<{ data: Expense }>(`/expenses/${id}/reject`, { note })
   return data.data
 }
 
@@ -528,6 +540,24 @@ export default function ExpensesPage() {
     onError: (e: Error) => toast.error(e.message),
   })
 
+  const approveMutation = useMutation({
+    mutationFn: approveExpense,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['expenses'] })
+      toast.success('Expense approved — syncing to NetSuite')
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  const rejectMutation = useMutation({
+    mutationFn: rejectExpense,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['expenses'] })
+      toast.success('Expense rejected')
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
   const bulkSendMutation = useMutation({
     mutationFn: sendBulkApproval,
     onSuccess: (result) => {
@@ -705,6 +735,30 @@ export default function ExpensesPage() {
                               <Send className="mr-1.5 h-3.5 w-3.5" />
                               Send for Approval
                             </Button>
+                          )}
+                          {expense.status === 'AWAITING_APPROVAL' && (
+                            <>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="border-green-300 text-green-700 hover:bg-green-50"
+                                disabled={approveMutation.isPending}
+                                onClick={() => approveMutation.mutate(expense.id)}
+                              >
+                                <Check className="mr-1.5 h-3.5 w-3.5" />
+                                Approve
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="border-red-300 text-red-700 hover:bg-red-50"
+                                disabled={rejectMutation.isPending}
+                                onClick={() => rejectMutation.mutate({ id: expense.id })}
+                              >
+                                <X className="mr-1.5 h-3.5 w-3.5" />
+                                Reject
+                              </Button>
+                            </>
                           )}
                           {expense.status === 'SYNC_FAILED' && (
                             <Button

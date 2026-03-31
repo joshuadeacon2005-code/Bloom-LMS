@@ -1,5 +1,5 @@
 import { db } from '../db/index'
-import { expenses, expenseItems, expenseAuditLog, expenseAttachments } from '../db/schema'
+import { expenses, expenseItems, expenseAuditLog, expenseAttachments, users } from '../db/schema'
 import { eq, desc, inArray } from 'drizzle-orm'
 import { getSupervisorSlackId, getUserById } from '../slack/db-service'
 import { WebClient } from '@slack/web-api'
@@ -173,6 +173,20 @@ export async function createManualExpense(
 }
 
 // ---------------------------------------------------------------------------
+// Manager check
+// ---------------------------------------------------------------------------
+
+export async function isManagerOf(managerId: number, employeeId?: number): Promise<boolean> {
+  if (!employeeId) return false
+  const [employee] = await db
+    .select({ managerId: users.managerId })
+    .from(users)
+    .where(eq(users.id, employeeId))
+    .limit(1)
+  return employee?.managerId === managerId
+}
+
+// ---------------------------------------------------------------------------
 // List & Get
 // ---------------------------------------------------------------------------
 
@@ -193,9 +207,14 @@ export async function listExpenses(
   })
 
   let filtered = rows
-  // Employees only see their own
   if (!isHrOrAbove) {
-    filtered = rows.filter((e) => e.uploadedByUserId === userId)
+    const directReportIds = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.managerId, userId))
+    const reportIds = new Set(directReportIds.map((r) => r.id))
+    reportIds.add(userId)
+    filtered = rows.filter((e) => reportIds.has(e.uploadedByUserId))
   }
   if (statusFilter) {
     filtered = filtered.filter((e) => e.status === statusFilter)
@@ -263,25 +282,47 @@ async function dmManagerAboutExpenses(
     : `${employeeName} has submitted ${count} expenses for your approval`
 
   const client = new WebClient(botToken)
+  const dmBlocks: any[] = [
+    { type: 'header', text: { type: 'plain_text', text: '💰 Expense Approval Required' } },
+    { type: 'divider' },
+    {
+      type: 'section',
+      fields: [
+        { type: 'mrkdwn', text: `*Submitted by:*\n${employeeName}` },
+        { type: 'mrkdwn', text: `*Expenses:*\n${count}` },
+        { type: 'mrkdwn', text: `*Total Amount:*\n${currency} ${totalAmount.toFixed(2)}` },
+      ],
+    },
+    {
+      type: 'section',
+      text: { type: 'mrkdwn', text: `<${reviewUrl}|View and approve in the Bloom LMS →>` },
+    },
+  ]
+  if (expenseIds.length === 1) {
+    dmBlocks.push({
+      type: 'actions',
+      elements: [
+        {
+          type: 'button',
+          text: { type: 'plain_text', text: '✅ Approve' },
+          style: 'primary',
+          action_id: 'expense_approve',
+          value: String(expenseIds[0]),
+        },
+        {
+          type: 'button',
+          text: { type: 'plain_text', text: '❌ Reject' },
+          style: 'danger',
+          action_id: 'expense_reject',
+          value: String(expenseIds[0]),
+        },
+      ],
+    })
+  }
   await client.chat.postMessage({
     channel: managerSlackId,
     text: submitText,
-    blocks: [
-      { type: 'header', text: { type: 'plain_text', text: '💰 Expense Approval Required' } },
-      { type: 'divider' },
-      {
-        type: 'section',
-        fields: [
-          { type: 'mrkdwn', text: `*Submitted by:*\n${employeeName}` },
-          { type: 'mrkdwn', text: `*Expenses:*\n${count}` },
-          { type: 'mrkdwn', text: `*Total Amount:*\n${currency} ${totalAmount.toFixed(2)}` },
-        ],
-      },
-      {
-        type: 'section',
-        text: { type: 'mrkdwn', text: `<${reviewUrl}|View and approve in the Bloom LMS →>` },
-      },
-    ],
+    blocks: dmBlocks,
   }).catch((err: Error) => console.error('[expense] Manager DM failed:', err.message))
 }
 
