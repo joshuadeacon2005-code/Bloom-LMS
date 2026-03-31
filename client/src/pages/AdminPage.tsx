@@ -1068,15 +1068,14 @@ function StaffMultiSelect({
             >
               <Checkbox
                 checked={value.includes(String(u.id))}
-                onCheckedChange={() => toggle(String(u.id))}
-                id={`staff-${u.id}`}
+                tabIndex={-1}
               />
-              <label htmlFor={`staff-${u.id}`} className="text-xs cursor-pointer select-none flex-1">
+              <span className="text-xs cursor-pointer select-none flex-1">
                 {u.name}
                 {u.regionCode && (
                   <span className="ml-1.5 text-muted-foreground">— {u.regionCode}</span>
                 )}
-              </label>
+              </span>
             </div>
           ))}
         </div>

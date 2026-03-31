@@ -176,12 +176,12 @@ async function finaliseApproval(requestId: number, _approverId: number) {
 
   // Move pending → used in balance
   const [lt] = await db
-    .select({ isPaid: leaveTypes.isPaid, name: leaveTypes.name })
+    .select({ deductsBalance: leaveTypes.deductsBalance, name: leaveTypes.name })
     .from(leaveTypes)
     .where(eq(leaveTypes.id, request.leaveTypeId))
     .limit(1)
 
-  if (lt?.isPaid) {
+  if (lt?.deductsBalance) {
     const year = new Date(request.startDate).getFullYear()
     const days = parseDecimal(request.totalDays)
     await movePendingToUsed(request.userId, request.leaveTypeId, year, days)
@@ -296,12 +296,12 @@ export async function rejectRequest(
 
   // Release pending balance
   const [lt] = await db
-    .select({ isPaid: leaveTypes.isPaid, name: leaveTypes.name })
+    .select({ deductsBalance: leaveTypes.deductsBalance, name: leaveTypes.name })
     .from(leaveTypes)
     .where(eq(leaveTypes.id, request.leaveTypeId))
     .limit(1)
 
-  if (lt?.isPaid) {
+  if (lt?.deductsBalance) {
     const year = new Date(request.startDate).getFullYear()
     const days = parseDecimal(request.totalDays)
     await releasePending(request.userId, request.leaveTypeId, year, days)

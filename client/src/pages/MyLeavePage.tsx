@@ -345,16 +345,21 @@ export function MyLeavePage() {
                         <div>
                           <p className="text-sm font-semibold text-foreground">{b.leaveType?.name}</p>
                           <p className="text-2xl font-bold mt-1">
-                            {b.available}
-                            <span className="text-sm font-normal text-muted-foreground ml-1">/ {b.entitled}d</span>
+                            {b.leaveType?.deductsBalance === false
+                              ? <span title="Unlimited — does not deduct from balance">∞</span>
+                              : <>{b.available}<span className="text-sm font-normal text-muted-foreground ml-1">/ {b.entitled}d</span></>
+                            }
                           </p>
                         </div>
                         {!b.leaveType?.isPaid && (
                           <Badge variant="outline" className="text-xs">Unpaid</Badge>
                         )}
+                        {b.leaveType?.deductsBalance === false && (
+                          <Badge variant="outline" className="text-xs">No Deduction</Badge>
+                        )}
                       </div>
                       <Progress
-                        value={b.entitled > 0 ? (b.available / b.entitled) * 100 : 0}
+                        value={b.leaveType?.deductsBalance === false ? 100 : b.entitled > 0 ? (b.available / b.entitled) * 100 : 0}
                         className="mt-3 h-1.5"
                       />
                       <div className="mt-2 flex gap-3 text-xs text-muted-foreground">

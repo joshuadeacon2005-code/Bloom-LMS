@@ -360,17 +360,20 @@ export async function createLeaveRequest(
     return { ...request, totalDays }
   }
 
-  // 8. Balance check (for paid leave only) — warn manager but allow submission
+  // 8. Balance check — warn manager but allow submission
   let overBalanceWarning: string | null = null
-  if (leaveType.isPaid) {
-    const balance = await getOrCreateBalance(userId, data.leaveTypeId, currentYear, user.regionId)
-    if (balance.available < totalDays) {
+  if (!leaveType.deductsBalance) {
+    await getOrCreateBalance(userId, data.leaveTypeId, currentYear, user.regionId).catch(
+      () => null
+    )
+  } else if (leaveType.isPaid) {
+    const balance = await getOrCreateBalance(userId, data.leaveTypeId, currentYear, user.regionId).catch(() => null)
+    if (balance && balance.available < totalDays) {
       overBalanceWarning = `⚠️ Balance warning: ${balance.available} day(s) available, ${totalDays} day(s) requested.`
     }
   } else {
-    // Still initialise balance record for tracking purposes
     await getOrCreateBalance(userId, data.leaveTypeId, currentYear, user.regionId).catch(
-      () => null // OK if no policy for unpaid leave
+      () => null
     )
   }
 
@@ -406,7 +409,7 @@ export async function createLeaveRequest(
   if (!request) throw new AppError(500, 'Failed to create leave request')
 
   // 11. Update pending balance
-  if (leaveType.isPaid) {
+  if (leaveType.deductsBalance) {
     await addPending(userId, data.leaveTypeId, currentYear, totalDays)
   }
 
@@ -705,12 +708,12 @@ export async function cancelLeaveRequest(
   const days = parseDecimal(request.totalDays)
 
   const [lt] = await db
-    .select({ isPaid: leaveTypes.isPaid })
+    .select({ deductsBalance: leaveTypes.deductsBalance })
     .from(leaveTypes)
     .where(eq(leaveTypes.id, request.leaveTypeId))
     .limit(1)
 
-  if (lt?.isPaid) {
+  if (lt?.deductsBalance) {
     if (request.status === 'pending') {
       await releasePending(request.userId, request.leaveTypeId, currentYear, days)
     } else if (request.status === 'approved') {

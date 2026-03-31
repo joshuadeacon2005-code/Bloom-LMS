@@ -90,6 +90,13 @@ bloom-lms/
 - Auto-retries up to 3 attempts with exponential backoff on failure
 - MOCK_EXTERNAL env var can be set to 'true' in development to skip real API calls
 
+## Balance Deduction Logic
+- The `deductsBalance` field on leave types controls whether balance is tracked and deducted
+- Leave types with `deductsBalance: false` (e.g., WFH, Business Trip) show "∞" on balance cards
+- All balance mutation paths (addPending, movePendingToUsed, releasePending, cancel rollback) gate on `deductsBalance` not `isPaid`
+- Leave requests for non-deducting types can be submitted even without a leave policy in the user's region
+- The balance API includes `deductsBalance` in the `leaveType` object for frontend display logic
+
 ## Key Decisions
 - Switched from Neon serverless driver to standard `pg` pool for Replit's built-in PostgreSQL
 - Vite dev server runs on port 5000 (required for Replit webview)
