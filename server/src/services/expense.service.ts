@@ -559,16 +559,23 @@ async function syncToNetSuite(expenseId: number, attempt: number): Promise<void>
       )
 
       console.log(`[expense] Syncing expense #${expenseId} to NetSuite (attempt ${attempt})...`)
+      console.log(`[expense] NetSuite URL: ${baseUrl}`)
 
-      const response = await fetch(baseUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': oauthHeader,
-          'prefer': 'respond-async',
-        },
-        body: JSON.stringify(payload),
-      })
+      let response: Response
+      try {
+        response = await fetch(baseUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': oauthHeader,
+            'prefer': 'respond-async',
+          },
+          body: JSON.stringify(payload),
+        })
+      } catch (fetchErr: any) {
+        const cause = fetchErr?.cause ? ` | cause: ${fetchErr.cause?.message ?? JSON.stringify(fetchErr.cause)}` : ''
+        throw new Error(`Network error reaching NetSuite: ${fetchErr.message}${cause}`)
+      }
 
       if (!response.ok) {
         const errorBody = await response.text()
@@ -593,6 +600,9 @@ async function syncToNetSuite(expenseId: number, attempt: number): Promise<void>
       .where(eq(expenses.id, expenseId))
     await logAudit(expenseId, 'SYNCING', 'SYNCED', null, 'System', `NetSuite ID: ${netsuiteId}`)
   } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err)
+    console.error(`[expense] Sync error for expense #${expenseId} (attempt ${attempt}): ${errMsg}`)
+
     const current = await db.query.expenses.findFirst({ where: eq(expenses.id, expenseId) })
     if (!current) return
 
@@ -601,7 +611,7 @@ async function syncToNetSuite(expenseId: number, attempt: number): Promise<void>
         .update(expenses)
         .set({ status: 'SYNC_FAILED' })
         .where(eq(expenses.id, expenseId))
-      await logAudit(expenseId, 'SYNCING', 'SYNC_FAILED', null, 'System', `Failed after ${attempt} attempts: ${err instanceof Error ? err.message : String(err)}`)
+      await logAudit(expenseId, 'SYNCING', 'SYNC_FAILED', null, 'System', `Failed after ${attempt} attempts: ${errMsg}`)
     } else {
       setTimeout(() => startSync(expenseId, null, null), 5000 * attempt)
     }
