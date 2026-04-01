@@ -650,7 +650,7 @@ function buildNetSuiteOAuth1Header(
     .digest('base64')
 
   params['oauth_signature'] = signature
-  params['realm'] = accountId
+  params['realm'] = accountId.replace(/-/g, '_').toUpperCase()
 
   const headerParts = ['realm', 'oauth_consumer_key', 'oauth_token', 'oauth_nonce', 'oauth_timestamp', 'oauth_signature_method', 'oauth_version', 'oauth_signature']
   const headerString = headerParts.map(k => `${k}="${encodeRFC3986(params[k]!)}"`).join(', ')
