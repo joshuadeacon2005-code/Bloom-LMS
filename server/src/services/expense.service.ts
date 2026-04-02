@@ -532,12 +532,33 @@ async function syncToNetSuite(expenseId: number, attempt: number): Promise<void>
       const nsConsumerKey = process.env['NS_CONSUMER_KEY']
       const nsConsumerSecret = process.env['NS_CONSUMER_SECRET']
 
+      console.log(`[expense] ── NetSuite Sync Start ──────────────────────────`)
+      console.log(`[expense]   Expense ID:    #${expenseId}`)
+      console.log(`[expense]   Attempt:       ${attempt} / ${MAX_SYNC_ATTEMPTS}`)
+      console.log(`[expense]   Uploaded by:   ${expense.uploadedBy?.name ?? 'unknown'} (${expense.uploadedBy?.email ?? 'unknown'})`)
+      console.log(`[expense]   Filename:      ${expense.filename}`)
+      console.log(`[expense]   Items:         ${expense.items?.length ?? 0}`)
+      console.log(`[expense]   Account ID:    ${nsAccountId ?? 'NOT SET'}`)
+      console.log(`[expense]   Consumer Key:  ${nsConsumerKey ? nsConsumerKey.substring(0, 8) + '...' + nsConsumerKey.slice(-4) : 'NOT SET'}`)
+      console.log(`[expense]   Token ID:      ${nsTokenId ? nsTokenId.substring(0, 8) + '...' + nsTokenId.slice(-4) : 'NOT SET'}`)
+
       if (!nsAccountId || !nsTokenId || !nsTokenSecret || !nsConsumerKey || !nsConsumerSecret) {
-        throw new Error('NetSuite credentials not configured — set NS_ACCOUNT_ID, NS_TOKEN_ID, NS_TOKEN_SECRET, NS_CONSUMER_KEY, NS_CONSUMER_SECRET in .env')
+        const missing = [
+          !nsAccountId && 'NS_ACCOUNT_ID',
+          !nsConsumerKey && 'NS_CONSUMER_KEY',
+          !nsConsumerSecret && 'NS_CONSUMER_SECRET',
+          !nsTokenId && 'NS_TOKEN_ID',
+          !nsTokenSecret && 'NS_TOKEN_SECRET',
+        ].filter(Boolean).join(', ')
+        throw new Error(`NetSuite credentials missing: ${missing}`)
       }
 
       const accountSlug = nsAccountId.replace(/_/g, '-').toLowerCase()
+      const realm = nsAccountId.replace(/-/g, '_').toUpperCase()
       const baseUrl = `https://${accountSlug}.suitetalk.api.netsuite.com/services/rest/record/v1/expenseReport`
+
+      console.log(`[expense]   Realm:         ${realm}`)
+      console.log(`[expense]   URL:           ${baseUrl}`)
 
       const payload = {
         tranDate: expense.createdAt ? new Date(expense.createdAt).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
@@ -554,14 +575,17 @@ async function syncToNetSuite(expenseId: number, attempt: number): Promise<void>
         },
       }
 
+      console.log(`[expense]   Payload:       ${JSON.stringify(payload).substring(0, 500)}`)
+
       const oauthHeader = buildNetSuiteOAuth1Header(
         'POST', baseUrl, nsConsumerKey, nsConsumerSecret, nsTokenId, nsTokenSecret, nsAccountId
       )
 
-      console.log(`[expense] Syncing expense #${expenseId} to NetSuite (attempt ${attempt})...`)
-      console.log(`[expense] NetSuite URL: ${baseUrl}`)
+      console.log(`[expense]   OAuth header:  ${oauthHeader.substring(0, 120)}...`)
+      console.log(`[expense]   Sending POST request...`)
 
       let response: Response
+      const fetchStart = Date.now()
       try {
         response = await fetch(baseUrl, {
           method: 'POST',
@@ -573,25 +597,38 @@ async function syncToNetSuite(expenseId: number, attempt: number): Promise<void>
           body: JSON.stringify(payload),
         })
       } catch (fetchErr: any) {
+        const elapsed = Date.now() - fetchStart
         const cause = fetchErr?.cause ? ` | cause: ${fetchErr.cause?.message ?? JSON.stringify(fetchErr.cause)}` : ''
+        console.error(`[expense]   Network error after ${elapsed}ms: ${fetchErr.message}${cause}`)
         throw new Error(`Network error reaching NetSuite: ${fetchErr.message}${cause}`)
       }
 
+      const elapsed = Date.now() - fetchStart
+      console.log(`[expense]   Response:      ${response.status} ${response.statusText} (${elapsed}ms)`)
+
+      const responseHeaders: Record<string, string> = {}
+      response.headers.forEach((v, k) => { responseHeaders[k] = v })
+      console.log(`[expense]   Resp headers:  ${JSON.stringify(responseHeaders).substring(0, 500)}`)
+
       if (!response.ok) {
         const errorBody = await response.text()
+        console.error(`[expense]   Error body:    ${errorBody.substring(0, 1000)}`)
         throw new Error(`NetSuite API returned ${response.status}: ${errorBody}`)
       }
 
       const location = response.headers.get('location')
       if (location) {
+        console.log(`[expense]   Location:      ${location}`)
         const idMatch = location.match(/\/(\d+)$/)
         netsuiteId = idMatch ? idMatch[1] : location
       } else {
         const body = await response.json().catch(() => null) as Record<string, any> | null
+        console.log(`[expense]   Response body: ${JSON.stringify(body).substring(0, 500)}`)
         netsuiteId = body?.id ? String(body.id) : `NS-${expenseId}-${Date.now()}`
       }
 
-      console.log(`[expense] Successfully synced expense #${expenseId} → NetSuite ID: ${netsuiteId}`)
+      console.log(`[expense]   NetSuite ID:   ${netsuiteId}`)
+      console.log(`[expense] ── NetSuite Sync Success ─────────────────────────`)
     }
 
     await db
