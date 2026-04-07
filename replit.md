@@ -62,6 +62,7 @@ bloom-lms/
 - The Policies and Leave Types admin endpoints filter using both the legacy `regionId` field and the `regionRestriction` codes
 - When creating a new leave type, the Legacy Region defaults to "Select region" (none selected) and all region restriction checkboxes default to unchecked
 - Available region codes: HK, SG, MY, ID, CN-GZ, CN-SH, AU, NZ, UK
+- **Policy auto-sync**: When a leave type's region restriction is created or updated, policies are automatically synced — new policies are created for newly allowed regions (with 0 default entitlement), and policies for removed regions are deleted (including their tiers and tier assignments). Operations are wrapped in DB transactions for atomicity.
 
 ## Admin User Credentials
 - Super admin: josh@bloomandgrowgroup.com / C00k1eD0g

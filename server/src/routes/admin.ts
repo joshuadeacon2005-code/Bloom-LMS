@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { z } from 'zod'
-import { eq, and, isNull, desc, sql } from 'drizzle-orm'
+import { eq, and, isNull, desc, sql, inArray, notInArray } from 'drizzle-orm'
 import { isSlackCommandsEnabled, setSlackCommandsEnabled } from '../slack/settings'
 import { db } from '../db/index'
 import {
@@ -25,6 +25,47 @@ import type { ApiResponse } from './types'
 
 const router = Router()
 router.use(authenticate, requireRole('hr_admin'))
+
+async function syncPoliciesForLeaveType(leaveTypeId: number, regionRestriction: string | null | undefined) {
+  const allRegions = await db.select({ id: regions.id, code: regions.code }).from(regions).where(eq(regions.isActive, true))
+  const existingPolicies = await db
+    .select({ id: leavePolicies.id, regionId: leavePolicies.regionId })
+    .from(leavePolicies)
+    .where(eq(leavePolicies.leaveTypeId, leaveTypeId))
+
+  const allowedRegionIds = regionRestriction
+    ? allRegions.filter((r) => regionRestriction.split(',').map((c) => c.trim()).filter(Boolean).includes(r.code)).map((r) => r.id)
+    : allRegions.map((r) => r.id)
+
+  const policiesToRemove = existingPolicies.filter((p) => !allowedRegionIds.includes(p.regionId))
+  if (policiesToRemove.length > 0) {
+    const removeIds = policiesToRemove.map((p) => p.id)
+    await db.delete(policyTierAssignments).where(
+      inArray(
+        policyTierAssignments.tierId,
+        db.select({ id: policyEntitlementTiers.id }).from(policyEntitlementTiers).where(inArray(policyEntitlementTiers.leavePolicyId, removeIds))
+      )
+    )
+    await db.delete(policyEntitlementTiers).where(inArray(policyEntitlementTiers.leavePolicyId, removeIds))
+    await db.delete(leavePolicies).where(inArray(leavePolicies.id, removeIds))
+  }
+
+  const existingRegionIds = existingPolicies.map((p) => p.regionId)
+  const newRegionIds = allowedRegionIds.filter((rid) => !existingRegionIds.includes(rid))
+  if (newRegionIds.length > 0) {
+    await db.insert(leavePolicies).values(
+      newRegionIds.map((regionId) => ({
+        leaveTypeId: leaveTypeId,
+        regionId,
+        entitlementDays: '0.0',
+        entitlementUnlimited: false,
+        carryOverMax: '0',
+        carryoverUnlimited: false,
+        probationMonths: 0,
+      }))
+    ).onConflictDoNothing()
+  }
+}
 
 // ============================================================
 // Regions
@@ -127,8 +168,14 @@ router.get('/leave-types', async (req, res, next) => {
 
 router.post('/leave-types', validate(createLeaveTypeSchema), async (req, res, next) => {
   try {
-    const [lt] = await db.insert(leaveTypes).values(req.body).returning()
-    const response: ApiResponse<typeof lt> = { success: true, data: lt }
+    const result = await db.transaction(async (tx) => {
+      const [lt] = await tx.insert(leaveTypes).values(req.body).returning()
+      if (req.body.regionRestriction) {
+        await syncPoliciesForLeaveType(lt.id, req.body.regionRestriction)
+      }
+      return lt
+    })
+    const response: ApiResponse<typeof result> = { success: true, data: result }
     res.status(201).json(response)
   } catch (err) {
     next(err)
@@ -138,13 +185,21 @@ router.post('/leave-types', validate(createLeaveTypeSchema), async (req, res, ne
 router.patch('/leave-types/:id', validate(createLeaveTypeSchema.partial()), async (req, res, next) => {
   try {
     const id = parseInt(req.params.id as string, 10)
-    const [lt] = await db
-      .update(leaveTypes)
-      .set(req.body)
-      .where(eq(leaveTypes.id, id))
-      .returning()
-    if (!lt) throw new NotFoundError('Leave type')
-    const response: ApiResponse<typeof lt> = { success: true, data: lt }
+    const result = await db.transaction(async (tx) => {
+      const [lt] = await tx
+        .update(leaveTypes)
+        .set(req.body)
+        .where(eq(leaveTypes.id, id))
+        .returning()
+      if (!lt) throw new NotFoundError('Leave type')
+
+      if ('regionRestriction' in req.body) {
+        await syncPoliciesForLeaveType(id, req.body.regionRestriction)
+      }
+
+      return lt
+    })
+    const response: ApiResponse<typeof result> = { success: true, data: result }
     res.json(response)
   } catch (err) {
     next(err)

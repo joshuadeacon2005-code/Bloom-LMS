@@ -954,15 +954,23 @@ function RegionMultiSelect({
 
   return (
     <div className="rounded-md border p-3 space-y-2">
-      <div className="flex items-center gap-2">
-        <Checkbox
-          id="region-all"
-          checked={allSelected}
-          onCheckedChange={toggleAll}
-        />
-        <label htmlFor="region-all" className="text-sm font-medium cursor-pointer select-none">
-          Select All
-        </label>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id="region-all"
+            checked={allSelected}
+            onCheckedChange={toggleAll}
+          />
+          <label htmlFor="region-all" className="text-sm font-medium cursor-pointer select-none">
+            Select All
+          </label>
+        </div>
+        {value.length === 0 && (
+          <span className="text-xs text-amber-600 font-medium">All regions (none selected)</span>
+        )}
+        {value.length > 0 && !allSelected && (
+          <span className="text-xs text-muted-foreground">{value.length} of {ALL_REGIONS.length} selected</span>
+        )}
       </div>
       <div className="grid grid-cols-2 gap-1.5 pt-1 border-t">
         {ALL_REGIONS.map((r) => (
@@ -1223,7 +1231,7 @@ function LeaveTypeDialog({
           <div className="space-y-1.5">
             <Label>
               Region restriction{' '}
-              <span className="text-muted-foreground text-xs">(leave all unchecked = all regions)</span>
+              <span className="text-muted-foreground text-xs">(select which regions can use this leave type)</span>
             </Label>
             <Controller
               name="regionRestriction"
