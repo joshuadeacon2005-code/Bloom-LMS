@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -84,6 +84,15 @@ export function RequestLeaveSheet({ open, onOpenChange }: RequestLeaveSheetProps
     defaultValues: { reason: '', halfDay: false, halfDayPeriod: 'AM', startTime: '09:00', endTime: '10:00' },
   })
 
+  // Bug 4: Reset form to defaults every time the sheet opens
+  useEffect(() => {
+    if (open) {
+      reset({ reason: '', halfDay: false, halfDayPeriod: 'AM', startTime: '09:00', endTime: '10:00' })
+      setAttachmentUrl(null)
+      setAttachmentName(null)
+    }
+  }, [open, reset])
+
   const selectedTypeId = watch('leaveTypeId')
   const selectedType = leaveTypes?.find((lt) => lt.id.toString() === selectedTypeId)
   const dateRange = watch('dateRange')
@@ -134,14 +143,16 @@ export function RequestLeaveSheet({ open, onOpenChange }: RequestLeaveSheetProps
     try {
       const formData = new FormData()
       formData.append('file', file)
-      const res = await api.post<{ data: { url: string } }>('/leave/upload', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      })
+      // Do NOT set Content-Type manually — let the browser set it with the multipart boundary
+      const res = await api.post<{ data: { url: string } }>('/leave/upload', formData)
       setAttachmentUrl(res.data.data.url)
       setAttachmentName(file.name)
       toast.success('File uploaded')
-    } catch {
-      toast.error('Failed to upload file')
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
+        'Failed to upload file'
+      toast.error(msg)
     } finally {
       setUploading(false)
     }
@@ -424,7 +435,7 @@ export function RequestLeaveSheet({ open, onOpenChange }: RequestLeaveSheetProps
                             : 'border-input bg-background text-muted-foreground hover:bg-accent'
                         }`}
                       >
-                        First day (half day)
+                        First day afternoon (half day)
                       </button>
                       <button
                         type="button"
@@ -435,7 +446,7 @@ export function RequestLeaveSheet({ open, onOpenChange }: RequestLeaveSheetProps
                             : 'border-input bg-background text-muted-foreground hover:bg-accent'
                         }`}
                       >
-                        Last day (half day)
+                        Last day morning (half day)
                       </button>
                     </div>
                   )}
@@ -517,7 +528,7 @@ export function RequestLeaveSheet({ open, onOpenChange }: RequestLeaveSheetProps
                 <Upload className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                 <span>
                   {(selectedType.code === 'SL' || selectedType.name.toLowerCase().includes('sick'))
-                    ? 'A medical certificate is required for sick leave of 3 or more consecutive days.'
+                    ? 'A medical certificate is required for sick leave.'
                     : `An attachment is required for ${selectedType.name}.`}
                 </span>
               </div>

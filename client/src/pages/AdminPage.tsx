@@ -104,6 +104,7 @@ import {
   useUpdateTier,
   useDeleteTier,
   useEmployeeLeaveHistory,
+  useDeleteEmployeeLeaveRequest,
   type SlackSyncResult,
   type AdminUser,
   type LeaveType,
@@ -233,71 +234,120 @@ function EmployeeHistorySheet({
   user: AdminUser | null
   onClose: () => void
 }) {
+  const { user: me } = useAuthStore()
+  const isHrOrAbove = me?.role === 'hr_admin' || me?.role === 'super_admin'
   const { data: history, isLoading } = useEmployeeLeaveHistory(user?.id)
+  const deleteRequest = useDeleteEmployeeLeaveRequest()
+  const [pendingDelete, setPendingDelete] = useState<EmployeeLeaveRequest | null>(null)
 
   return (
-    <Sheet open={!!user} onOpenChange={(v) => { if (!v) onClose() }}>
-      <SheetContent className="w-full sm:max-w-2xl overflow-y-auto">
-        <SheetHeader>
-          <SheetTitle>{user?.name} — Leave History</SheetTitle>
-          <SheetDescription>{user?.email}</SheetDescription>
-        </SheetHeader>
-        <div className="mt-6 space-y-2">
-          {isLoading ? (
-            [...Array(5)].map((_, i) => <Skeleton key={i} className="h-16 w-full" />)
-          ) : !history || history.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-6 text-center">
-              No leave requests found for this employee.
-            </p>
-          ) : (
-            history.map((req: EmployeeLeaveRequest) => {
-              const days = parseFloat(req.totalDays)
-              const halfDayLabel = req.halfDayPeriod ? ` (${req.halfDayPeriod === 'AM' ? 'morning' : 'afternoon'})` : ''
-              const dayLabel = days === 0.5 ? `0.5 days${halfDayLabel}` : `${days} day${days !== 1 ? 's' : ''}${halfDayLabel}`
-              const dateLabel =
-                req.startDate === req.endDate
-                  ? req.startDate
-                  : `${req.startDate} → ${req.endDate}`
-              const statusColour = STATUS_COLOURS_HISTORY[req.status] ?? 'bg-muted text-muted-foreground'
-              return (
-                <div key={req.id} className="rounded-lg border px-4 py-3 space-y-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-medium text-sm truncate">
-                      {req.leaveTypeName ?? req.leaveTypeCode ?? '—'}
-                    </span>
-                    <span className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-xs font-medium capitalize ${statusColour}`}>
-                      {req.status.replace('_', ' ')}
-                    </span>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    {dateLabel} · {dayLabel}
-                  </p>
-                  {req.reason && (
-                    <p className="text-xs text-muted-foreground italic line-clamp-2">{req.reason}</p>
-                  )}
-                  <div className="flex items-center gap-3">
-                    <p className="text-xs text-muted-foreground/60">
-                      Submitted {format(new Date(req.createdAt), 'd MMM yyyy')}
+    <>
+      <Sheet open={!!user} onOpenChange={(v) => { if (!v) onClose() }}>
+        <SheetContent className="w-full sm:max-w-2xl overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle>{user?.name} — Leave History</SheetTitle>
+            <SheetDescription>{user?.email}</SheetDescription>
+          </SheetHeader>
+          <div className="mt-6 space-y-2">
+            {isLoading ? (
+              [...Array(5)].map((_, i) => <Skeleton key={i} className="h-16 w-full" />)
+            ) : !history || history.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-6 text-center">
+                No leave requests found for this employee.
+              </p>
+            ) : (
+              history.map((req: EmployeeLeaveRequest) => {
+                const days = parseFloat(req.totalDays)
+                const halfDayLabel = req.halfDayPeriod ? ` (${req.halfDayPeriod === 'AM' ? 'morning' : 'afternoon'})` : ''
+                const dayLabel = days === 0.5 ? `0.5 days${halfDayLabel}` : `${days} day${days !== 1 ? 's' : ''}${halfDayLabel}`
+                const dateLabel =
+                  req.startDate === req.endDate
+                    ? req.startDate
+                    : `${req.startDate} → ${req.endDate}`
+                const statusColour = STATUS_COLOURS_HISTORY[req.status] ?? 'bg-muted text-muted-foreground'
+                return (
+                  <div key={req.id} className="rounded-lg border px-4 py-3 space-y-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-medium text-sm truncate">
+                        {req.leaveTypeName ?? req.leaveTypeCode ?? '—'}
+                      </span>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium capitalize ${statusColour}`}>
+                          {req.status.replace('_', ' ')}
+                        </span>
+                        {isHrOrAbove && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-6 w-6 text-destructive hover:text-destructive"
+                            title="Delete leave request"
+                            onClick={() => setPendingDelete(req)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {dateLabel} · {dayLabel}
                     </p>
-                    {req.attachmentUrl && (
-                      <a
-                        href={req.attachmentUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
-                      >
-                        <Paperclip className="h-3 w-3" />
-                        Attachment
-                      </a>
+                    {req.reason && (
+                      <p className="text-xs text-muted-foreground italic line-clamp-2">{req.reason}</p>
                     )}
+                    <div className="flex items-center gap-3">
+                      <p className="text-xs text-muted-foreground/60">
+                        Submitted {format(new Date(req.createdAt), 'd MMM yyyy')}
+                      </p>
+                      {req.attachmentUrl && (
+                        <a
+                          href={req.attachmentUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
+                        >
+                          <Paperclip className="h-3 w-3" />
+                          Attachment
+                        </a>
+                      )}
+                    </div>
                   </div>
-                </div>
-              )
-            })
-          )}
-        </div>
-      </SheetContent>
-    </Sheet>
+                )
+              })
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      <AlertDialog open={!!pendingDelete} onOpenChange={(v) => { if (!v) setPendingDelete(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete leave request?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete the{' '}
+              <strong>{pendingDelete?.leaveTypeName ?? 'leave'}</strong> request for{' '}
+              <strong>{user?.name}</strong> ({pendingDelete?.startDate}
+              {pendingDelete?.endDate !== pendingDelete?.startDate ? ` → ${pendingDelete?.endDate}` : ''}).
+              Any used or pending balance will be restored. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (!user || !pendingDelete) return
+                deleteRequest.mutate(
+                  { userId: user.id, requestId: pendingDelete.id },
+                  { onSettled: () => setPendingDelete(null) }
+                )
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   )
 }
 
@@ -326,6 +376,8 @@ function UserDialog({
   onOpenChange: (v: boolean) => void
   editing: AdminUser | null
 }) {
+  const { user: me } = useAuthStore()
+  const isEditingSelf = !!(editing && me?.id === editing.id)
   const { data: regions } = useRegions()
   const createUser = useCreateUser()
   const updateUser = useUpdateUser()
@@ -464,7 +516,7 @@ function UserDialog({
                 name="role"
                 control={control}
                 render={({ field }) => (
-                  <Select value={field.value} onValueChange={field.onChange}>
+                  <Select value={field.value} onValueChange={field.onChange} disabled={isEditingSelf}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {Object.entries(ROLE_LABELS).map(([v, l]) => (
@@ -474,6 +526,9 @@ function UserDialog({
                   </Select>
                 )}
               />
+              {isEditingSelf && (
+                <p className="text-xs text-muted-foreground">You cannot change your own role.</p>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label>Region</Label>
@@ -1076,6 +1131,8 @@ function StaffMultiSelect({
             >
               <Checkbox
                 checked={value.includes(String(u.id))}
+                onCheckedChange={() => toggle(String(u.id))}
+                onClick={(e) => e.stopPropagation()}
                 tabIndex={-1}
               />
               <span className="text-xs cursor-pointer select-none flex-1">

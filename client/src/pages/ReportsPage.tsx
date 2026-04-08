@@ -32,6 +32,7 @@ import {
   downloadLeaveRequestsXlsx,
   downloadEntitlementsXlsx,
 } from '@/hooks/useReports'
+import { useRegions, useAdminLeaveTypes } from '@/hooks/useAdmin'
 
 const MONTHS = [
   'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -100,9 +101,20 @@ export function ReportsPage() {
   const [exportingLR, setExportingLR] = useState(false)
   const [exportingEnt, setExportingEnt] = useState(false)
   const [lrStatus, setLrStatus] = useState('all')
+  // Filter state — shared across view and exports
+  const [filterRegionId, setFilterRegionId] = useState<string>('__all__')
+  const [filterLeaveTypeId, setFilterLeaveTypeId] = useState<string>('__all__')
+  // Export-specific filters
+  const [exportRegionId, setExportRegionId] = useState<string>('__all__')
+  const [exportLeaveTypeId, setExportLeaveTypeId] = useState<string>('__all__')
+  const [exportEntRegionId, setExportEntRegionId] = useState<string>('__all__')
 
-  const { data: utilData, isLoading: utilLoading } = useUtilisationReport({ year })
-  const { data: deptData, isLoading: deptLoading } = useDepartmentSummary({ year })
+  const { data: regions } = useRegions()
+  const { data: leaveTypesList } = useAdminLeaveTypes()
+
+  const regionIdParam = filterRegionId !== '__all__' ? Number(filterRegionId) : undefined
+  const { data: utilData, isLoading: utilLoading } = useUtilisationReport({ year, regionId: regionIdParam })
+  const { data: deptData, isLoading: deptLoading } = useDepartmentSummary({ year, regionId: regionIdParam })
 
   // Build monthly trend data — pivot by month
   const monthlyData = MONTHS.map((name, idx) => {
@@ -139,7 +151,12 @@ export function ReportsPage() {
   async function handleExportLeaveRequests() {
     setExportingLR(true)
     try {
-      await downloadLeaveRequestsXlsx({ year, status: lrStatus })
+      await downloadLeaveRequestsXlsx({
+        year,
+        status: lrStatus,
+        regionId: exportRegionId !== '__all__' ? Number(exportRegionId) : undefined,
+        leaveTypeId: exportLeaveTypeId !== '__all__' ? Number(exportLeaveTypeId) : undefined,
+      })
       toast.success('Export downloaded')
     } catch {
       toast.error('Export failed')
@@ -151,7 +168,10 @@ export function ReportsPage() {
   async function handleExportEntitlements() {
     setExportingEnt(true)
     try {
-      await downloadEntitlementsXlsx({ year })
+      await downloadEntitlementsXlsx({
+        year,
+        regionId: exportEntRegionId !== '__all__' ? Number(exportEntRegionId) : undefined,
+      })
       toast.success('Export downloaded')
     } catch {
       toast.error('Export failed')
@@ -173,19 +193,21 @@ export function ReportsPage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          <Select
-            value={String(year)}
-            onValueChange={(v) => setYear(Number(v))}
-          >
-            <SelectTrigger className="w-28">
-              <SelectValue />
-            </SelectTrigger>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
+            <SelectTrigger className="w-28"><SelectValue /></SelectTrigger>
             <SelectContent>
               {YEARS.map((y) => (
-                <SelectItem key={y} value={String(y)}>
-                  {y}
-                </SelectItem>
+                <SelectItem key={y} value={String(y)}>{y}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={filterRegionId} onValueChange={setFilterRegionId}>
+            <SelectTrigger className="w-40"><SelectValue placeholder="All regions" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">All regions</SelectItem>
+              {regions?.map((r) => (
+                <SelectItem key={r.id} value={String(r.id)}>{r.name}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -465,6 +487,30 @@ export function ReportsPage() {
                         </SelectContent>
                       </Select>
                     </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Region</label>
+                      <Select value={exportRegionId} onValueChange={setExportRegionId}>
+                        <SelectTrigger><SelectValue placeholder="All regions" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__all__">All regions</SelectItem>
+                          {regions?.map((r) => (
+                            <SelectItem key={r.id} value={String(r.id)}>{r.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Leave type</label>
+                      <Select value={exportLeaveTypeId} onValueChange={setExportLeaveTypeId}>
+                        <SelectTrigger><SelectValue placeholder="All leave types" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__all__">All leave types</SelectItem>
+                          {leaveTypesList?.map((lt) => (
+                            <SelectItem key={lt.id} value={String(lt.id)}>{lt.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
                   <Button onClick={handleExportLeaveRequests} disabled={exportingLR} className="w-full sm:w-auto">
                     <Download className="mr-2 h-4 w-4" />
@@ -480,16 +526,30 @@ export function ReportsPage() {
                   <CardDescription>Leave balances and entitlements for all employees</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="space-y-2 max-w-xs">
-                    <label className="text-sm font-medium">Year</label>
-                    <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {YEARS.map((y) => (
-                          <SelectItem key={y} value={String(y)}>{y}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                  <div className="grid gap-4 sm:grid-cols-2 max-w-lg">
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Year</label>
+                      <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {YEARS.map((y) => (
+                            <SelectItem key={y} value={String(y)}>{y}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Region</label>
+                      <Select value={exportEntRegionId} onValueChange={setExportEntRegionId}>
+                        <SelectTrigger><SelectValue placeholder="All regions" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__all__">All regions</SelectItem>
+                          {regions?.map((r) => (
+                            <SelectItem key={r.id} value={String(r.id)}>{r.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
                   <Button onClick={handleExportEntitlements} disabled={exportingEnt} className="w-full sm:w-auto">
                     <Download className="mr-2 h-4 w-4" />

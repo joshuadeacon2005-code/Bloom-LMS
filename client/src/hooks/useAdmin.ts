@@ -642,6 +642,19 @@ export function useEmployeeLeaveHistory(userId?: number) {
   })
 }
 
+export function useDeleteEmployeeLeaveRequest() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ userId, requestId }: { userId: number; requestId: number }) =>
+      api.delete(`/admin/users/${userId}/leave-requests/${requestId}`).then((r) => r.data),
+    onSuccess: (_, { userId }) => {
+      qc.invalidateQueries({ queryKey: ['admin-employee-history', userId] })
+      toast.success('Leave request deleted')
+    },
+    onError: () => toast.error('Failed to delete leave request'),
+  })
+}
+
 export function useDeleteTier() {
   const qc = useQueryClient()
   return useMutation({

@@ -964,6 +964,59 @@ router.get('/entitlements/audit', async (req, res, next) => {
 // Employee leave history (for admin view)
 // ============================================================
 
+// DELETE /api/admin/users/:userId/leave-requests/:requestId — HR Admin+
+router.delete('/users/:userId/leave-requests/:requestId', async (req, res, next) => {
+  try {
+    const userId = parseInt(req.params.userId as string, 10)
+    const requestId = parseInt(req.params.requestId as string, 10)
+
+    const [request] = await db
+      .select({
+        id: leaveRequests.id,
+        userId: leaveRequests.userId,
+        leaveTypeId: leaveRequests.leaveTypeId,
+        status: leaveRequests.status,
+        totalDays: leaveRequests.totalDays,
+        startDate: leaveRequests.startDate,
+        deductsBalance: leaveTypes.deductsBalance,
+      })
+      .from(leaveRequests)
+      .leftJoin(leaveTypes, eq(leaveRequests.leaveTypeId, leaveTypes.id))
+      .where(and(eq(leaveRequests.id, requestId), eq(leaveRequests.userId, userId)))
+
+    if (!request) throw new NotFoundError('Leave request not found')
+
+    const year = parseInt(request.startDate.substring(0, 4), 10)
+    const days = parseFloat(String(request.totalDays))
+
+    // Restore balance for leave types that deduct balance
+    if (request.deductsBalance && !isNaN(days) && days > 0) {
+      const balanceWhere = and(
+        eq(leaveBalances.userId, userId),
+        eq(leaveBalances.leaveTypeId, request.leaveTypeId),
+        eq(leaveBalances.year, year)
+      )
+      if (request.status === 'pending' || request.status === 'pending_hr') {
+        await db.update(leaveBalances)
+          .set({ pending: sql`GREATEST(0, ${leaveBalances.pending} - ${days.toFixed(1)}::numeric)` })
+          .where(balanceWhere)
+      } else if (request.status === 'approved') {
+        await db.update(leaveBalances)
+          .set({ used: sql`GREATEST(0, ${leaveBalances.used} - ${days.toFixed(1)}::numeric)` })
+          .where(balanceWhere)
+      }
+    }
+
+    // approval_workflows cascades on leave_request_id, so this also removes workflow rows
+    await db.delete(leaveRequests).where(eq(leaveRequests.id, requestId))
+
+    const response: ApiResponse = { success: true }
+    res.json(response)
+  } catch (err) {
+    next(err)
+  }
+})
+
 router.get('/users/:id/leave-requests', async (req, res, next) => {
   try {
     const userId = parseInt(req.params.id as string, 10)
