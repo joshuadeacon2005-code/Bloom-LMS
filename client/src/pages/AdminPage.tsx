@@ -1131,9 +1131,8 @@ function StaffMultiSelect({
             >
               <Checkbox
                 checked={value.includes(String(u.id))}
-                onCheckedChange={() => toggle(String(u.id))}
-                onClick={(e) => e.stopPropagation()}
                 tabIndex={-1}
+                className="pointer-events-none"
               />
               <span className="text-xs cursor-pointer select-none flex-1">
                 {u.name}
