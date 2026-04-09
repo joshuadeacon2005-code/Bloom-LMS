@@ -103,7 +103,6 @@ export function ReportsPage() {
   const [lrStatus, setLrStatus] = useState('all')
   // Filter state — shared across view and exports
   const [filterRegionId, setFilterRegionId] = useState<string>('__all__')
-  const [filterLeaveTypeId, setFilterLeaveTypeId] = useState<string>('__all__')
   // Export-specific filters
   const [exportRegionId, setExportRegionId] = useState<string>('__all__')
   const [exportLeaveTypeId, setExportLeaveTypeId] = useState<string>('__all__')
