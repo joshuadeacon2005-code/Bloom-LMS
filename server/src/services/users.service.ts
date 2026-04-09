@@ -1,4 +1,4 @@
-import { eq, and, ilike, isNull, sql, count, asc } from 'drizzle-orm'
+import { eq, and, ilike, or, isNull, sql, count, asc } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
 import { db } from '../db/index'
 import { users, regions, departments, leavePolicies, leaveBalances, leaveTypes } from '../db/schema'
@@ -36,7 +36,7 @@ export async function getUsers(filters: {
   const offset = (page - 1) * pageSize
 
   const conditions = [isNull(users.deletedAt)]
-  if (search) conditions.push(ilike(users.name, `%${search}%`))
+  if (search) conditions.push(or(ilike(users.name, `%${search}%`), ilike(users.email, `%${search}%`))!)
   if (regionId !== undefined) conditions.push(eq(users.regionId, regionId))
   if (isActive !== undefined) conditions.push(eq(users.isActive, isActive))
   if (role) conditions.push(eq(users.role, role as 'employee' | 'manager' | 'hr_admin' | 'super_admin'))

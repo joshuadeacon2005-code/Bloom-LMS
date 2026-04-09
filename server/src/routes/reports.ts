@@ -23,6 +23,7 @@ const utilisationQuerySchema = z.object({
   year: z.coerce.number().int().min(2020).max(2100).default(new Date().getFullYear()),
   regionId: z.coerce.number().int().positive().optional(),
   departmentId: z.coerce.number().int().positive().optional(),
+  userId: z.coerce.number().int().positive().optional(),
 })
 
 const payrollQuerySchema = z.object({
@@ -35,21 +36,21 @@ const payrollQuerySchema = z.object({
 // GET /api/reports/utilisation
 router.get('/utilisation', validate(utilisationQuerySchema, 'query'), async (req, res, next) => {
   try {
-    const { year, regionId, departmentId } = req.query as unknown as z.infer<
+    const { year, regionId, departmentId, userId } = req.query as unknown as z.infer<
       typeof utilisationQuerySchema
     >
 
     // Filter users
-    const userFilters = [eq(users.isActive, true)]
-    if (regionId) userFilters.push(eq(users.regionId, regionId))
-    if (departmentId) userFilters.push(eq(users.departmentId, departmentId))
-
-    const filteredUsers = await db
-      .select({ id: users.id })
-      .from(users)
-      .where(and(...userFilters))
-
-    const userIds = filteredUsers.map((u) => u.id)
+    let userIds: number[]
+    if (userId) {
+      userIds = [userId]
+    } else {
+      const userFilters = [eq(users.isActive, true)]
+      if (regionId) userFilters.push(eq(users.regionId, regionId))
+      if (departmentId) userFilters.push(eq(users.departmentId, departmentId))
+      const filteredUsers = await db.select({ id: users.id }).from(users).where(and(...userFilters))
+      userIds = filteredUsers.map((u) => u.id)
+    }
 
     if (userIds.length === 0) {
       return res.json({ success: true, data: { byType: [], byMonth: [], summary: {} } })
@@ -328,13 +329,14 @@ const leaveRequestExportSchema = z.object({
   year: z.coerce.number().int().min(2020).max(2100).default(new Date().getFullYear()),
   regionId: z.coerce.number().int().positive().optional(),
   leaveTypeId: z.coerce.number().int().positive().optional(),
+  userId: z.coerce.number().int().positive().optional(),
   status: z.enum(['all', 'pending', 'approved', 'rejected', 'cancelled']).default('all'),
   format: z.enum(['csv', 'xlsx']).default('csv'),
 })
 
 router.get('/export/leave-requests', validate(leaveRequestExportSchema, 'query'), async (req, res, next) => {
   try {
-    const { year, regionId, leaveTypeId, status, format } = req.query as unknown as z.infer<typeof leaveRequestExportSchema>
+    const { year, regionId, leaveTypeId, userId, status, format } = req.query as unknown as z.infer<typeof leaveRequestExportSchema>
 
     const startDate = `${year}-01-01`
     const endDate = `${year}-12-31`
@@ -346,6 +348,7 @@ router.get('/export/leave-requests', validate(leaveRequestExportSchema, 'query')
     if (status !== 'all') conditions.push(eq(leaveRequests.status, status as 'pending' | 'approved' | 'rejected' | 'cancelled'))
     if (regionId) conditions.push(eq(users.regionId, regionId))
     if (leaveTypeId) conditions.push(eq(leaveRequests.leaveTypeId, leaveTypeId))
+    if (userId) conditions.push(eq(leaveRequests.userId, userId))
 
     const rows = await db
       .select({
@@ -366,7 +369,8 @@ router.get('/export/leave-requests', validate(leaveRequestExportSchema, 'query')
       .orderBy(users.name, leaveRequests.startDate)
 
     const regionSuffix = regionId ? `_region${regionId}` : '_all_regions'
-    const baseName = `leave_requests_${year}${regionSuffix}`
+    const staffSuffix = userId ? `_staff${userId}` : ''
+    const baseName = `leave_requests_${year}${regionSuffix}${staffSuffix}`
 
     if (format === 'xlsx') {
       const xlsxData = rows.map((r) => ({
@@ -411,15 +415,17 @@ router.get('/export/leave-requests', validate(leaveRequestExportSchema, 'query')
 const entitlementExportSchema = z.object({
   year: z.coerce.number().int().min(2020).max(2100).default(new Date().getFullYear()),
   regionId: z.coerce.number().int().positive().optional(),
+  userId: z.coerce.number().int().positive().optional(),
   format: z.enum(['csv', 'xlsx']).default('csv'),
 })
 
 router.get('/export/entitlements', validate(entitlementExportSchema, 'query'), async (req, res, next) => {
   try {
-    const { year, regionId, format } = req.query as unknown as z.infer<typeof entitlementExportSchema>
+    const { year, regionId, userId, format } = req.query as unknown as z.infer<typeof entitlementExportSchema>
 
     const conditions = [eq(leaveBalances.year, year), eq(users.isActive, true)]
     if (regionId) conditions.push(eq(users.regionId, regionId))
+    if (userId) conditions.push(eq(leaveBalances.userId, userId))
 
     const rows = await db
       .select({
@@ -440,7 +446,8 @@ router.get('/export/entitlements', validate(entitlementExportSchema, 'query'), a
       .orderBy(users.name, leaveTypes.name)
 
     const regionSuffix = regionId ? `_region${regionId}` : '_all_regions'
-    const baseName = `entitlements_${year}${regionSuffix}`
+    const staffSuffix = userId ? `_staff${userId}` : ''
+    const baseName = `entitlements_${year}${regionSuffix}${staffSuffix}`
 
     if (format === 'xlsx') {
       const xlsxData = rows.map((r) => {

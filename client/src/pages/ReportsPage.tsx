@@ -32,7 +32,7 @@ import {
   downloadLeaveRequestsXlsx,
   downloadEntitlementsXlsx,
 } from '@/hooks/useReports'
-import { useRegions, useAdminLeaveTypes } from '@/hooks/useAdmin'
+import { useRegions, useAdminLeaveTypes, useAdminUsers } from '@/hooks/useAdmin'
 
 const MONTHS = [
   'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -107,10 +107,13 @@ export function ReportsPage() {
   // Export-specific filters
   const [exportRegionId, setExportRegionId] = useState<string>('__all__')
   const [exportLeaveTypeId, setExportLeaveTypeId] = useState<string>('__all__')
+  const [exportUserId, setExportUserId] = useState<string>('__all__')
   const [exportEntRegionId, setExportEntRegionId] = useState<string>('__all__')
+  const [exportEntUserId, setExportEntUserId] = useState<string>('__all__')
 
   const { data: regions } = useRegions()
   const { data: leaveTypesList } = useAdminLeaveTypes()
+  const { data: allUsersData } = useAdminUsers({ pageSize: 500, isActive: true })
 
   const regionIdParam = filterRegionId !== '__all__' ? Number(filterRegionId) : undefined
   const { data: utilData, isLoading: utilLoading } = useUtilisationReport({ year, regionId: regionIdParam })
@@ -156,6 +159,7 @@ export function ReportsPage() {
         status: lrStatus,
         regionId: exportRegionId !== '__all__' ? Number(exportRegionId) : undefined,
         leaveTypeId: exportLeaveTypeId !== '__all__' ? Number(exportLeaveTypeId) : undefined,
+        userId: exportUserId !== '__all__' ? Number(exportUserId) : undefined,
       })
       toast.success('Export downloaded')
     } catch {
@@ -171,6 +175,7 @@ export function ReportsPage() {
       await downloadEntitlementsXlsx({
         year,
         regionId: exportEntRegionId !== '__all__' ? Number(exportEntRegionId) : undefined,
+        userId: exportEntUserId !== '__all__' ? Number(exportEntUserId) : undefined,
       })
       toast.success('Export downloaded')
     } catch {
@@ -511,6 +516,18 @@ export function ReportsPage() {
                         </SelectContent>
                       </Select>
                     </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Staff member</label>
+                      <Select value={exportUserId} onValueChange={setExportUserId}>
+                        <SelectTrigger><SelectValue placeholder="All staff" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__all__">All staff</SelectItem>
+                          {allUsersData?.data.map((u) => (
+                            <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
                   <Button onClick={handleExportLeaveRequests} disabled={exportingLR} className="w-full sm:w-auto">
                     <Download className="mr-2 h-4 w-4" />
@@ -526,7 +543,7 @@ export function ReportsPage() {
                   <CardDescription>Leave balances and entitlements for all employees</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="grid gap-4 sm:grid-cols-2 max-w-lg">
+                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                     <div className="space-y-2">
                       <label className="text-sm font-medium">Year</label>
                       <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
@@ -546,6 +563,18 @@ export function ReportsPage() {
                           <SelectItem value="__all__">All regions</SelectItem>
                           {regions?.map((r) => (
                             <SelectItem key={r.id} value={String(r.id)}>{r.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Staff member</label>
+                      <Select value={exportEntUserId} onValueChange={setExportEntUserId}>
+                        <SelectTrigger><SelectValue placeholder="All staff" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__all__">All staff</SelectItem>
+                          {allUsersData?.data.map((u) => (
+                            <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
