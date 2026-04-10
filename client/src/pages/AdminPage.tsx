@@ -471,7 +471,7 @@ function UserDialog({
       probationMonths: data.probationMonths ?? null,
       probationEndDate,
       joinedDate: data.joinedDate || null,
-      gender: (data.gender && data.gender !== '__none__') ? data.gender as 'male' | 'female' | 'other' : null,
+      gender: data.gender && ['male', 'female', 'other'].includes(data.gender) ? data.gender as 'male' | 'female' | 'other' : null,
     }
 
     if (editing) {
