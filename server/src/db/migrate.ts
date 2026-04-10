@@ -1509,6 +1509,82 @@ export async function runMigrations(): Promise<void> {
     await client.query(`UPDATE users SET name = 'Hollie Gale (NZ)' WHERE LOWER(email) = 'hollie@bloomandgrowgroup.com' AND name = 'Hollie Gale'`)
     console.log('[migrate] Phase 12e: Updated cross-region staff display names')
 
+    // ── Phase 13: Production data cleanup ──────────────────────────────────
+    // 13a. Reactivate Connie Li's account
+    const connieResult = await client.query(
+      `UPDATE users SET is_active = true WHERE LOWER(email) = 'connie@bloomandgrowgroup.com' AND is_active = false RETURNING id`
+    )
+    if (connieResult.rowCount && connieResult.rowCount > 0) {
+      console.log('[migrate] Phase 13a: Reactivated Connie Li account')
+    }
+
+    // 13b. Deactivate test/smoke accounts
+    const smokeResult = await client.query(`
+      UPDATE users SET is_active = false
+      WHERE (
+        email LIKE 'smoke.%@bloomandgrowgroup.com'
+        OR email LIKE 'e2e.test.%@bloomandgrowgroup.com'
+      ) AND is_active = true
+      RETURNING id, name
+    `)
+    if (smokeResult.rowCount && smokeResult.rowCount > 0) {
+      console.log(`[migrate] Phase 13b: Deactivated ${smokeResult.rowCount} test account(s)`)
+    }
+
+    // 13c. Clean up test account leave balances
+    await client.query(`
+      DELETE FROM leave_balances WHERE user_id IN (
+        SELECT id FROM users WHERE email LIKE 'smoke.%@bloomandgrowgroup.com'
+          OR email LIKE 'e2e.test.%@bloomandgrowgroup.com'
+      )
+    `)
+
+    // 13d. Clean up E2E test leave types (no requests reference them)
+    const e2eTypesCheck = await client.query(`
+      SELECT lt.id FROM leave_types lt
+      WHERE lt.code LIKE 'E2E%'
+        AND NOT EXISTS (SELECT 1 FROM leave_requests lr WHERE lr.leave_type_id = lt.id)
+    `)
+    if (e2eTypesCheck.rows.length > 0) {
+      const e2eIds = e2eTypesCheck.rows.map((r: { id: number }) => r.id)
+      await client.query(`DELETE FROM leave_balances WHERE leave_type_id = ANY($1)`, [e2eIds])
+      await client.query(`DELETE FROM leave_policies WHERE leave_type_id = ANY($1)`, [e2eIds])
+      await client.query(`DELETE FROM leave_types WHERE id = ANY($1)`, [e2eIds])
+      console.log(`[migrate] Phase 13d: Removed ${e2eIds.length} E2E test leave type(s)`)
+    }
+
+    // 13e. Merge Unpaid Leave (UL) requests into No Pay Leave (NPL)
+    const ulMerge = await client.query(`
+      UPDATE leave_requests SET leave_type_id = (
+        SELECT id FROM leave_types WHERE code = 'NPL' LIMIT 1
+      )
+      WHERE leave_type_id IN (SELECT id FROM leave_types WHERE code = 'UL')
+      RETURNING id
+    `)
+    if (ulMerge.rowCount && ulMerge.rowCount > 0) {
+      console.log(`[migrate] Phase 13e: Merged ${ulMerge.rowCount} Unpaid Leave request(s) into No Pay Leave`)
+    }
+    // Clean up UL balances and remove the type
+    await client.query(`DELETE FROM leave_balances WHERE leave_type_id IN (SELECT id FROM leave_types WHERE code = 'UL')`)
+    await client.query(`DELETE FROM leave_policies WHERE leave_type_id IN (SELECT id FROM leave_types WHERE code = 'UL')`)
+    await client.query(`DELETE FROM leave_types WHERE code = 'UL' AND NOT EXISTS (SELECT 1 FROM leave_requests lr WHERE lr.leave_type_id = leave_types.id)`)
+
+    // 13f. Set NPL and NPSL to non-deducting (unlimited)
+    await client.query(`UPDATE leave_types SET deducts_balance = false WHERE code IN ('NPL', 'NPSL') AND deducts_balance = true`)
+    console.log('[migrate] Phase 13f: Set NPL and NPSL to non-deducting')
+
+    // 13g. Remove policies for leave types that have no policies needed
+    // (HOSP_SGMY, CCL_SG, FAM_ID, LSL_AUNZ, ML_AUNZ, NPL_AUNZ should only have region-specific policies)
+    // Also clean up policies for inactive leave types
+    await client.query(`
+      DELETE FROM leave_policies WHERE leave_type_id IN (
+        SELECT id FROM leave_types WHERE is_active = false
+      )
+    `)
+    console.log('[migrate] Phase 13g: Removed policies for inactive leave types')
+
+    console.log('[migrate] Phase 13 (production cleanup) complete')
+
     console.log('[migrate] Migrations complete')
   } catch (err) {
     console.error('[migrate] Migration error:', err)

@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { z } from 'zod'
-import { eq, and, isNull, desc, sql, inArray, notInArray } from 'drizzle-orm'
+import { eq, and, isNull, desc, sql, inArray } from 'drizzle-orm'
 import { isSlackCommandsEnabled, setSlackCommandsEnabled } from '../slack/settings'
 import { db } from '../db/index'
 import {

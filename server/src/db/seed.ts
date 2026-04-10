@@ -17,7 +17,7 @@ async function seed() {
   // Regions
   // ============================================================
   console.log('[seed] Inserting regions...')
-  const insertedRegions = await db
+  await db
     .insert(regions)
     .values([
       { name: 'Hong Kong', code: 'HK', timezone: 'Asia/Hong_Kong', currency: 'HKD' },
@@ -72,7 +72,7 @@ async function seed() {
   // Leave Types (global — regionId = null means applies to all)
   // ============================================================
   console.log('[seed] Inserting leave types...')
-  const insertedLeaveTypes = await db
+  await db
     .insert(leaveTypes)
     .values([
       {
