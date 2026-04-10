@@ -968,19 +968,22 @@ export async function runMigrations(): Promise<void> {
       'NPL_NZ',    // No Pay Leave (NZ) — replaced by NPL_AUNZ
       'OTC',       // OT Claim — replaced by overtime_entries workflow
     ]
-    await client.query(`DELETE FROM leave_balances WHERE leave_type_id IN (SELECT id FROM leave_types WHERE code = ANY($1))`, [phase6DeleteCodes])
-    await client.query(`DELETE FROM leave_policies WHERE leave_type_id IN (SELECT id FROM leave_types WHERE code = ANY($1))`, [phase6DeleteCodes])
-    await client.query(`
-      DELETE FROM approval_workflows WHERE leave_request_id IN (
-        SELECT lr.id FROM leave_requests lr
-        JOIN leave_types lt ON lr.leave_type_id = lt.id
-        WHERE lt.code = ANY($1)
-      )
-    `, [phase6DeleteCodes])
-    await client.query(`DELETE FROM leave_requests WHERE leave_type_id IN (SELECT id FROM leave_types WHERE code = ANY($1))`, [phase6DeleteCodes])
-    const delResult = await client.query(`DELETE FROM leave_types WHERE code = ANY($1)`, [phase6DeleteCodes])
-    if (delResult.rowCount && delResult.rowCount > 0) {
-      console.log(`[migrate] Permanently deleted ${delResult.rowCount} legacy leave type(s)`)
+    const legacyCheck = await client.query(`SELECT id FROM leave_types WHERE code = ANY($1) LIMIT 1`, [phase6DeleteCodes])
+    if (legacyCheck.rows.length > 0) {
+      await client.query(`DELETE FROM leave_balances WHERE leave_type_id IN (SELECT id FROM leave_types WHERE code = ANY($1))`, [phase6DeleteCodes])
+      await client.query(`DELETE FROM leave_policies WHERE leave_type_id IN (SELECT id FROM leave_types WHERE code = ANY($1))`, [phase6DeleteCodes])
+      await client.query(`
+        DELETE FROM approval_workflows WHERE leave_request_id IN (
+          SELECT lr.id FROM leave_requests lr
+          JOIN leave_types lt ON lr.leave_type_id = lt.id
+          WHERE lt.code = ANY($1)
+        )
+      `, [phase6DeleteCodes])
+      await client.query(`DELETE FROM leave_requests WHERE leave_type_id IN (SELECT id FROM leave_types WHERE code = ANY($1))`, [phase6DeleteCodes])
+      const delResult = await client.query(`DELETE FROM leave_types WHERE code = ANY($1)`, [phase6DeleteCodes])
+      if (delResult.rowCount && delResult.rowCount > 0) {
+        console.log(`[migrate] Permanently deleted ${delResult.rowCount} legacy leave type(s)`)
+      }
     }
 
     // Drop min_notice_days column — notice periods are not used in Bloom & Grow LMS
@@ -1407,6 +1410,10 @@ export async function runMigrations(): Promise<void> {
 
     // Remove duplicate types: FPSL, FPSL_AU, FPSL_NZ, FPSL_AUNZ (0 requests, redundant)
     for (const code of ['FPSL', 'FPSL_AU', 'FPSL_NZ', 'FPSL_AUNZ']) {
+      const hasRequests = await client.query(
+        `SELECT 1 FROM leave_requests lr JOIN leave_types lt ON lr.leave_type_id = lt.id WHERE lt.code = $1 LIMIT 1`, [code]
+      )
+      if (hasRequests.rows.length > 0) continue
       await client.query(`DELETE FROM leave_balances WHERE leave_type_id IN (SELECT id FROM leave_types WHERE code = $1)`, [code])
       await client.query(`DELETE FROM leave_policies WHERE leave_type_id IN (SELECT id FROM leave_types WHERE code = $1)`, [code])
       await client.query(`DELETE FROM leave_types WHERE code = $1`, [code])
