@@ -229,7 +229,7 @@ export function RequestLeaveSheet({ open, onOpenChange }: RequestLeaveSheetProps
             )}
             {selectedType?.policy && (
               <p className="text-xs text-muted-foreground">
-                Entitlement: {selectedType.policy.entitlementDays} days/year
+                Entitlement: {selectedType.policy.entitlementDays} {selectedType.unit === 'hours' ? 'hours' : 'days'}/year
               </p>
             )}
           </div>

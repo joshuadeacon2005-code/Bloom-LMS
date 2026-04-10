@@ -9,6 +9,8 @@ export interface UtilisationByType {
   pending: number
   remaining: number
   utilisationPct: number
+  unit: 'days' | 'hours'
+  deductsBalance: boolean
 }
 
 export interface UtilisationByMonth {

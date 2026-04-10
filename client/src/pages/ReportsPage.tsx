@@ -294,7 +294,7 @@ export function ReportsPage() {
                     </CardHeader>
                     <CardContent>
                       <div className="space-y-4">
-                        {utilData.byType.map((lt: any) => {
+                        {utilData.byType.map((lt) => {
                           const unitStr = lt.unit === 'hours' ? 'hours' : 'days'
                           const isNonDeducting = lt.deductsBalance === false
                           return (

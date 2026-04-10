@@ -2662,6 +2662,7 @@ function InlineEditCell({
   const [showReason, setShowReason] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const currentVal = parseFloat(row[field]).toFixed(1)
+  const unitAbbr = row.leaveTypeUnit === 'hours' ? 'h' : 'd'
 
   const startEdit = () => {
     setValue(parseFloat(row[field]).toString())
@@ -2754,7 +2755,7 @@ function InlineEditCell({
         onClick={startEdit}
         title="Click to edit"
       >
-        {currentVal}
+        {currentVal}{unitAbbr}
       </span>
     </td>
   )
@@ -2916,16 +2917,16 @@ function EntitlementsTab() {
                       </td>
                       <td className="px-3 py-2">{row.leaveTypeName}</td>
                       <td className="px-3 py-2 text-right text-muted-foreground">
-                        {row.policyDefault === 'unlimited' ? '∞' : row.policyDefault ? parseFloat(row.policyDefault).toFixed(1) : '—'}
+                        {row.policyDefault === 'unlimited' ? '∞' : row.policyDefault ? `${parseFloat(row.policyDefault).toFixed(1)}${row.leaveTypeUnit === 'hours' ? 'h' : 'd'}` : '—'}
                       </td>
                       <InlineEditCell row={row} field="entitled" className="px-3 py-2 text-right" />
-                      <td className="px-3 py-2 text-right text-muted-foreground">{parseFloat(row.used).toFixed(1)}</td>
-                      <td className="px-3 py-2 text-right text-muted-foreground">{parseFloat(row.pending).toFixed(1)}</td>
+                      <td className="px-3 py-2 text-right text-muted-foreground">{parseFloat(row.used).toFixed(1)}{row.leaveTypeUnit === 'hours' ? 'h' : 'd'}</td>
+                      <td className="px-3 py-2 text-right text-muted-foreground">{parseFloat(row.pending).toFixed(1)}{row.leaveTypeUnit === 'hours' ? 'h' : 'd'}</td>
                       <InlineEditCell row={row} field="carried" className="px-3 py-2 text-right text-muted-foreground" />
                       <InlineEditCell row={row} field="adjustments" className="px-3 py-2 text-right text-muted-foreground" />
                       <td className="px-3 py-2 text-right font-semibold">
                         <span className={parseFloat(balance) < 0 ? 'text-red-600' : ''}>
-                          {balance}
+                          {balance}{row.leaveTypeUnit === 'hours' ? 'h' : 'd'}
                         </span>
                       </td>
                       <td className="px-3 py-2 text-right">
