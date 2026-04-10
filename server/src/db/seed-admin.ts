@@ -55,10 +55,10 @@ export async function seedAdminUser(): Promise<void> {
     const passwordHash = await hashPassword('C00k1eD0g')
 
     await client.query(
-      `INSERT INTO users (email, password_hash, name, role, region_id, is_active)
-       VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO users (email, password_hash, name, role, region_id, is_active, gender)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        ON CONFLICT (email) DO NOTHING`,
-      ['josh@bloomandgrowgroup.com', passwordHash, 'Joshua Deacon', 'super_admin', regionId, true]
+      ['josh@bloomandgrowgroup.com', passwordHash, 'Joshua Deacon', 'super_admin', regionId, true, 'male']
     )
 
     console.log('[seed-admin] Admin user created: josh@bloomandgrowgroup.com')
