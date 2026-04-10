@@ -294,17 +294,24 @@ export function ReportsPage() {
                     </CardHeader>
                     <CardContent>
                       <div className="space-y-4">
-                        {utilData.byType.map((lt) => (
-                          <div key={lt.code} className="space-y-1">
-                            <div className="flex items-center justify-between text-sm">
-                              <span className="font-medium">{lt.name}</span>
-                              <span className="text-muted-foreground">
-                                {lt.used.toFixed(1)} / {lt.entitled.toFixed(1)} days ({lt.utilisationPct}%)
-                              </span>
+                        {utilData.byType.map((lt: any) => {
+                          const unitStr = lt.unit === 'hours' ? 'hours' : 'days'
+                          const isNonDeducting = lt.deductsBalance === false
+                          return (
+                            <div key={lt.code} className="space-y-1">
+                              <div className="flex items-center justify-between text-sm">
+                                <span className="font-medium">{lt.name}</span>
+                                <span className="text-muted-foreground">
+                                  {isNonDeducting
+                                    ? <span title="Non-deducting leave type">∞</span>
+                                    : <>{lt.used.toFixed(1)} / {lt.entitled.toFixed(1)} {unitStr} ({lt.utilisationPct}%)</>
+                                  }
+                                </span>
+                              </div>
+                              <Progress value={isNonDeducting ? 100 : lt.utilisationPct} className="h-2" />
                             </div>
-                            <Progress value={lt.utilisationPct} className="h-2" />
-                          </div>
-                        ))}
+                          )
+                        })}
                       </div>
                     </CardContent>
                   </Card>

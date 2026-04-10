@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -2646,6 +2646,120 @@ function BulkEditDialog({
   )
 }
 
+function InlineEditCell({
+  row,
+  field,
+  className,
+}: {
+  row: EntitlementRow
+  field: 'entitled' | 'carried' | 'adjustments'
+  className?: string
+}) {
+  const update = useUpdateEntitlement()
+  const [editing, setEditing] = useState(false)
+  const [value, setValue] = useState('')
+  const [reason, setReason] = useState('')
+  const [showReason, setShowReason] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const currentVal = parseFloat(row[field]).toFixed(1)
+
+  const startEdit = () => {
+    setValue(parseFloat(row[field]).toString())
+    setReason('')
+    setShowReason(false)
+    setEditing(true)
+    setTimeout(() => inputRef.current?.select(), 10)
+  }
+
+  const handleCommit = () => {
+    const num = parseFloat(value)
+    if (isNaN(num)) { setEditing(false); return }
+    if (field !== 'adjustments' && num < 0) { setEditing(false); return }
+    if (Math.abs(num - parseFloat(row[field])) < 0.001) { setEditing(false); return }
+    setShowReason(true)
+  }
+
+  const handleSave = async () => {
+    if (!reason.trim()) return
+    const num = parseFloat(value)
+    await update.mutateAsync({
+      userId: row.userId,
+      leaveTypeId: row.leaveTypeId,
+      year: row.year,
+      field,
+      newValue: num,
+      reason: reason.trim(),
+    })
+    setEditing(false)
+    setShowReason(false)
+  }
+
+  const handleCancel = () => {
+    setEditing(false)
+    setShowReason(false)
+  }
+
+  if (showReason) {
+    return (
+      <td className={className}>
+        <div className="flex flex-col gap-1 min-w-[140px]">
+          <div className="text-xs text-muted-foreground">{currentVal} → {parseFloat(value).toFixed(1)}</div>
+          <Input
+            autoFocus
+            className="h-7 text-xs"
+            placeholder="Reason..."
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && reason.trim()) handleSave()
+              if (e.key === 'Escape') handleCancel()
+            }}
+          />
+          <div className="flex gap-1">
+            <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={handleCancel}>Cancel</Button>
+            <Button size="sm" className="h-6 px-2 text-xs" disabled={!reason.trim() || update.isPending} onClick={handleSave}>
+              {update.isPending ? '...' : 'Save'}
+            </Button>
+          </div>
+        </div>
+      </td>
+    )
+  }
+
+  if (editing) {
+    return (
+      <td className={className}>
+        <Input
+          ref={inputRef}
+          type="number"
+          step="0.5"
+          {...(field !== 'adjustments' ? { min: '0' } : {})}
+          className="h-7 w-20 text-right text-xs"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') handleCommit()
+            if (e.key === 'Escape') handleCancel()
+          }}
+          onBlur={handleCommit}
+        />
+      </td>
+    )
+  }
+
+  return (
+    <td className={className}>
+      <span
+        className="cursor-pointer hover:bg-muted/60 rounded px-1 py-0.5 -mx-1 transition-colors"
+        onClick={startEdit}
+        title="Click to edit"
+      >
+        {currentVal}
+      </span>
+    </td>
+  )
+}
+
 function EntitlementsTab() {
   const { data: regions } = useRegions()
   const [regionId, setRegionId] = useState<number | undefined>()
@@ -2804,27 +2918,11 @@ function EntitlementsTab() {
                       <td className="px-3 py-2 text-right text-muted-foreground">
                         {row.policyDefault === 'unlimited' ? '∞' : row.policyDefault ? parseFloat(row.policyDefault).toFixed(1) : '—'}
                       </td>
-                      <td className="px-3 py-2 text-right">
-                        {(() => {
-                          const entitled = parseFloat(row.entitled)
-                          const def = row.policyDefault === 'unlimited' ? null : row.policyDefault ? parseFloat(row.policyDefault) : null
-                          const isCustom = def !== null && Math.abs(entitled - def) >= 0.1
-                          return (
-                            <span className={isCustom ? (entitled > (def ?? 0) ? 'text-green-600 font-medium' : 'text-orange-600 font-medium') : ''}>
-                              {entitled.toFixed(1)}
-                              {isCustom && (
-                                <span className="ml-1 text-xs">
-                                  ({entitled > (def ?? 0) ? '+' : ''}{(entitled - (def ?? 0)).toFixed(1)})
-                                </span>
-                              )}
-                            </span>
-                          )
-                        })()}
-                      </td>
+                      <InlineEditCell row={row} field="entitled" className="px-3 py-2 text-right" />
                       <td className="px-3 py-2 text-right text-muted-foreground">{parseFloat(row.used).toFixed(1)}</td>
                       <td className="px-3 py-2 text-right text-muted-foreground">{parseFloat(row.pending).toFixed(1)}</td>
-                      <td className="px-3 py-2 text-right text-muted-foreground">{parseFloat(row.carried).toFixed(1)}</td>
-                      <td className="px-3 py-2 text-right text-muted-foreground">{parseFloat(row.adjustments).toFixed(1)}</td>
+                      <InlineEditCell row={row} field="carried" className="px-3 py-2 text-right text-muted-foreground" />
+                      <InlineEditCell row={row} field="adjustments" className="px-3 py-2 text-right text-muted-foreground" />
                       <td className="px-3 py-2 text-right font-semibold">
                         <span className={parseFloat(balance) < 0 ? 'text-red-600' : ''}>
                           {balance}

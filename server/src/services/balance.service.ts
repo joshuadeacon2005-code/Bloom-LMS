@@ -25,6 +25,7 @@ export interface BalanceWithAvailable {
     code: string
     isPaid: boolean
     deductsBalance: boolean
+    unit: string
   }
 }
 
@@ -42,7 +43,7 @@ function toBalance(row: {
   pending: string
   carried: string
   adjustments: string
-  leaveType?: { id: number; name: string; code: string; isPaid: boolean; deductsBalance: boolean } | null
+  leaveType?: { id: number; name: string; code: string; isPaid: boolean; deductsBalance: boolean; unit: string } | null
 }): BalanceWithAvailable {
   const entitled = parseDecimal(row.entitled)
   const used = parseDecimal(row.used)
@@ -89,6 +90,7 @@ export async function getBalancesForUser(
         code: leaveTypes.code,
         isPaid: leaveTypes.isPaid,
         deductsBalance: leaveTypes.deductsBalance,
+        unit: leaveTypes.unit,
       },
     })
     .from(leaveBalances)
@@ -121,6 +123,7 @@ export async function getBalance(
         code: leaveTypes.code,
         isPaid: leaveTypes.isPaid,
         deductsBalance: leaveTypes.deductsBalance,
+        unit: leaveTypes.unit,
       },
     })
     .from(leaveBalances)

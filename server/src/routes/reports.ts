@@ -61,6 +61,8 @@ router.get('/utilisation', validate(utilisationQuerySchema, 'query'), async (req
       .select({
         leaveTypeName: leaveTypes.name,
         leaveTypeCode: leaveTypes.code,
+        leaveTypeUnit: leaveTypes.unit,
+        leaveTypeDeductsBalance: leaveTypes.deductsBalance,
         totalEntitled: sql<number>`sum(${leaveBalances.entitled} + ${leaveBalances.carried})`,
         totalUsed: sql<number>`sum(${leaveBalances.used})`,
         totalPending: sql<number>`sum(${leaveBalances.pending})`,
@@ -68,7 +70,7 @@ router.get('/utilisation', validate(utilisationQuerySchema, 'query'), async (req
       .from(leaveBalances)
       .innerJoin(leaveTypes, eq(leaveBalances.leaveTypeId, leaveTypes.id))
       .where(and(inArray(leaveBalances.userId, userIds), eq(leaveBalances.year, year)))
-      .groupBy(leaveTypes.id, leaveTypes.name, leaveTypes.code)
+      .groupBy(leaveTypes.id, leaveTypes.name, leaveTypes.code, leaveTypes.unit, leaveTypes.deductsBalance)
       .orderBy(leaveTypes.name)
 
     // Approved leave requests grouped by month
@@ -109,6 +111,8 @@ router.get('/utilisation', validate(utilisationQuerySchema, 'query'), async (req
         byType: balancesByType.map((r) => ({
           name: r.leaveTypeName,
           code: r.leaveTypeCode,
+          unit: r.leaveTypeUnit ?? 'days',
+          deductsBalance: r.leaveTypeDeductsBalance ?? true,
           entitled: Number(r.totalEntitled),
           used: Number(r.totalUsed),
           pending: Number(r.totalPending),

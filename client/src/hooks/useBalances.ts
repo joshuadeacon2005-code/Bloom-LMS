@@ -12,7 +12,7 @@ export interface LeaveBalance {
   carried: number
   adjustments: number
   available: number
-  leaveType?: { id: number; name: string; code: string; isPaid: boolean; deductsBalance: boolean }
+  leaveType?: { id: number; name: string; code: string; isPaid: boolean; deductsBalance: boolean; unit: string }
 }
 
 export function useBalances(year?: number) {
