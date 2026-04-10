@@ -1316,25 +1316,27 @@ function StaffMultiSelect({
           {filtered.length === 0 && (
             <p className="text-xs text-muted-foreground px-2 py-2">No employees found</p>
           )}
-          {filtered.map((u) => (
-            <div
-              key={u.id}
-              className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-muted/50 cursor-pointer"
-              onClick={() => toggle(String(u.id))}
-            >
-              <Checkbox
-                checked={value.includes(String(u.id))}
-                tabIndex={-1}
-                className="pointer-events-none"
-              />
-              <span className="text-xs cursor-pointer select-none flex-1">
-                {u.name}
-                {u.regionCode && (
-                  <span className="ml-1.5 text-muted-foreground">— {u.regionCode}</span>
-                )}
-              </span>
-            </div>
-          ))}
+          {filtered.map((u) => {
+            const uid = String(u.id)
+            const isChecked = value.includes(uid)
+            return (
+              <label
+                key={u.id}
+                className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-muted/50 cursor-pointer"
+              >
+                <Checkbox
+                  checked={isChecked}
+                  onCheckedChange={() => toggle(uid)}
+                />
+                <span className="text-xs cursor-pointer select-none flex-1">
+                  {u.name}
+                  {u.regionCode && (
+                    <span className="ml-1.5 text-muted-foreground">— {u.regionCode}</span>
+                  )}
+                </span>
+              </label>
+            )
+          })}
         </div>
       </div>
     </div>
@@ -1571,8 +1573,8 @@ function LeaveTypeDialog({
 
           <div className="space-y-1.5">
             <Label>
-              Staff restriction{' '}
-              <span className="text-muted-foreground text-xs">(optional — blank = all staff)</span>
+              Eligible staff{' '}
+              <span className="text-muted-foreground text-xs">(optional — blank = available to everyone)</span>
             </Label>
             <Controller
               name="staffRestriction"
