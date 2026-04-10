@@ -1239,17 +1239,18 @@ export async function runMigrations(): Promise<void> {
       WHERE code = 'TOMED'
     `)
 
-    // 9c. Upsert HK and UK leave policies for TOMED (4.5 hours/year = 4.5 units)
-    for (const rCode of ['HK', 'UK']) {
+    // 9c. Upsert HK and UK leave policies for TOMED (1.5 hours/year for HK, 4.5 for UK)
+    const tomedPolicies: [string, number][] = [['HK', 1.5], ['UK', 4.5]]
+    for (const [rCode, hours] of tomedPolicies) {
       await client.query(`
         INSERT INTO leave_policies (leave_type_id, region_id, entitlement_days, carry_over_max, probation_months)
-        SELECT lt.id, r.id, 4.5, 0, 0
+        SELECT lt.id, r.id, $2, 0, 0
         FROM leave_types lt, regions r
         WHERE lt.code = 'TOMED' AND r.code = $1
-        ON CONFLICT (leave_type_id, region_id) DO UPDATE SET entitlement_days = 4.5
-      `, [rCode])
+        ON CONFLICT (leave_type_id, region_id) DO UPDATE SET entitlement_days = $2
+      `, [rCode, hours])
     }
-    console.log('[migrate] Activated TOMED leave type with HK/UK policies (4.5 hrs/year)')
+    console.log('[migrate] Activated TOMED leave type with HK (1.5 hrs) / UK (4.5 hrs) policies')
 
     // 9d. Add WFH policy for UK region (was missing — prevents UK staff from submitting WFH)
     await client.query(`
@@ -1495,6 +1496,11 @@ export async function runMigrations(): Promise<void> {
       await client.query(`UPDATE users SET gender = 'female' WHERE LOWER(email) = LOWER($1) AND gender IS NULL`, [email])
     }
     console.log('[migrate] Phase 12d: Set genders on seeded users')
+
+    // Phase 12e: Update display names for cross-region staff
+    await client.query(`UPDATE users SET name = 'Victoria Thomas (UK)' WHERE LOWER(email) = 'victoria@bloomandgrowasia.com' AND name = 'Victoria Thomas'`)
+    await client.query(`UPDATE users SET name = 'Hollie Gale (NZ)' WHERE LOWER(email) = 'hollie@bloomandgrowgroup.com' AND name = 'Hollie Gale'`)
+    console.log('[migrate] Phase 12e: Updated cross-region staff display names')
 
     console.log('[migrate] Migrations complete')
   } catch (err) {
