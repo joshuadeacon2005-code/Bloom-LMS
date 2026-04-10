@@ -54,6 +54,9 @@ export interface LeaveType {
   staffRestriction: string | null
   minUnit: '1_day' | 'half_day' | '2_hours' | '1_hour'
   unit: 'days' | 'hours'
+  deductsBalance: boolean
+  isActive: boolean
+  genderRestriction: string | null
 }
 
 export interface LeavePolicy {
