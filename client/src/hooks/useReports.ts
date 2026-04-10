@@ -74,6 +74,81 @@ export function useDepartmentSummary(filters: Pick<ReportFilters, 'year' | 'regi
   })
 }
 
+export interface LeaveRequestRow {
+  employeeName: string
+  regionCode: string
+  leaveTypeName: string
+  startDate: string
+  endDate: string
+  totalDays: number
+  status: string
+  reason: string
+}
+
+export interface EntitlementRow {
+  employeeName: string
+  regionCode: string
+  leaveTypeName: string
+  entitled: number
+  used: number
+  adjustments: number
+  carried: number
+  pending: number
+  remaining: number
+}
+
+export function useLeaveRequestsPreview(params: {
+  year: number
+  regionId?: number
+  leaveTypeId?: number
+  userId?: number
+  status?: string
+  enabled?: boolean
+}) {
+  return useQuery({
+    queryKey: ['reports-lr-preview', params],
+    queryFn: () =>
+      api
+        .get<{ success: boolean; data: LeaveRequestRow[] }>('/reports/export/leave-requests', {
+          params: {
+            year: params.year,
+            format: 'json',
+            ...(params.regionId ? { regionId: params.regionId } : {}),
+            ...(params.leaveTypeId ? { leaveTypeId: params.leaveTypeId } : {}),
+            ...(params.userId ? { userId: params.userId } : {}),
+            ...(params.status && params.status !== 'all' ? { status: params.status } : {}),
+          },
+        })
+        .then((r) => r.data.data),
+    enabled: params.enabled !== false,
+  })
+}
+
+export function useEntitlementsPreview(params: {
+  year: number
+  regionId?: number
+  leaveTypeId?: number
+  userId?: number
+  enabled?: boolean
+}) {
+  return useQuery({
+    queryKey: ['reports-ent-preview', params],
+    queryFn: () =>
+      api
+        .get<{ success: boolean; data: EntitlementRow[] }>('/reports/export/entitlements', {
+          params: {
+            year: params.year,
+            format: 'json',
+            ...(params.regionId ? { regionId: params.regionId } : {}),
+            ...(params.leaveTypeId ? { leaveTypeId: params.leaveTypeId } : {}),
+            ...(params.userId ? { userId: params.userId } : {}),
+          },
+        })
+        .then((r) => r.data.data),
+    enabled: params.enabled !== false,
+  })
+}
+
 function getAuthToken(): string | null {
   const stored = localStorage.getItem('bloom-lms-auth')
   return stored
@@ -122,12 +197,14 @@ export async function downloadLeaveRequestsXlsx(params: {
 export async function downloadEntitlementsXlsx(params: {
   year: number
   regionId?: number
+  leaveTypeId?: number
   userId?: number
 }) {
   const query = new URLSearchParams()
   query.set('year', String(params.year))
   query.set('format', 'xlsx')
   if (params.regionId) query.set('regionId', String(params.regionId))
+  if (params.leaveTypeId) query.set('leaveTypeId', String(params.leaveTypeId))
   if (params.userId) query.set('userId', String(params.userId))
 
   const regionSuffix = params.regionId ? `_region${params.regionId}` : '_all_regions'

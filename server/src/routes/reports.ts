@@ -328,14 +328,13 @@ router.get(
   }
 )
 
-// GET /api/reports/export/leave-requests
 const leaveRequestExportSchema = z.object({
   year: z.coerce.number().int().min(2020).max(2100).default(new Date().getFullYear()),
   regionId: z.coerce.number().int().positive().optional(),
   leaveTypeId: z.coerce.number().int().positive().optional(),
   userId: z.coerce.number().int().positive().optional(),
   status: z.enum(['all', 'pending', 'approved', 'rejected', 'cancelled']).default('all'),
-  format: z.enum(['csv', 'xlsx']).default('csv'),
+  format: z.enum(['csv', 'xlsx', 'json']).default('csv'),
 })
 
 router.get('/export/leave-requests', validate(leaveRequestExportSchema, 'query'), async (req, res, next) => {
@@ -371,6 +370,20 @@ router.get('/export/leave-requests', validate(leaveRequestExportSchema, 'query')
       .innerJoin(leaveTypes, eq(leaveRequests.leaveTypeId, leaveTypes.id))
       .where(and(...conditions))
       .orderBy(users.name, leaveRequests.startDate)
+
+    if (format === 'json') {
+      const jsonData = rows.map((r) => ({
+        employeeName: r.employeeName,
+        regionCode: r.regionCode,
+        leaveTypeName: r.leaveTypeName,
+        startDate: r.startDate,
+        endDate: r.endDate,
+        totalDays: Number(r.totalDays),
+        status: r.status,
+        reason: r.reason ?? '',
+      }))
+      return res.json({ success: true, data: jsonData })
+    }
 
     const regionSuffix = regionId ? `_region${regionId}` : '_all_regions'
     const staffSuffix = userId ? `_staff${userId}` : ''
@@ -415,20 +428,21 @@ router.get('/export/leave-requests', validate(leaveRequestExportSchema, 'query')
   }
 })
 
-// GET /api/reports/export/entitlements
 const entitlementExportSchema = z.object({
   year: z.coerce.number().int().min(2020).max(2100).default(new Date().getFullYear()),
   regionId: z.coerce.number().int().positive().optional(),
+  leaveTypeId: z.coerce.number().int().positive().optional(),
   userId: z.coerce.number().int().positive().optional(),
-  format: z.enum(['csv', 'xlsx']).default('csv'),
+  format: z.enum(['csv', 'xlsx', 'json']).default('csv'),
 })
 
 router.get('/export/entitlements', validate(entitlementExportSchema, 'query'), async (req, res, next) => {
   try {
-    const { year, regionId, userId, format } = req.query as unknown as z.infer<typeof entitlementExportSchema>
+    const { year, regionId, leaveTypeId, userId, format } = req.query as unknown as z.infer<typeof entitlementExportSchema>
 
     const conditions = [eq(leaveBalances.year, year), eq(users.isActive, true)]
     if (regionId) conditions.push(eq(users.regionId, regionId))
+    if (leaveTypeId) conditions.push(eq(leaveBalances.leaveTypeId, leaveTypeId))
     if (userId) conditions.push(eq(leaveBalances.userId, userId))
 
     const rows = await db
@@ -448,6 +462,28 @@ router.get('/export/entitlements', validate(entitlementExportSchema, 'query'), a
       .innerJoin(leaveTypes, eq(leaveBalances.leaveTypeId, leaveTypes.id))
       .where(and(...conditions))
       .orderBy(users.name, leaveTypes.name)
+
+    if (format === 'json') {
+      const jsonData = rows.map((r) => {
+        const entitled = parseFloat(r.entitled)
+        const used = parseFloat(r.used)
+        const adj = parseFloat(r.adjustments)
+        const carried = parseFloat(r.carried)
+        const pending = parseFloat(r.pending)
+        return {
+          employeeName: r.employeeName,
+          regionCode: r.regionCode,
+          leaveTypeName: r.leaveTypeName,
+          entitled: parseFloat(entitled.toFixed(1)),
+          used: parseFloat(used.toFixed(1)),
+          adjustments: parseFloat(adj.toFixed(1)),
+          carried: parseFloat(carried.toFixed(1)),
+          pending: parseFloat(pending.toFixed(1)),
+          remaining: parseFloat((entitled + carried + adj - used - pending).toFixed(1)),
+        }
+      })
+      return res.json({ success: true, data: jsonData })
+    }
 
     const regionSuffix = regionId ? `_region${regionId}` : '_all_regions'
     const staffSuffix = userId ? `_staff${userId}` : ''
