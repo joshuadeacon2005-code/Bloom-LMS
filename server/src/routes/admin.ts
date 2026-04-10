@@ -713,6 +713,7 @@ router.post('/slack/commands-enabled', requireRole('hr_admin'), (req, res) => {
 router.get('/entitlements', async (req, res, next) => {
   try {
     const regionId = req.query.regionId ? parseInt(req.query.regionId as string, 10) : undefined
+    const userId = req.query.userId ? parseInt(req.query.userId as string, 10) : undefined
     const year = req.query.year ? parseInt(req.query.year as string, 10) : new Date().getFullYear()
 
     const rows = await db
@@ -740,8 +741,8 @@ router.get('/entitlements', async (req, res, next) => {
         and(
           eq(leaveBalances.year, year),
           ...(regionId ? [eq(users.regionId, regionId)] : []),
+          ...(userId ? [eq(users.id, userId)] : []),
           isNull(users.deletedAt),
-          eq(users.isActive, true),
           eq(leaveTypes.isActive, true)
         )
       )

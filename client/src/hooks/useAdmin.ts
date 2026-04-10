@@ -498,15 +498,20 @@ export interface AuditLogEntry {
   createdAt: string
 }
 
-export function useEntitlements(regionId?: number, year?: number) {
+export function useEntitlements(regionId?: number, year?: number, userId?: number) {
   return useQuery({
-    queryKey: ['admin-entitlements', regionId, year],
+    queryKey: ['admin-entitlements', regionId, year, userId],
     queryFn: () =>
       api
         .get<{ data: EntitlementRow[] }>('/admin/entitlements', {
-          params: { ...(regionId ? { regionId } : {}), ...(year ? { year } : {}) },
+          params: {
+            ...(regionId ? { regionId } : {}),
+            ...(year ? { year } : {}),
+            ...(userId ? { userId } : {}),
+          },
         })
         .then((r) => r.data.data),
+    enabled: !!userId,
   })
 }
 
@@ -570,6 +575,7 @@ export function useEntitlementAudit(employeeId?: number) {
           params: employeeId ? { employeeId } : {},
         })
         .then((r) => r.data.data),
+    enabled: !!employeeId,
   })
 }
 
