@@ -1436,6 +1436,66 @@ export async function runMigrations(): Promise<void> {
     await client.query(`UPDATE leave_types SET gender_restriction = 'male' WHERE code = 'PL' AND gender_restriction IS NULL`)
     console.log('[migrate] Phase 12c: Added gender_restriction to leave_types (ML=female, PL=male)')
 
+    // ── Phase 12d: Set representative genders on seeded users ──────
+    const maleEmails = [
+      'yazid.ahmad@bloomandgrowgroup.com', 'richard.alejandro@bloomandgrowgroup.com',
+      'scott.ang@bloomandgrowgroup.com', 'josh@bloomandgrowgroup.com',
+      'benjamin.inglis@bloomandgrowgroup.com', 'jorge.inso@bloomandgrowgroup.com',
+      'jason.fu@bloomandgrowgroup.com', 'jerald@babycentral.com.hk',
+      'lawrence.choi@bloomandgrowgroup.com', 'jeremy.low@bloomandgrowgroup.com',
+      'james@bloomandgrowgroup.com', 'teddy.romulo@bloomandgrowgroup.com',
+      'anmol.rooprai@bloomandgrowgroup.com', 'sharwind@baby-central.com.sg',
+      'mike.tsang@bloomandgrowgroup.com', 'brian@bloomandgrowgroup.com',
+      'winson.zheng@bloomandgrow.com.cn', 'yakub.prastawa@bloomandgrowgroup.com',
+      'deden.ridwan@bloomandgrowgroup.com', 'naveen@bloomandgrowgroup.com',
+      'bud@babycentral.com.hk'
+    ]
+    const femaleEmails = [
+      'nenden.alifa@bloomandgrowgroup.com', 'maya.amelia@bloomandgrowgroup.com',
+      'syazwany.anny@bloomandgrowgroup.com', 'atiqah.ecom@bloomandgrowgroup.com',
+      'chloe@bloomandgrowgroup.com', 'jessicab@bloomandgrowgroup.com',
+      'tammy@bloomandgrowgroup.com', 'eva.chan@bloomandgrowgroup.com',
+      'louise@bloomandgrowgroup.com', 'cherry.chen@bloomandgrowgroup.com',
+      'essena.chen@bloomandgrow.com.cn', 'withney@bloomandgrow.com.cn',
+      'zoe@bloomandgrowgroup.com', 'sydney@bloomandgrowgroup.com',
+      'stephanie.choo@bloomandgrowgroup.com', 'helen.christie@bloomandgrowgroup.com',
+      'elaine@bloomandgrowgroup.com', 'kim@bloomandgrowgroup.com',
+      'riana.destiana@bloomandgrowgroup.com', 'alex@bloomandgrowgroup.com',
+      'leyden@bloomandgrowgroup.com', 'brigitta.ellen@bloomandgrowgroup.com',
+      'lily@bloomandgrow.com.cn', 'hollie@bloomandgrowgroup.com',
+      'bobo.gan@bloomandgrow.com.cn', 'june@bloomandgrowgroup.com',
+      'anggraini.hapsari@bloomandgrowgroup.com', 'cici.huang@bloomandgrow.com.cn',
+      'ellen@bloomandgrowgroup.com', 'carole@bloomandgrowgroup.com',
+      'sophie.jiao@bloomandgrow.com.cn', 'rina.juwita@bloomandgrowgroup.com',
+      'idy@bloomandgrowgroup.com', 'janice.kong@bloomandgrowgroup.com',
+      'kate.kuang@bloomandgrow.com.cn', 'amy@bloomandgrowgroup.com',
+      'winnie.lee@bloomandgrowgroup.com', 'megan.li@bloomandgrow.com.cn',
+      'sissi.li@bloomandgrow.com.cn', 'vicky.li@bloomandgrowgroup.com',
+      'mei.liew@bloomandgrowgroup.com', 'arati@babycentral.com.hk',
+      'lina@bloomandgrowgroup.com', 'wynn.liu@bloomandgrow.com.cn',
+      'gloria.lo@bloomandgrowgroup.com', 'tannling@bloomandgrowgroup.com',
+      'tannting@bloomandgrowgroup.com', 'laura@bloomandgrow.com.cn',
+      'erica.lye@bloomandgrowgroup.com', 'asyiqin.nasser@bloomandgrowgroup.com',
+      'atika.putri@bloomandgrowgroup.com', 'jamie@bloomandgrowgroup.com',
+      'ania@bloomandgrow.com.au', 'wiwik.setyawati@bloomandgrowgroup.com',
+      'meydira.shahnaz@bloomandgrowgroup.com', 'stephanie.shim@bloomandgrowgroup.com',
+      'michelle.su@bloomandgrow.com.cn', 'maisarah.sulaiman@bloomandgrowgroup.com',
+      'winki@bloomandgrowgroup.com', 'melissa@baby-central.com.sg',
+      'martha.tang@bloomandgrowgroup.com', 'siti.tarmidi@bloomandgrowgroup.com',
+      'victoria@bloomandgrowasia.com', 'rachel.too@bloomandgrowgroup.com',
+      'lutfia.usman@bloomandgrowgroup.com', 'angela.valentine@bloomandgrowgroup.com',
+      'michelle@bloomandgrowgroup.com', 'amy.xu@bloomandgrow.com.cn',
+      'helen.yan@bloomandgrow.com.cn', 'crystal@bloomandgrow.com.cn',
+      'enid.yap@bloomandgrowgroup.com', 'ashley.zhang@bloomandgrow.com.cn'
+    ]
+    for (const email of maleEmails) {
+      await client.query(`UPDATE users SET gender = 'male' WHERE LOWER(email) = LOWER($1) AND gender IS NULL`, [email])
+    }
+    for (const email of femaleEmails) {
+      await client.query(`UPDATE users SET gender = 'female' WHERE LOWER(email) = LOWER($1) AND gender IS NULL`, [email])
+    }
+    console.log('[migrate] Phase 12d: Set genders on seeded users')
+
     console.log('[migrate] Migrations complete')
   } catch (err) {
     console.error('[migrate] Migration error:', err)

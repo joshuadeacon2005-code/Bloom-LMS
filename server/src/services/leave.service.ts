@@ -256,7 +256,7 @@ export async function createLeaveRequest(
   }
 
   // Check gender restriction (e.g. maternity=female, paternity=male)
-  if (leaveType.genderRestriction && user.gender) {
+  if (leaveType.genderRestriction) {
     if (leaveType.genderRestriction !== user.gender) {
       throw new ValidationError('This leave type is not available for your gender')
     }

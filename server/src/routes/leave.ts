@@ -126,7 +126,6 @@ router.get('/types', async (req, res, next) => {
     const types = await leaveService.getLeaveTypesWithPolicies(regionId)
     const filtered = types.filter((lt) => {
       if (!lt.genderRestriction) return true
-      if (!userGender) return true
       return lt.genderRestriction === userGender
     })
     const response: ApiResponse<typeof filtered> = { success: true, data: filtered }
