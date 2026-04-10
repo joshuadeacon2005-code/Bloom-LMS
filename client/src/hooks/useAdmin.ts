@@ -678,6 +678,7 @@ export interface EmployeeLeaveRequest {
   reason: string | null
   halfDayPeriod: string | null
   attachmentUrl: string | null
+  approverName: string | null
   createdAt: string
 }
 

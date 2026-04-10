@@ -1479,6 +1479,9 @@ function LeaveTypeDialog({
       staffRestriction: staffRestrictionValue,
       minUnit: data.minUnit,
       unit: data.unit,
+      isActive: editing?.isActive ?? true,
+      deductsBalance: editing?.deductsBalance ?? true,
+      genderRestriction: editing?.genderRestriction ?? null,
     }
     if (editing) {
       await updateLT.mutateAsync({ id: editing.id, data: payload })
