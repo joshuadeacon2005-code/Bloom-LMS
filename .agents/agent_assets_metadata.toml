@@ -12,3 +12,9 @@ id = "JOnx1s64NIyngHGiRenA2"
 uri = "file://attached_assets/Elaine_Comments_Summary_Apr10.md"
 type = "text"
 title = "Elaine's Comments Summary - Apr 10"
+
+[[outputs]]
+id = "Ayq5a1uF0Fj87_3PNZlHt"
+uri = "file://attached_assets/Elaine_Comments_Summary_Apr10.pdf"
+type = "pdf"
+title = "Elaine's Comments Summary - Apr 10 (PDF)"
