@@ -34,6 +34,7 @@ export interface AdminUser {
   joinedDate: string | null
   slackUserId: string | null
   avatarUrl: string | null
+  gender: 'male' | 'female' | 'other' | null
   createdAt: string
 }
 
@@ -66,6 +67,7 @@ export interface LeavePolicy {
   entitlementUnlimited: boolean
   carryoverUnlimited: boolean
   tierCount: number
+  leaveTypeUnit: 'days' | 'hours'
 }
 
 export interface PublicHoliday {
@@ -194,10 +196,12 @@ export function useUpdateUser() {
         isActive: boolean
         isOnProbation: boolean
         joinedDate: string | null
+        gender: 'male' | 'female' | 'other' | null
       }>
     }) => api.patch<{ data: AdminUser }>(`/users/${id}`, data).then((r) => r.data.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin-users'] })
+      qc.invalidateQueries({ queryKey: ['auth'] })
       toast.success('User updated')
     },
     onError: (e: { response?: { data?: { error?: string } } }) => {

@@ -175,7 +175,7 @@ router.post('/:id/approve', async (req, res, next) => {
     if (!isHr && !isManagerOfSubmitter) {
       return res.status(403).json({ success: false, error: 'Only managers or HR can approve expenses' })
     }
-    await expenseService.approveExpense(id, req.user!.userId, req.user!.name ?? 'Unknown')
+    await expenseService.approveExpense(id, req.user!.userId, req.user!.email ?? 'Unknown')
     const updated = await expenseService.getExpense(id)
     const response: ApiResponse<typeof updated> = { success: true, data: updated }
     res.json(response)
@@ -195,7 +195,7 @@ router.post('/:id/reject', async (req, res, next) => {
       return res.status(403).json({ success: false, error: 'Only managers or HR can reject expenses' })
     }
     const note = req.body?.note as string | undefined
-    await expenseService.rejectExpense(id, req.user!.userId, req.user!.name ?? 'Unknown', note)
+    await expenseService.rejectExpense(id, req.user!.userId, req.user!.email ?? 'Unknown', note)
     const updated = await expenseService.getExpense(id)
     const response: ApiResponse<typeof updated> = { success: true, data: updated }
     res.json(response)

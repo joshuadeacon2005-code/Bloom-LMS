@@ -1412,6 +1412,30 @@ export async function runMigrations(): Promise<void> {
     }
     console.log('[migrate] Phase 11 (sick leave dedup) complete')
 
+    // ── Phase 12: Missing policies, gender fields, gender restrictions ──────
+    const allRegionCodes = ['HK', 'SG', 'MY', 'ID', 'CN', 'AU', 'NZ', 'CN-GZ', 'CN-SH', 'UK']
+    const universalLeaveTypeCodes = ['WFH', 'WR', 'NPL', 'BT']
+    for (const ltCode of universalLeaveTypeCodes) {
+      for (const rCode of allRegionCodes) {
+        await client.query(`
+          INSERT INTO leave_policies (leave_type_id, region_id, entitlement_days, carry_over_max, probation_months)
+          SELECT lt.id, r.id, 0, 0, 0
+          FROM leave_types lt, regions r
+          WHERE lt.code = $1 AND r.code = $2
+          ON CONFLICT (leave_type_id, region_id) DO NOTHING
+        `, [ltCode, rCode])
+      }
+    }
+    console.log('[migrate] Phase 12a: Added missing WFH/WR/NPL/BT policies for all regions')
+
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS gender varchar(10)`)
+    console.log('[migrate] Phase 12b: Added gender column to users')
+
+    await client.query(`ALTER TABLE leave_types ADD COLUMN IF NOT EXISTS gender_restriction varchar(10)`)
+    await client.query(`UPDATE leave_types SET gender_restriction = 'female' WHERE code IN ('ML', 'ML_AUNZ') AND gender_restriction IS NULL`)
+    await client.query(`UPDATE leave_types SET gender_restriction = 'male' WHERE code = 'PL' AND gender_restriction IS NULL`)
+    console.log('[migrate] Phase 12c: Added gender_restriction to leave_types (ML=female, PL=male)')
+
     console.log('[migrate] Migrations complete')
   } catch (err) {
     console.error('[migrate] Migration error:', err)

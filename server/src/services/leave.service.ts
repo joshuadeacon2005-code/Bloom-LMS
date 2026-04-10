@@ -212,7 +212,7 @@ export async function createLeaveRequest(
 ) {
   // 1. Get user
   const [user] = await db
-    .select({ id: users.id, regionId: users.regionId, isActive: users.isActive, isOnProbation: users.isOnProbation })
+    .select({ id: users.id, regionId: users.regionId, isActive: users.isActive, isOnProbation: users.isOnProbation, gender: users.gender })
     .from(users)
     .where(eq(users.id, userId))
     .limit(1)
@@ -252,6 +252,13 @@ export async function createLeaveRequest(
     const allowedIds = leaveType.staffRestriction.split(',').map((s) => parseInt(s.trim(), 10))
     if (!allowedIds.includes(userId)) {
       throw new ValidationError('This leave type is not available for your account')
+    }
+  }
+
+  // Check gender restriction (e.g. maternity=female, paternity=male)
+  if (leaveType.genderRestriction && user.gender) {
+    if (leaveType.genderRestriction !== user.gender) {
+      throw new ValidationError('This leave type is not available for your gender')
     }
   }
 

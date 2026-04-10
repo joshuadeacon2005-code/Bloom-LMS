@@ -15,12 +15,13 @@ function hashToken(token: string): string {
   return crypto.createHash('sha256').update(token).digest('hex')
 }
 
-function buildTokens(user: { id: number; email: string; role: string; regionId: number }) {
+function buildTokens(user: { id: number; email: string; role: string; regionId: number; gender?: string | null }) {
   const accessToken = signAccessToken({
     userId: user.id,
     email: user.email,
     role: user.role,
     regionId: user.regionId,
+    gender: user.gender ?? null,
   })
   const refreshToken = signRefreshToken(user.id)
   return { accessToken, refreshToken }
@@ -59,6 +60,7 @@ export async function login(email: string, password: string) {
       managerId: users.managerId,
       isActive: users.isActive,
       avatarUrl: users.avatarUrl,
+      gender: users.gender,
       createdAt: users.createdAt,
       updatedAt: users.updatedAt,
       regionCode: regions.code,
@@ -198,6 +200,7 @@ export async function getMe(userId: number) {
       managerId: users.managerId,
       isActive: users.isActive,
       avatarUrl: users.avatarUrl,
+      gender: users.gender,
       createdAt: users.createdAt,
       regionCode: regions.code,
     })

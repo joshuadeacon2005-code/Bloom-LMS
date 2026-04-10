@@ -20,6 +20,7 @@ const safeUserFields = {
   probationEndDate: users.probationEndDate,
   joinedDate: users.joinedDate,
   avatarUrl: users.avatarUrl,
+  gender: users.gender,
   createdAt: users.createdAt,
   updatedAt: users.updatedAt,
 }
@@ -100,6 +101,7 @@ export async function createUser(data: {
   probationMonths?: number | null
   probationEndDate?: string | null
   joinedDate?: string | null
+  gender?: 'male' | 'female' | 'other' | null
 }) {
   const [existing] = await db
     .select({ id: users.id })
@@ -124,6 +126,7 @@ export async function createUser(data: {
       probationMonths: data.probationMonths ?? null,
       probationEndDate: data.probationEndDate ?? null,
       joinedDate: data.joinedDate ?? null,
+      gender: data.gender ?? null,
     })
     .returning(safeUserFields)
 

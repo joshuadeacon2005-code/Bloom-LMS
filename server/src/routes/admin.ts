@@ -260,9 +260,13 @@ router.get('/policies', async (req, res, next) => {
       .groupBy(policyEntitlementTiers.leavePolicyId)
     const tierCountMap = new Map(tierCounts.map((t) => [t.policyId, t.count]))
 
+    const allLts = await db.select({ id: leaveTypes.id, unit: leaveTypes.unit }).from(leaveTypes)
+    const unitMap = new Map(allLts.map((lt) => [lt.id, lt.unit]))
+
     let enriched = rows.map((r) => ({
       ...r,
       tierCount: tierCountMap.get(r.id) ?? 0,
+      leaveTypeUnit: unitMap.get(r.leaveTypeId) ?? 'days',
     }))
 
     if (regionId) {
@@ -377,7 +381,7 @@ router.get('/policies/:id/tiers', async (req, res, next) => {
 const tierSchema = z.object({
   entitlementDays: z.number().min(0).max(365),
   label: z.string().max(100).nullable().optional(),
-  userIds: z.array(z.number().int().positive()),
+  userIds: z.array(z.number().int().positive()).min(1, 'At least one staff member is required'),
 })
 
 // POST /admin/policies/:id/tiers

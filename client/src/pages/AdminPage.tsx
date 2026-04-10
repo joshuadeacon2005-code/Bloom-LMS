@@ -364,6 +364,7 @@ const createUserSchema = z.object({
   isOnProbation: z.boolean().optional(),
   probationMonths: z.number().nullable().optional(),
   joinedDate: z.string().optional(),
+  gender: z.enum(['male', 'female', 'other', '']).optional(),
 })
 type UserFormData = z.infer<typeof createUserSchema>
 
@@ -402,8 +403,9 @@ function UserDialog({
           isOnProbation: editing.isOnProbation,
           probationMonths: null,
           joinedDate: editing.joinedDate ?? '',
+          gender: editing.gender ?? '',
         }
-      : { role: 'employee', isActive: true, isOnProbation: false, probationMonths: null, joinedDate: '' },
+      : { role: 'employee', isActive: true, isOnProbation: false, probationMonths: null, joinedDate: '', gender: '' as const },
   })
 
   useEffect(() => {
@@ -420,8 +422,9 @@ function UserDialog({
               isOnProbation: editing.isOnProbation,
               probationMonths: null,
               joinedDate: editing.joinedDate ?? '',
+              gender: editing.gender ?? '',
             }
-          : { role: 'employee', isActive: true, isOnProbation: false, probationMonths: null, joinedDate: '' }
+          : { role: 'employee', isActive: true, isOnProbation: false, probationMonths: null, joinedDate: '', gender: '' as const }
       )
     }
   }, [open, editing, reset])
@@ -468,6 +471,7 @@ function UserDialog({
       probationMonths: data.probationMonths ?? null,
       probationEndDate,
       joinedDate: data.joinedDate || null,
+      gender: (data.gender && data.gender !== '') ? data.gender as 'male' | 'female' | 'other' : null,
     }
 
     if (editing) {
@@ -567,6 +571,25 @@ function UserDialog({
                   managers={(managers as ManagerOption[] | undefined) ?? []}
                   role={selectedRole}
                 />
+              )}
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Gender</Label>
+            <Controller
+              name="gender"
+              control={control}
+              render={({ field }) => (
+                <Select value={field.value || '__none__'} onValueChange={(v) => field.onChange(v === '__none__' ? '' : v)}>
+                  <SelectTrigger><SelectValue placeholder="Not specified" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Not specified</SelectItem>
+                    <SelectItem value="male">Male</SelectItem>
+                    <SelectItem value="female">Female</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
               )}
             />
           </div>
@@ -1776,7 +1799,7 @@ function PolicyDialog({
               <div>
                 <p className="text-sm font-medium">Custom Entitlement Tiers</p>
                 <p className="text-xs text-muted-foreground">
-                  Regional default: {policy.entitlementUnlimited ? 'Unlimited' : `${policy.entitlementDays} days`} — create tiers below to give specific staff more or fewer days
+                  Regional default: {policy.entitlementUnlimited ? 'Unlimited' : `${policy.entitlementDays} ${policy.leaveTypeUnit ?? 'days'}`} — create tiers below to give specific staff more or fewer {policy.leaveTypeUnit ?? 'days'}
                 </p>
               </div>
             </div>
@@ -1791,7 +1814,7 @@ function PolicyDialog({
                 {tiers.map((tier) => (
                   <div key={tier.id} className="flex items-start justify-between rounded-md border bg-muted/30 px-3 py-2">
                     <div className="space-y-0.5">
-                      <span className="text-sm font-medium">{tier.entitlementDays} days</span>
+                      <span className="text-sm font-medium">{tier.entitlementDays} {policy.leaveTypeUnit ?? 'days'}</span>
                       {tier.label && <span className="ml-2 text-xs text-muted-foreground">{tier.label}</span>}
                       {tier.users.length > 0 ? (
                         <div className="flex flex-wrap gap-1 pt-0.5">
@@ -1859,12 +1882,15 @@ function PolicyDialog({
                         onChange={setTierUserIds}
                         allUsers={allUsersForTiers}
                       />
+                      {tierUserIds.length === 0 && (
+                        <p className="text-xs text-amber-600">Select at least one staff member</p>
+                      )}
                     </div>
                     <div className="flex gap-2 pt-1">
                       <Button
                         type="button"
                         size="sm"
-                        disabled={tierSaving || !tierDays || isNaN(parseFloat(tierDays))}
+                        disabled={tierSaving || !tierDays || isNaN(parseFloat(tierDays)) || tierUserIds.length === 0}
                         onClick={saveTier}
                       >
                         {tierSaving ? 'Saving…' : 'Save'}
@@ -1953,7 +1979,7 @@ function PoliciesTab() {
                   <tr key={p.id} className="hover:bg-muted/30 transition-colors">
                     <td className="px-4 py-3 font-medium">{ltName(p.leaveTypeId)}</td>
                     <td className="px-4 py-3 text-muted-foreground">{rName(p.regionId)}</td>
-                    <td className="px-4 py-3">{p.entitlementUnlimited ? 'Unlimited' : `${p.entitlementDays} days`}</td>
+                    <td className="px-4 py-3">{p.entitlementUnlimited ? 'Unlimited' : `${p.entitlementDays} ${p.leaveTypeUnit ?? 'days'}`}</td>
                     <td className="px-4 py-3">
                       {p.tierCount > 0 ? (
                         <span className="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
@@ -1963,7 +1989,7 @@ function PoliciesTab() {
                         <span className="text-muted-foreground">—</span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground">{p.carryoverUnlimited ? 'Unlimited' : `${p.carryOverMax} days`}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{p.carryoverUnlimited ? 'Unlimited' : `${p.carryOverMax} ${p.leaveTypeUnit ?? 'days'}`}</td>
                     <td className="px-4 py-3 text-muted-foreground">
                       {p.probationMonths > 0 ? `${p.probationMonths} mo` : 'None'}
                     </td>

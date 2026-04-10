@@ -34,6 +34,7 @@ const createUserSchema = z.object({
   probationMonths: z.number().int().positive().nullable().optional(),
   probationEndDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   joinedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  gender: z.enum(['male', 'female', 'other']).nullable().optional(),
 })
 
 const updateUserSchema = z.object({
@@ -49,6 +50,7 @@ const updateUserSchema = z.object({
   probationEndDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   slackUserId: z.string().max(50).nullable().optional(),
   joinedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  gender: z.enum(['male', 'female', 'other']).nullable().optional(),
 })
 
 // GET /api/users — HR Admin+

@@ -13,6 +13,7 @@ export interface AuthUser {
   slackUserId: string | null
   isActive: boolean
   isOnProbation: boolean
+  gender: 'male' | 'female' | 'other' | null
   createdAt: string
   regionCode: string | null
 }

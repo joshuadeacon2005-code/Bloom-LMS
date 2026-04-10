@@ -122,8 +122,14 @@ router.get('/types', async (req, res, next) => {
     const regionId = req.query.regionId
       ? parseInt(req.query.regionId as string, 10)
       : req.user!.regionId
+    const userGender = req.user!.gender as string | null
     const types = await leaveService.getLeaveTypesWithPolicies(regionId)
-    const response: ApiResponse<typeof types> = { success: true, data: types }
+    const filtered = types.filter((lt) => {
+      if (!lt.genderRestriction) return true
+      if (!userGender) return true
+      return lt.genderRestriction === userGender
+    })
+    const response: ApiResponse<typeof filtered> = { success: true, data: filtered }
     res.json(response)
   } catch (err) {
     next(err)
