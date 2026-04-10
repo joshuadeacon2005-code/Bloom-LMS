@@ -471,7 +471,7 @@ function UserDialog({
       probationMonths: data.probationMonths ?? null,
       probationEndDate,
       joinedDate: data.joinedDate || null,
-      gender: (data.gender && data.gender !== '') ? data.gender as 'male' | 'female' | 'other' : null,
+      gender: (data.gender && data.gender !== '__none__') ? data.gender as 'male' | 'female' | 'other' : null,
     }
 
     if (editing) {
@@ -1725,6 +1725,7 @@ function PolicyDialog({
         carryoverUnlimited: data.carryoverUnlimited,
         probationMonths: Number(data.probationMonths),
         accrualRate: data.accrualRate || null,
+        leaveTypeUnit: policy.leaveTypeUnit,
       },
     })
     onOpenChange(false)
