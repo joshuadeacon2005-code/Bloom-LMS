@@ -796,59 +796,115 @@ router.patch('/entitlements/:userId', validate(updateEntitlementSchema), async (
     const { leaveTypeId, year, field, newValue, delta, reason } = req.body as z.infer<typeof updateEntitlementSchema>
     const changedById = req.user!.userId
 
-    const [existing] = await db
-      .select({ id: leaveBalances.id, entitled: leaveBalances.entitled, carried: leaveBalances.carried, adjustments: leaveBalances.adjustments })
-      .from(leaveBalances)
-      .where(and(eq(leaveBalances.userId, userId), eq(leaveBalances.leaveTypeId, leaveTypeId), eq(leaveBalances.year, year)))
-      .limit(1)
+    const updated = await db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select({ id: leaveBalances.id, entitled: leaveBalances.entitled, carried: leaveBalances.carried, adjustments: leaveBalances.adjustments })
+        .from(leaveBalances)
+        .where(and(eq(leaveBalances.userId, userId), eq(leaveBalances.leaveTypeId, leaveTypeId), eq(leaveBalances.year, year)))
+        .limit(1)
 
-    if (!existing) {
-      // Create balance row if it doesn't exist
-      await db.insert(leaveBalances).values({
-        userId,
+      if (!existing) {
+        await tx.insert(leaveBalances).values({
+          userId,
+          leaveTypeId,
+          year,
+          entitled: '0.0',
+          used: '0.0',
+          pending: '0.0',
+          carried: '0.0',
+          adjustments: '0.0',
+        })
+      }
+
+      const oldValue = existing ? parseFloat(existing[field as keyof typeof existing] as string) : 0
+
+      let resolvedNewValue: number
+      if (field === 'adjustments' && delta !== undefined) {
+        resolvedNewValue = oldValue + delta
+      } else if (newValue !== undefined) {
+        resolvedNewValue = newValue
+      } else {
+        throw new Error('newValue required for this field')
+      }
+
+      await tx
+        .update(leaveBalances)
+        .set({ [field]: resolvedNewValue.toFixed(1) })
+        .where(and(eq(leaveBalances.userId, userId), eq(leaveBalances.leaveTypeId, leaveTypeId), eq(leaveBalances.year, year)))
+
+      await tx.insert(entitlementAuditLog).values({
+        employeeId: userId,
         leaveTypeId,
-        year,
-        entitled: '0.0',
-        used: '0.0',
-        pending: '0.0',
-        carried: '0.0',
-        adjustments: '0.0',
+        fieldChanged: field,
+        oldValue: oldValue.toFixed(1),
+        newValue: resolvedNewValue.toFixed(1),
+        reason,
+        changedById,
       })
-    }
 
-    const oldValue = existing ? parseFloat(existing[field as keyof typeof existing] as string) : 0
+      if (field === 'entitled') {
+        const [targetUser] = await tx.select({ regionId: users.regionId, name: users.name }).from(users).where(eq(users.id, userId)).limit(1)
+        if (targetUser?.regionId) {
+          const [policy] = await tx
+            .select({ id: leavePolicies.id, entitlementDays: leavePolicies.entitlementDays, entitlementUnlimited: leavePolicies.entitlementUnlimited })
+            .from(leavePolicies)
+            .where(and(eq(leavePolicies.regionId, targetUser.regionId), eq(leavePolicies.leaveTypeId, leaveTypeId)))
+            .limit(1)
 
-    let resolvedNewValue: number
-    if (field === 'adjustments' && delta !== undefined) {
-      // Delta-based: add delta to current value
-      resolvedNewValue = oldValue + delta
-    } else if (newValue !== undefined) {
-      resolvedNewValue = newValue
-    } else {
-      res.status(400).json({ success: false, error: 'newValue required for this field' })
-      return
-    }
+          if (policy) {
+            const policyDefault = parseFloat(policy.entitlementDays)
 
-    await db
-      .update(leaveBalances)
-      .set({ [field]: resolvedNewValue.toFixed(1) })
-      .where(and(eq(leaveBalances.userId, userId), eq(leaveBalances.leaveTypeId, leaveTypeId), eq(leaveBalances.year, year)))
+            const existingAssignments = await tx
+              .select({ tierId: policyTierAssignments.tierId })
+              .from(policyTierAssignments)
+              .innerJoin(policyEntitlementTiers, eq(policyEntitlementTiers.id, policyTierAssignments.tierId))
+              .where(and(
+                eq(policyTierAssignments.userId, userId),
+                eq(policyEntitlementTiers.leavePolicyId, policy.id)
+              ))
 
-    await db.insert(entitlementAuditLog).values({
-      employeeId: userId,
-      leaveTypeId,
-      fieldChanged: field,
-      oldValue: oldValue.toFixed(1),
-      newValue: resolvedNewValue.toFixed(1),
-      reason,
-      changedById,
+            for (const a of existingAssignments) {
+              await tx.delete(policyTierAssignments).where(and(eq(policyTierAssignments.tierId, a.tierId), eq(policyTierAssignments.userId, userId)))
+              const [remaining] = await tx.select({ count: sql<number>`count(*)` }).from(policyTierAssignments).where(eq(policyTierAssignments.tierId, a.tierId))
+              if (remaining && Number(remaining.count) === 0) {
+                await tx.delete(policyEntitlementTiers).where(eq(policyEntitlementTiers.id, a.tierId))
+              }
+            }
+
+            if (Math.abs(resolvedNewValue - policyDefault) >= 0.01 && !policy.entitlementUnlimited) {
+              const [existingTier] = await tx
+                .select({ id: policyEntitlementTiers.id })
+                .from(policyEntitlementTiers)
+                .where(and(
+                  eq(policyEntitlementTiers.leavePolicyId, policy.id),
+                  eq(policyEntitlementTiers.entitlementDays, resolvedNewValue.toFixed(1))
+                ))
+                .limit(1)
+
+              if (existingTier) {
+                await tx.insert(policyTierAssignments).values({ tierId: existingTier.id, userId })
+                  .onConflictDoNothing()
+              } else {
+                const tierLabel = `Custom — ${targetUser.name}`
+                const [newTier] = await tx
+                  .insert(policyEntitlementTiers)
+                  .values({ leavePolicyId: policy.id, entitlementDays: resolvedNewValue.toFixed(1), label: tierLabel })
+                  .returning()
+                await tx.insert(policyTierAssignments).values({ tierId: newTier.id, userId })
+              }
+            }
+          }
+        }
+      }
+
+      const [result] = await tx
+        .select()
+        .from(leaveBalances)
+        .where(and(eq(leaveBalances.userId, userId), eq(leaveBalances.leaveTypeId, leaveTypeId), eq(leaveBalances.year, year)))
+        .limit(1)
+
+      return result
     })
-
-    const [updated] = await db
-      .select()
-      .from(leaveBalances)
-      .where(and(eq(leaveBalances.userId, userId), eq(leaveBalances.leaveTypeId, leaveTypeId), eq(leaveBalances.year, year)))
-      .limit(1)
 
     const response: ApiResponse<typeof updated> = { success: true, data: updated }
     res.json(response)

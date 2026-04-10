@@ -532,6 +532,7 @@ export function useUpdateEntitlement() {
         .then((r) => r.data.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin-entitlements'] })
+      qc.invalidateQueries({ queryKey: ['policy-tiers'] })
       toast.success('Entitlement updated')
     },
     onError: (e: { response?: { data?: { error?: string } } }) => {

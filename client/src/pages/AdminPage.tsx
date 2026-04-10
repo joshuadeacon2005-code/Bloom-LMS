@@ -227,9 +227,11 @@ const STATUS_COLOURS_HISTORY: Record<string, string> = {
 function UserProfileSheet({
   user,
   onClose,
+  initialTab = 'entitlements',
 }: {
   user: AdminUser | null
   onClose: () => void
+  initialTab?: 'entitlements' | 'history'
 }) {
   const { user: me } = useAuthStore()
   const isHrOrAbove = me?.role === 'hr_admin' || me?.role === 'super_admin'
@@ -240,12 +242,12 @@ function UserProfileSheet({
   const [activeTab, setActiveTab] = useState<'entitlements' | 'history'>('entitlements')
 
   useEffect(() => {
-    setActiveTab('entitlements')
+    setActiveTab(initialTab)
     setShowAudit(false)
     setYear(new Date().getFullYear())
     setEditRow(null)
     setPendingDelete(null)
-  }, [user?.id])
+  }, [user?.id, initialTab])
 
   const { data: entitlements = [], isLoading: entitlementsLoading } = useEntitlements(
     undefined, year, user?.id ?? undefined
@@ -860,6 +862,7 @@ function UsersTab() {
   const [deactivating, setDeactivating] = useState<AdminUser | null>(null)
   const [syncResult, setSyncResult] = useState<SlackSyncResult | null>(null)
   const [profileUser, setProfileUser] = useState<AdminUser | null>(null)
+  const [profileInitialTab, setProfileInitialTab] = useState<'entitlements' | 'history'>('entitlements')
 
   const { data: regions } = useRegions()
   const { data, isLoading } = useAdminUsers({
@@ -1057,6 +1060,15 @@ function UsersTab() {
                     </td>
                     <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-end gap-1">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-7 w-7 text-muted-foreground"
+                          title="Edit entitlements"
+                          onClick={() => { setProfileInitialTab('entitlements'); setProfileUser(u) }}
+                        >
+                          <History className="h-3.5 w-3.5" />
+                        </Button>
                         {u.slackUserId && (
                           <Button
                             size="icon"
@@ -1115,7 +1127,7 @@ function UsersTab() {
 
       <UserDialog open={dialogOpen} onOpenChange={setDialogOpen} editing={editing} />
 
-      <UserProfileSheet user={profileUser} onClose={() => setProfileUser(null)} />
+      <UserProfileSheet user={profileUser} onClose={() => setProfileUser(null)} initialTab={profileInitialTab} />
 
       <AlertDialog open={!!deactivating} onOpenChange={(v) => !v && setDeactivating(null)}>
         <AlertDialogContent>
