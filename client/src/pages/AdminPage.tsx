@@ -2447,6 +2447,7 @@ function EditEntitlementDialog({
   const canSave = !update.isPending && !!reason.trim() && (
     isAdjustments ? !isNaN(deltaNum) : !isNaN(parseFloat(value)) && parseFloat(value) >= 0
   )
+  const unitLabel = row.leaveTypeUnit === 'hours' ? 'hours' : 'days'
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -2475,19 +2476,19 @@ function EditEntitlementDialog({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="entitled">Entitled Days</SelectItem>
+                <SelectItem value="entitled">Entitled {unitLabel === 'hours' ? 'Hours' : 'Days'}</SelectItem>
                 <SelectItem value="carried">Carried Over</SelectItem>
                 <SelectItem value="adjustments">Adjustments</SelectItem>
               </SelectContent>
             </Select>
-            <p className="text-xs text-muted-foreground">Current: {parseFloat(currentVal).toFixed(1)} days</p>
+            <p className="text-xs text-muted-foreground">Current: {parseFloat(currentVal).toFixed(1)} {unitLabel}</p>
           </div>
 
           {isAdjustments ? (
             <div className="space-y-3 rounded-md border bg-muted/20 p-3">
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Original Entitlement</span>
-                <span className="font-medium">{originalEntitlement.toFixed(1)} days</span>
+                <span className="font-medium">{originalEntitlement.toFixed(1)} {unitLabel}</span>
               </div>
               <div className="space-y-1.5">
                 <Label>Adjustment (+ or −)</Label>
@@ -2503,13 +2504,13 @@ function EditEntitlementDialog({
               <div className="flex justify-between text-sm border-t pt-2">
                 <span className="text-muted-foreground">New Total</span>
                 <span className={`font-semibold ${newTotal < 0 ? 'text-red-600' : 'text-foreground'}`}>
-                  {isNaN(deltaNum) ? '—' : `${newTotal.toFixed(1)} days`}
+                  {isNaN(deltaNum) ? '—' : `${newTotal.toFixed(1)} ${unitLabel}`}
                 </span>
               </div>
             </div>
           ) : (
             <div className="space-y-1.5">
-              <Label>New value (days)</Label>
+              <Label>New value ({unitLabel})</Label>
               <Input
                 type="number"
                 step="0.5"
@@ -2558,6 +2559,8 @@ function BulkEditDialog({
   const [field, setField] = useState<'entitled' | 'carried' | 'adjustments'>('entitled')
   const [value, setValue] = useState('')
   const [reason, setReason] = useState('')
+  const allHours = rows.length > 0 && rows.every((r) => r.leaveTypeUnit === 'hours')
+  const bulkUnitLabel = allHours ? 'hours' : 'days'
 
   useEffect(() => {
     if (open) {
@@ -2600,14 +2603,14 @@ function BulkEditDialog({
             <Select value={field} onValueChange={(v) => setField(v as typeof field)}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="entitled">Entitled Days</SelectItem>
+                <SelectItem value="entitled">Entitled {bulkUnitLabel === 'hours' ? 'Hours' : 'Days'}</SelectItem>
                 <SelectItem value="carried">Carried Over</SelectItem>
                 <SelectItem value="adjustments">Adjustments</SelectItem>
               </SelectContent>
             </Select>
           </div>
           <div className="space-y-1.5">
-            <Label>New value (days)</Label>
+            <Label>New value ({bulkUnitLabel})</Label>
             <Input
               type="number"
               step="0.5"

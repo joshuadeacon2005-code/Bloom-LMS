@@ -470,6 +470,7 @@ export interface EntitlementRow {
   leaveTypeId: number
   leaveTypeName: string
   leaveTypeCode: string
+  leaveTypeUnit: string
   year: number
   entitled: string
   used: string

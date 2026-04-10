@@ -725,6 +725,7 @@ router.get('/entitlements', async (req, res, next) => {
         leaveTypeId: leaveTypes.id,
         leaveTypeName: leaveTypes.name,
         leaveTypeCode: leaveTypes.code,
+        leaveTypeUnit: leaveTypes.unit,
         year: leaveBalances.year,
         entitled: leaveBalances.entitled,
         used: leaveBalances.used,
