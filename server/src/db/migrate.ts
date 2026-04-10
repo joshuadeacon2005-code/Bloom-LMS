@@ -1585,6 +1585,62 @@ export async function runMigrations(): Promise<void> {
 
     console.log('[migrate] Phase 13 (production cleanup) complete')
 
+    // ── Phase 14: Additional regional calendars ──────────────────────────────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS user_additional_calendars (
+        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        region_id INTEGER NOT NULL REFERENCES regions(id),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (user_id, region_id)
+      )
+    `)
+    await client.query(`CREATE INDEX IF NOT EXISTS user_additional_calendars_user_id_idx ON user_additional_calendars(user_id)`)
+
+    // Move Victoria Thomas back to HK region (was incorrectly moved to UK)
+    const hkRegion = await client.query(`SELECT id FROM regions WHERE code = 'HK' LIMIT 1`)
+    const ukRegion = await client.query(`SELECT id FROM regions WHERE code = 'UK' LIMIT 1`)
+    const nzRegion = await client.query(`SELECT id FROM regions WHERE code = 'NZ' LIMIT 1`)
+
+    if (hkRegion.rowCount && hkRegion.rowCount > 0 && ukRegion.rowCount && ukRegion.rowCount > 0) {
+      const hkId = hkRegion.rows[0].id
+      const ukId = ukRegion.rows[0].id
+
+      // Move Victoria back to HK
+      const victoriaResult = await client.query(
+        `UPDATE users SET region_id = $1 WHERE LOWER(email) = 'victoria@bloomandgrowasia.com' AND region_id = $2 RETURNING id`,
+        [hkId, ukId]
+      )
+      if (victoriaResult.rowCount && victoriaResult.rowCount > 0) {
+        console.log('[migrate] Phase 14: Moved Victoria Thomas back to HK region')
+      }
+
+      // Assign UK as additional calendar for Victoria
+      const victoriaRow = await client.query(`SELECT id FROM users WHERE LOWER(email) = 'victoria@bloomandgrowasia.com' LIMIT 1`)
+      if (victoriaRow.rowCount && victoriaRow.rowCount > 0) {
+        await client.query(
+          `INSERT INTO user_additional_calendars (user_id, region_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+          [victoriaRow.rows[0].id, ukId]
+        )
+        console.log('[migrate] Phase 14: Assigned UK additional calendar to Victoria Thomas')
+      }
+    }
+
+    // Assign NZ as additional calendar for Hollie Gale
+    if (nzRegion.rowCount && nzRegion.rowCount > 0) {
+      const nzId = nzRegion.rows[0].id
+      const hollieRow = await client.query(`SELECT id FROM users WHERE LOWER(email) = 'hollie@bloomandgrowgroup.com' LIMIT 1`)
+      if (hollieRow.rowCount && hollieRow.rowCount > 0) {
+        await client.query(
+          `INSERT INTO user_additional_calendars (user_id, region_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+          [hollieRow.rows[0].id, nzId]
+        )
+        console.log('[migrate] Phase 14: Assigned NZ additional calendar to Hollie Gale')
+      }
+    }
+
+    console.log('[migrate] Phase 14 (additional calendars) complete')
+
     console.log('[migrate] Migrations complete')
   } catch (err) {
     console.error('[migrate] Migration error:', err)

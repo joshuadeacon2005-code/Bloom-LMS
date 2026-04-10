@@ -102,6 +102,8 @@ import {
   useDeleteTier,
   useEmployeeLeaveHistory,
   useDeleteEmployeeLeaveRequest,
+  useAdditionalCalendars,
+  useUpdateAdditionalCalendars,
   type SlackSyncResult,
   type AdminUser,
   type LeaveType,
@@ -257,6 +259,7 @@ function UserProfileSheet({
   const deleteRequest = useDeleteEmployeeLeaveRequest()
   const [pendingDelete, setPendingDelete] = useState<EmployeeLeaveRequest | null>(null)
 
+  const { data: additionalCals } = useAdditionalCalendars(user?.id ?? null)
   const regionName = regions?.find((r) => r.id === user?.regionId)?.name ?? '—'
   const regionCode = regions?.find((r) => r.id === user?.regionId)?.code ?? ''
   const years = Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i)
@@ -277,6 +280,9 @@ function UserProfileSheet({
                 <Badge className={ROLE_COLOURS[user.role]}>{ROLE_LABELS[user.role]}</Badge>
                 <Badge variant={user.isActive ? 'default' : 'secondary'}>{user.isActive ? 'Active' : 'Inactive'}</Badge>
                 {user.managerName && <Badge variant="outline">Manager: {user.managerName}</Badge>}
+                {additionalCals && additionalCals.length > 0 && additionalCals.map(c => (
+                  <Badge key={c.id} variant="outline" className="border-blue-300 text-blue-700">+ {c.regionCode} holidays</Badge>
+                ))}
               </div>
 
               <div className="flex gap-2 border-b">
@@ -549,6 +555,46 @@ const createUserSchema = z.object({
 })
 type UserFormData = z.infer<typeof createUserSchema>
 
+function AdditionalCalendarsField({ userId, userRegionId }: { userId: number; userRegionId: number }) {
+  const { data: regions } = useRegions()
+  const { data: additionalCals } = useAdditionalCalendars(userId)
+  const updateCalendars = useUpdateAdditionalCalendars()
+
+  const selectedIds = additionalCals?.map(c => c.regionId) ?? []
+  const availableRegions = regions?.filter(r => r.id !== userRegionId) ?? []
+
+  function toggle(regionId: number) {
+    const next = selectedIds.includes(regionId)
+      ? selectedIds.filter(id => id !== regionId)
+      : [...selectedIds, regionId]
+    updateCalendars.mutate({ userId, regionIds: next })
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <Label>Additional holiday calendars <span className="text-muted-foreground text-xs">(optional — holidays only visible to this user)</span></Label>
+      <div className="flex flex-wrap gap-2">
+        {availableRegions.map(r => {
+          const isSelected = selectedIds.includes(r.id)
+          return (
+            <Badge
+              key={r.id}
+              variant={isSelected ? 'default' : 'outline'}
+              className="cursor-pointer select-none"
+              onClick={() => toggle(r.id)}
+            >
+              {r.name}
+            </Badge>
+          )
+        })}
+      </div>
+      {availableRegions.length === 0 && (
+        <p className="text-xs text-muted-foreground">No other regions available</p>
+      )}
+    </div>
+  )
+}
+
 function UserDialog({
   open,
   onOpenChange,
@@ -774,6 +820,10 @@ function UserDialog({
               )}
             />
           </div>
+
+          {editing && (
+            <AdditionalCalendarsField userId={editing.id} userRegionId={Number(watch('regionId'))} />
+          )}
 
           {editing && (
             <div className="flex items-center gap-3">

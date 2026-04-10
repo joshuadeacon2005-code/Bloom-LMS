@@ -15,6 +15,7 @@ import {
   entitlementAuditLog,
   policyEntitlementTiers,
   policyTierAssignments,
+  userAdditionalCalendars,
 } from '../db/schema'
 import { authenticate } from '../middleware/auth'
 import { requireRole } from '../middleware/rbac'
@@ -1100,6 +1101,66 @@ router.get('/users/:id/leave-requests', async (req, res, next) => {
       .leftJoin(leaveTypes, eq(leaveRequests.leaveTypeId, leaveTypes.id))
       .where(eq(leaveRequests.userId, userId))
       .orderBy(desc(leaveRequests.createdAt))
+
+    const response: ApiResponse<typeof rows> = { success: true, data: rows }
+    res.json(response)
+  } catch (err) {
+    next(err)
+  }
+})
+
+// ─── Additional Calendars ─────────────────────────────────────────────────────
+
+router.get('/users/:userId/additional-calendars', async (req, res, next) => {
+  try {
+    const userId = parseInt(req.params.userId as string, 10)
+    const rows = await db
+      .select({
+        id: userAdditionalCalendars.id,
+        regionId: userAdditionalCalendars.regionId,
+        regionName: regions.name,
+        regionCode: regions.code,
+      })
+      .from(userAdditionalCalendars)
+      .leftJoin(regions, eq(userAdditionalCalendars.regionId, regions.id))
+      .where(eq(userAdditionalCalendars.userId, userId))
+
+    const response: ApiResponse<typeof rows> = { success: true, data: rows }
+    res.json(response)
+  } catch (err) {
+    next(err)
+  }
+})
+
+const updateAdditionalCalendarsSchema = z.object({
+  regionIds: z.array(z.number().int().positive()).default([]),
+})
+
+router.put('/users/:userId/additional-calendars', validate(updateAdditionalCalendarsSchema), async (req, res, next) => {
+  try {
+    const userId = parseInt(req.params.userId as string, 10)
+    const { regionIds } = req.body as z.infer<typeof updateAdditionalCalendarsSchema>
+    const uniqueIds = [...new Set(regionIds)]
+
+    await db.transaction(async (tx) => {
+      await tx.delete(userAdditionalCalendars).where(eq(userAdditionalCalendars.userId, userId))
+      if (uniqueIds.length > 0) {
+        await tx.insert(userAdditionalCalendars).values(
+          uniqueIds.map(regionId => ({ userId, regionId }))
+        )
+      }
+    })
+
+    const rows = await db
+      .select({
+        id: userAdditionalCalendars.id,
+        regionId: userAdditionalCalendars.regionId,
+        regionName: regions.name,
+        regionCode: regions.code,
+      })
+      .from(userAdditionalCalendars)
+      .leftJoin(regions, eq(userAdditionalCalendars.regionId, regions.id))
+      .where(eq(userAdditionalCalendars.userId, userId))
 
     const response: ApiResponse<typeof rows> = { success: true, data: rows }
     res.json(response)

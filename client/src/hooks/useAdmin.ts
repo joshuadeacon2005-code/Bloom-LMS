@@ -226,6 +226,41 @@ export function useDeactivateUser() {
   })
 }
 
+// ─── Additional Calendars ─────────────────────────────────────────────────────
+
+export interface AdditionalCalendar {
+  id: number
+  regionId: number
+  regionName: string | null
+  regionCode: string | null
+}
+
+export function useAdditionalCalendars(userId: number | null) {
+  return useQuery({
+    queryKey: ['additional-calendars', userId],
+    queryFn: () =>
+      api
+        .get<{ data: AdditionalCalendar[] }>(`/admin/users/${userId}/additional-calendars`)
+        .then((r) => r.data.data),
+    enabled: !!userId,
+  })
+}
+
+export function useUpdateAdditionalCalendars() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ userId, regionIds }: { userId: number; regionIds: number[] }) =>
+      api
+        .put<{ data: AdditionalCalendar[] }>(`/admin/users/${userId}/additional-calendars`, { regionIds })
+        .then((r) => r.data.data),
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: ['additional-calendars', variables.userId] })
+      toast.success('Additional calendars updated')
+    },
+    onError: () => toast.error('Failed to update additional calendars'),
+  })
+}
+
 // ─── Leave Types ──────────────────────────────────────────────────────────────
 
 export function useAdminLeaveTypes(regionId?: number) {

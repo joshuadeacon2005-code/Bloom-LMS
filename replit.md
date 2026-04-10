@@ -53,8 +53,17 @@ bloom-lms/
 - Each region has a **default entitlement** per leave type (via `leave_policies.entitlement_days`)
 - **Custom tiers** allow specific staff to receive more or fewer days than the regional default
 - Tiers are managed inside the Policy dialog (Admin > Policies > click Edit on any policy)
-- The Entitlements tab shows the "Region Default" alongside each user's entitled days
+- Editing a user's entitled days in their profile auto-creates/syncs a custom tier (wrapped in DB transaction)
+- The User Profile Sheet shows entitlements with inline editing and audit log
 - Color-coded comparison: green = more than default, orange = less than default
+
+## Additional Holiday Calendars
+- Users can be assigned additional regional holiday calendars via `user_additional_calendars` join table
+- When a user views their own region's calendar, holidays from their additional calendars are merged in
+- Other users in the same region do NOT see these extra holidays (they're user-specific)
+- Users with additional calendars also appear on those regions' team calendars (absences visible)
+- Managed in Admin > Users > Edit User dialog (toggleable region badges)
+- Victoria Thomas: HK region + UK additional calendar; Hollie Gale: AU region + NZ additional calendar
 
 ## Region Restriction System
 - Leave types have a `regionRestriction` field (comma-separated region codes like "HK,SG,CN-GZ")

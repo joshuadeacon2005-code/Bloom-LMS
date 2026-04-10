@@ -7,7 +7,7 @@ import { upload } from '../middleware/upload'
 import * as leaveService from '../services/leave.service'
 import { uploadAttachment } from '../services/cloudinary.service'
 import { db } from '../db/index'
-import { publicHolidays, leaveTypes } from '../db/schema'
+import { publicHolidays, leaveTypes, userAdditionalCalendars } from '../db/schema'
 import { calculateWorkingDays, parseDate, formatDate } from '../utils/workingDays'
 import type { ApiResponse } from './types'
 
@@ -291,6 +291,34 @@ router.get('/holidays', async (req, res, next) => {
       .from(publicHolidays)
       .where(and(...conditions))
       .orderBy(publicHolidays.date)
+
+    const userId = req.user?.userId
+    const userRegionId = req.user?.regionId
+    if (userId && regionId && regionId === userRegionId) {
+      const additionalCals = await db
+        .select({ regionId: userAdditionalCalendars.regionId })
+        .from(userAdditionalCalendars)
+        .where(eq(userAdditionalCalendars.userId, userId))
+
+      const additionalRegionIds = additionalCals.map(c => c.regionId)
+
+      if (additionalRegionIds.length > 0) {
+        for (const extraRegionId of additionalRegionIds) {
+          const extraHolidays = await db
+            .select()
+            .from(publicHolidays)
+            .where(and(
+              eq(publicHolidays.regionId, extraRegionId),
+              gte(publicHolidays.date, `${year}-01-01`),
+              lte(publicHolidays.date, `${year}-12-31`),
+            ))
+            .orderBy(publicHolidays.date)
+
+          rows.push(...extraHolidays)
+        }
+        rows.sort((a, b) => a.date.localeCompare(b.date))
+      }
+    }
 
     const response: ApiResponse<typeof rows> = { success: true, data: rows }
     res.json(response)
