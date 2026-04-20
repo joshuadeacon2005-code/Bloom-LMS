@@ -19,7 +19,6 @@ import {
   Wifi,
   WifiOff,
   History,
-  CheckSquare,
   Paperclip,
 } from 'lucide-react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -99,7 +98,6 @@ import {
   useUpdateEntitlement,
   useBulkUpdateEntitlements,
   useEntitlementAudit,
-  useRevertEntitlementChange,
   usePolicyTiers,
   useCreateTier,
   useUpdateTier,
@@ -2972,105 +2970,6 @@ function InlineEditCell({
   )
 }
 
-function BulkEditDialog({
-  rows,
-  open,
-  onOpenChange,
-  onClear,
-}: {
-  rows: EntitlementRow[]
-  open: boolean
-  onOpenChange: (v: boolean) => void
-  onClear: () => void
-}) {
-  const bulk = useBulkUpdateEntitlements()
-  const [field, setField] = useState<'entitled' | 'carried' | 'adjustments'>('entitled')
-  const [value, setValue] = useState('')
-  const [reason, setReason] = useState('')
-
-  useEffect(() => {
-    if (open) {
-      setField('entitled')
-      setValue('')
-      setReason('')
-    }
-  }, [open])
-
-  const handleSave = async () => {
-    const num = parseFloat(value)
-    if (isNaN(num) || num < 0) return
-    if (!reason.trim()) return
-    await bulk.mutateAsync({
-      updates: rows.map((r) => ({
-        userId: r.userId,
-        leaveTypeId: r.leaveTypeId,
-        year: r.year,
-        field,
-        newValue: num,
-      })),
-      reason: reason.trim(),
-    })
-    onClear()
-    onOpenChange(false)
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>Bulk Update Entitlements</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-4 py-2">
-          <p className="text-sm text-muted-foreground">
-            Updating <span className="font-medium text-foreground">{rows.length}</span> entitlement{rows.length !== 1 ? 's' : ''}.
-          </p>
-          <div className="space-y-1.5">
-            <Label>Field to update</Label>
-            <Select value={field} onValueChange={(v) => setField(v as typeof field)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="entitled">Entitled Days</SelectItem>
-                <SelectItem value="carried">Carried Over</SelectItem>
-                <SelectItem value="adjustments">Adjustments</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label>New value (days)</Label>
-            <Input
-              type="number"
-              step="0.5"
-              min="0"
-              max="365"
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-              placeholder="e.g. 14"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Reason for change</Label>
-            <Textarea
-              rows={2}
-              placeholder="e.g. Annual entitlement reset"
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              className="resize-none"
-            />
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button
-            onClick={handleSave}
-            disabled={bulk.isPending || !reason.trim() || isNaN(parseFloat(value))}
-          >
-            {bulk.isPending ? 'Updating...' : `Update ${rows.length}`}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
 
 
 // ─── Main Page ────────────────────────────────────────────────────────────────

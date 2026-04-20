@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { Download, TrendingUp, Users, Calendar, BarChart3, ChevronDown, Check, Search, ChevronUp, Table2, Eye } from 'lucide-react'
+import { Download, TrendingUp, Users, Calendar, BarChart3, Search, ChevronUp, Table2, Eye } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   BarChart,
@@ -18,7 +18,6 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Progress } from '@/components/ui/progress'
-import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import {
