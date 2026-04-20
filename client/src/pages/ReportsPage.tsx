@@ -87,56 +87,6 @@ function SummaryCard({
   )
 }
 
-function MultiSelectDropdown({
-  label,
-  options,
-  selected,
-  onChange,
-}: {
-  label: string
-  options: { value: string; label: string }[]
-  selected: string[]
-  onChange: (v: string[]) => void
-}) {
-  const [open, setOpen] = useState(false)
-  const toggle = (v: string) => {
-    onChange(selected.includes(v) ? selected.filter((s) => s !== v) : [...selected, v])
-  }
-  const displayLabel =
-    selected.length === 0 ? `All ${label}` : `${selected.length} ${label} selected`
-
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button variant="outline" className="w-full justify-between font-normal h-9 text-sm">
-          <span className="truncate">{displayLabel}</span>
-          <ChevronDown className="h-4 w-4 shrink-0 opacity-50 ml-2" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-64 p-2" align="start">
-        <div className="space-y-1 max-h-60 overflow-y-auto">
-          {options.map((opt) => (
-            <div
-              key={opt.value}
-              className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted cursor-pointer"
-              onClick={() => toggle(opt.value)}
-            >
-              <Checkbox checked={selected.includes(opt.value)} readOnly />
-              <span className="text-sm select-none">{opt.label}</span>
-              {selected.includes(opt.value) && <Check className="h-3 w-3 ml-auto text-primary" />}
-            </div>
-          ))}
-        </div>
-        {selected.length > 0 && (
-          <Button variant="ghost" size="sm" className="w-full mt-1 h-7 text-xs" onClick={() => onChange([])}>
-            Clear selection
-          </Button>
-        )}
-      </PopoverContent>
-    </Popover>
-  )
-}
-
 function LoadingSkeleton() {
   return (
     <div className="space-y-6">
@@ -159,16 +109,15 @@ export function ReportsPage() {
   const [exportingEnt, setExportingEnt] = useState(false)
   // Filter state — shared across view and exports
   const [filterRegionId, setFilterRegionId] = useState<string>('__all__')
-  const [filterLeaveTypeId, setFilterLeaveTypeId] = useState<string>('__all__')
-  // Leave Requests export multi-select filters
-  const [lrStatuses, setLrStatuses] = useState<string[]>([])
-  const [lrRegionIds, setLrRegionIds] = useState<string[]>([])
-  const [lrLeaveTypeIds, setLrLeaveTypeIds] = useState<string[]>([])
-  const [lrUserIds, setLrUserIds] = useState<string[]>([])
-  // Entitlements export multi-select filters
-  const [entRegionIds, setEntRegionIds] = useState<string[]>([])
-  const [entLeaveTypeIds, setEntLeaveTypeIds] = useState<string[]>([])
-  const [entUserIds, setEntUserIds] = useState<string[]>([])
+  // Leave Requests export multi-select filters (placeholders for future UI)
+  const lrStatuses: string[] = []
+  const lrRegionIds: string[] = []
+  const lrLeaveTypeIds: string[] = []
+  const lrUserIds: string[] = []
+  // Entitlements export multi-select filters (placeholders for future UI)
+  const entRegionIds: string[] = []
+  const entLeaveTypeIds: string[] = []
+  const entUserIds: string[] = []
   // Single-select state for preview UI (remote side)
   const [lrStatus, setLrStatus] = useState('all')
   const [exportRegionId, setExportRegionId] = useState<string>('__all__')
