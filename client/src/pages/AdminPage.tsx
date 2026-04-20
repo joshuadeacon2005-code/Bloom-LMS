@@ -96,7 +96,6 @@ import {
   useToggleSlackCommands,
   useEntitlements,
   useUpdateEntitlement,
-  useBulkUpdateEntitlements,
   useEntitlementAudit,
   usePolicyTiers,
   useCreateTier,
