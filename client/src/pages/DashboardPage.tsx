@@ -126,17 +126,27 @@ export function DashboardPage() {
               <CheckCircle className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold text-foreground">
-                {paidBalances[0].available}
-                <span className="ml-1 text-base font-normal text-muted-foreground">
-                  / {paidBalances[0].entitled}
-                </span>
-              </div>
-              <p className="mt-0.5 text-xs text-muted-foreground">days remaining</p>
-              <Progress
-                value={(paidBalances[0].available / paidBalances[0].entitled) * 100}
-                className="mt-3 h-1.5"
-              />
+              {paidBalances[0].leaveType?.deductsBalance === false ? (
+                <>
+                  <div className="text-3xl font-bold text-foreground" title="Unlimited — does not deduct from balance">∞</div>
+                  <p className="mt-0.5 text-xs text-muted-foreground">no deduction</p>
+                  <Progress value={100} className="mt-3 h-1.5" />
+                </>
+              ) : (
+                <>
+                  <div className="text-3xl font-bold text-foreground">
+                    {paidBalances[0].available}
+                    <span className="ml-1 text-base font-normal text-muted-foreground">
+                      / {paidBalances[0].entitled}
+                    </span>
+                  </div>
+                  <p className="mt-0.5 text-xs text-muted-foreground">{paidBalances[0].leaveType?.unit === 'hours' ? 'hours' : 'days'} remaining</p>
+                  <Progress
+                    value={(paidBalances[0].available / paidBalances[0].entitled) * 100}
+                    className="mt-3 h-1.5"
+                  />
+                </>
+              )}
             </CardContent>
           </Card>
         ) : null}
@@ -176,26 +186,33 @@ export function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {balances.slice(0, 4).map((b) => (
-                <div key={b.id}>
-                  <div className="mb-1 flex items-center justify-between text-sm">
-                    <span className="font-medium text-foreground">{b.leaveType?.name}</span>
-                    <span className="text-muted-foreground">
-                      {b.available} / {b.entitled} days
-                    </span>
+              {balances.slice(0, 4).map((b) => {
+                const unitStr = b.leaveType?.unit === 'hours' ? 'hours' : 'days'
+                const isNonDeducting = b.leaveType?.deductsBalance === false
+                return (
+                  <div key={b.id}>
+                    <div className="mb-1 flex items-center justify-between text-sm">
+                      <span className="font-medium text-foreground">{b.leaveType?.name}</span>
+                      <span className="text-muted-foreground">
+                        {isNonDeducting
+                          ? <span title="Unlimited — does not deduct from balance">∞</span>
+                          : <>{b.available} / {b.entitled} {unitStr}</>
+                        }
+                      </span>
+                    </div>
+                    <Progress
+                      value={isNonDeducting ? 100 : b.entitled > 0 ? (b.available / b.entitled) * 100 : 0}
+                      className="h-2"
+                    />
+                    {!isNonDeducting && b.used > 0 && (
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {b.used} used · {b.pending > 0 ? `${b.pending} pending · ` : ''}
+                        {b.carried > 0 ? `${b.carried} carried over` : ''}
+                      </p>
+                    )}
                   </div>
-                  <Progress
-                    value={b.entitled > 0 ? (b.available / b.entitled) * 100 : 0}
-                    className="h-2"
-                  />
-                  {b.used > 0 && (
-                    <p className="mt-0.5 text-xs text-muted-foreground">
-                      {b.used} used · {b.pending > 0 ? `${b.pending} pending · ` : ''}
-                      {b.carried > 0 ? `${b.carried} carried over` : ''}
-                    </p>
-                  )}
-                </div>
-              ))}
+                )
+              })}
             </div>
           </CardContent>
         </Card>

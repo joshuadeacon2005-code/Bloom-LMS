@@ -5,6 +5,7 @@ export interface TokenPayload {
   email: string
   role: string
   regionId: number
+  gender: string | null
 }
 
 export function signAccessToken(payload: TokenPayload): string {

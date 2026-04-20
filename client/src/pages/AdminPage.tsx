@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -107,6 +107,8 @@ import {
   useDeleteTier,
   useEmployeeLeaveHistory,
   useDeleteEmployeeLeaveRequest,
+  useAdditionalCalendars,
+  useUpdateAdditionalCalendars,
   type SlackSyncResult,
   type AdminUser,
   type LeaveType,
@@ -219,8 +221,6 @@ function ManagerCombobox({
   )
 }
 
-// ─── EmployeeHistorySheet ─────────────────────────────────────────────────────
-
 const STATUS_COLOURS_HISTORY: Record<string, string> = {
   pending: 'bg-yellow-100 text-yellow-800',
   approved: 'bg-green-100 text-green-800',
@@ -229,107 +229,296 @@ const STATUS_COLOURS_HISTORY: Record<string, string> = {
   pending_hr: 'bg-blue-100 text-blue-800',
 }
 
-function EmployeeHistorySheet({
+// ─── User Profile Sheet ──────────────────────────────────────────────────────
+
+function UserProfileSheet({
   user,
   onClose,
+  initialTab = 'entitlements',
 }: {
   user: AdminUser | null
   onClose: () => void
+  initialTab?: 'entitlements' | 'history'
 }) {
   const { user: me } = useAuthStore()
   const isHrOrAbove = me?.role === 'hr_admin' || me?.role === 'super_admin'
-  const { data: history, isLoading } = useEmployeeLeaveHistory(user?.id)
+  const { data: regions } = useRegions()
+  const [year, setYear] = useState(new Date().getFullYear())
+  const [showAudit, setShowAudit] = useState(false)
+  const [editRow, setEditRow] = useState<EntitlementRow | null>(null)
+  const [activeTab, setActiveTab] = useState<'entitlements' | 'history'>('entitlements')
+
+  useEffect(() => {
+    setActiveTab(initialTab)
+    setShowAudit(false)
+    setYear(new Date().getFullYear())
+    setEditRow(null)
+    setPendingDelete(null)
+  }, [user?.id, initialTab])
+
+  const { data: entitlements = [], isLoading: entitlementsLoading } = useEntitlements(
+    undefined, year, user?.id ?? undefined
+  )
+  const { data: auditLog = [] } = useEntitlementAudit(user?.id ?? undefined)
+  const { data: history, isLoading: historyLoading } = useEmployeeLeaveHistory(user?.id)
   const deleteRequest = useDeleteEmployeeLeaveRequest()
   const [pendingDelete, setPendingDelete] = useState<EmployeeLeaveRequest | null>(null)
+
+  const { data: additionalCals } = useAdditionalCalendars(user?.id ?? null)
+  const regionName = regions?.find((r) => r.id === user?.regionId)?.name ?? '—'
+  const regionCode = regions?.find((r) => r.id === user?.regionId)?.code ?? ''
+  const years = Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i)
 
   return (
     <>
       <Sheet open={!!user} onOpenChange={(v) => { if (!v) onClose() }}>
-        <SheetContent className="w-full sm:max-w-2xl overflow-y-auto">
+        <SheetContent className="w-full sm:max-w-3xl overflow-y-auto">
           <SheetHeader>
-            <SheetTitle>{user?.name} — Leave History</SheetTitle>
+            <SheetTitle>{user?.name}</SheetTitle>
             <SheetDescription>{user?.email}</SheetDescription>
           </SheetHeader>
-          <div className="mt-6 space-y-2">
-            {isLoading ? (
-              [...Array(5)].map((_, i) => <Skeleton key={i} className="h-16 w-full" />)
-            ) : !history || history.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-6 text-center">
-                No leave requests found for this employee.
-              </p>
-            ) : (
-              history.map((req: EmployeeLeaveRequest) => {
-                const days = parseFloat(req.totalDays)
-                const halfDayLabel = req.halfDayPeriod ? ` (${req.halfDayPeriod === 'AM' ? 'morning' : 'afternoon'})` : ''
-                const dayLabel = days === 0.5 ? `0.5 days${halfDayLabel}` : `${days} day${days !== 1 ? 's' : ''}${halfDayLabel}`
-                const dateLabel =
-                  req.startDate === req.endDate
-                    ? req.startDate
-                    : `${req.startDate} → ${req.endDate}`
-                const statusColour = STATUS_COLOURS_HISTORY[req.status] ?? 'bg-muted text-muted-foreground'
-                return (
-                  <div key={req.id} className="rounded-lg border px-4 py-3 space-y-1">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-medium text-sm truncate">
-                        {req.leaveTypeName ?? req.leaveTypeCode ?? '—'}
-                      </span>
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium capitalize ${statusColour}`}>
-                          {req.status.replace('_', ' ')}
-                        </span>
-                        {isHrOrAbove && (
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-6 w-6 text-destructive hover:text-destructive"
-                            title="Delete leave request"
-                            onClick={() => setPendingDelete(req)}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        )}
-                      </div>
+
+          {user && (
+            <div className="mt-4 space-y-6">
+              <div className="flex flex-wrap gap-2">
+                <Badge variant="outline">{regionCode} — {regionName}</Badge>
+                <Badge className={ROLE_COLOURS[user.role]}>{ROLE_LABELS[user.role]}</Badge>
+                <Badge variant={user.isActive ? 'default' : 'secondary'}>{user.isActive ? 'Active' : 'Inactive'}</Badge>
+                {user.managerName && <Badge variant="outline">Manager: {user.managerName}</Badge>}
+                {additionalCals && additionalCals.length > 0 && additionalCals.map(c => (
+                  <Badge key={c.id} variant="outline" className="border-blue-300 text-blue-700">+ {c.regionCode} holidays</Badge>
+                ))}
+              </div>
+
+              <div className="flex gap-2 border-b">
+                <button
+                  className={cn('px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
+                    activeTab === 'entitlements' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'
+                  )}
+                  onClick={() => setActiveTab('entitlements')}
+                >
+                  Leave Entitlements
+                </button>
+                <button
+                  className={cn('px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
+                    activeTab === 'history' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'
+                  )}
+                  onClick={() => setActiveTab('history')}
+                >
+                  Leave History
+                </button>
+              </div>
+
+              {activeTab === 'entitlements' && (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Select value={year.toString()} onValueChange={(v) => setYear(parseInt(v))}>
+                      <SelectTrigger className="w-28"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {years.map((y) => (
+                          <SelectItem key={y} value={y.toString()}>{y}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setShowAudit((v) => !v)}
+                    >
+                      <History className="mr-1.5 h-4 w-4" />
+                      {showAudit ? 'Hide' : 'Show'} Audit Log
+                    </Button>
+                  </div>
+
+                  {entitlementsLoading ? (
+                    <div className="space-y-2">
+                      {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
                     </div>
-                    <p className="text-xs text-muted-foreground">
-                      {dateLabel} · {dayLabel}
-                    </p>
-                    {req.reason && (
-                      <p className="text-xs text-muted-foreground italic line-clamp-2">{req.reason}</p>
-                    )}
-                    <div className="flex items-center gap-3">
-                      <p className="text-xs text-muted-foreground/60">
-                        Submitted {format(new Date(req.createdAt), 'd MMM yyyy')}
-                      </p>
-                      {req.attachmentUrl && (
-                        <a
-                          href={req.attachmentUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
-                        >
-                          <Paperclip className="h-3 w-3" />
-                          Attachment
-                        </a>
+                  ) : entitlements.length === 0 ? (
+                    <p className="text-sm text-muted-foreground py-6 text-center">No entitlements found for {year}.</p>
+                  ) : (
+                    <div className="rounded-md border overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b bg-muted/40">
+                            <th className="px-3 py-2 text-left font-medium">Leave Type</th>
+                            <th className="px-3 py-2 text-right font-medium">Default</th>
+                            <th className="px-3 py-2 text-right font-medium">Entitled</th>
+                            <th className="px-3 py-2 text-right font-medium">Used</th>
+                            <th className="px-3 py-2 text-right font-medium">Pending</th>
+                            <th className="px-3 py-2 text-right font-medium">Carried</th>
+                            <th className="px-3 py-2 text-right font-medium">Adj.</th>
+                            <th className="px-3 py-2 text-right font-medium">Balance</th>
+                            {isHrOrAbove && <th className="px-3 py-2 w-10" />}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {entitlements.map((row) => {
+                            const balance = (
+                              parseFloat(row.entitled) +
+                              parseFloat(row.carried) +
+                              parseFloat(row.adjustments) -
+                              parseFloat(row.used) -
+                              parseFloat(row.pending)
+                            ).toFixed(1)
+                            return (
+                              <tr key={`${row.userId}-${row.leaveTypeId}`} className="border-b last:border-0 hover:bg-muted/20">
+                                <td className="px-3 py-2">
+                                  <span className="font-medium">{row.leaveTypeName}</span>
+                                  <code className="ml-1.5 text-xs text-muted-foreground">{row.leaveTypeCode}</code>
+                                </td>
+                                <td className="px-3 py-2 text-right text-muted-foreground">
+                                  {row.policyDefault === 'unlimited' ? '∞' : row.policyDefault ? `${parseFloat(row.policyDefault).toFixed(1)}${row.leaveTypeUnit === 'hours' ? 'h' : 'd'}` : '—'}
+                                </td>
+                                <InlineEditCell row={row} field="entitled" className="px-3 py-2 text-right" />
+                                <td className="px-3 py-2 text-right text-muted-foreground">{parseFloat(row.used).toFixed(1)}{row.leaveTypeUnit === 'hours' ? 'h' : 'd'}</td>
+                                <td className="px-3 py-2 text-right text-muted-foreground">{parseFloat(row.pending).toFixed(1)}{row.leaveTypeUnit === 'hours' ? 'h' : 'd'}</td>
+                                <InlineEditCell row={row} field="carried" className="px-3 py-2 text-right text-muted-foreground" />
+                                <InlineEditCell row={row} field="adjustments" className="px-3 py-2 text-right text-muted-foreground" />
+                                <td className="px-3 py-2 text-right font-semibold">
+                                  <span className={parseFloat(balance) < 0 ? 'text-red-600' : ''}>
+                                    {balance}{row.leaveTypeUnit === 'hours' ? 'h' : 'd'}
+                                  </span>
+                                </td>
+                                {isHrOrAbove && (
+                                  <td className="px-3 py-2 text-right">
+                                    <Button size="sm" variant="ghost" onClick={() => setEditRow(row)}>
+                                      <Pencil className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </td>
+                                )}
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  {showAudit && (
+                    <div className="space-y-2">
+                      <h3 className="font-semibold text-sm">Audit Log</h3>
+                      {auditLog.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">No audit entries for this employee.</p>
+                      ) : (
+                        <div className="rounded-md border overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="border-b bg-muted/40">
+                                <th className="px-3 py-2 text-left font-medium">Date</th>
+                                <th className="px-3 py-2 text-left font-medium">Leave Type</th>
+                                <th className="px-3 py-2 text-left font-medium">Field</th>
+                                <th className="px-3 py-2 text-right font-medium">Old</th>
+                                <th className="px-3 py-2 text-right font-medium">New</th>
+                                <th className="px-3 py-2 text-left font-medium">Reason</th>
+                                <th className="px-3 py-2 text-left font-medium">By</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {auditLog.map((entry: AuditLogEntry) => (
+                                <tr key={entry.id} className="border-b last:border-0">
+                                  <td className="px-3 py-2 text-muted-foreground whitespace-nowrap text-xs">
+                                    {format(new Date(entry.createdAt), 'd MMM yyyy HH:mm')}
+                                  </td>
+                                  <td className="px-3 py-2 text-xs">{entry.leaveTypeName ?? '—'}</td>
+                                  <td className="px-3 py-2 capitalize text-xs">{entry.fieldChanged}</td>
+                                  <td className="px-3 py-2 text-right text-xs">{entry.oldValue ?? '—'}</td>
+                                  <td className="px-3 py-2 text-right font-medium text-xs">{entry.newValue ?? '—'}</td>
+                                  <td className="px-3 py-2 text-muted-foreground text-xs max-w-xs truncate">{entry.reason}</td>
+                                  <td className="px-3 py-2 text-muted-foreground text-xs">{entry.changedByName}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
                       )}
                     </div>
-                  </div>
-                )
-              })
-            )}
-          </div>
+                  )}
+                </div>
+              )}
+
+              {activeTab === 'history' && (
+                <div className="space-y-2">
+                  {historyLoading ? (
+                    [...Array(5)].map((_, i) => <Skeleton key={i} className="h-16 w-full" />)
+                  ) : !history || history.length === 0 ? (
+                    <p className="text-sm text-muted-foreground py-6 text-center">
+                      No leave requests found for this employee.
+                    </p>
+                  ) : (
+                    history.map((req: EmployeeLeaveRequest) => {
+                      const days = parseFloat(req.totalDays)
+                      const halfDayLabel = req.halfDayPeriod ? ` (${req.halfDayPeriod === 'AM' ? 'morning' : 'afternoon'})` : ''
+                      const dayLabel = days === 0.5 ? `0.5 days${halfDayLabel}` : `${days} day${days !== 1 ? 's' : ''}${halfDayLabel}`
+                      const dateLabel =
+                        req.startDate === req.endDate
+                          ? req.startDate
+                          : `${req.startDate} → ${req.endDate}`
+                      const statusColour = STATUS_COLOURS_HISTORY[req.status] ?? 'bg-muted text-muted-foreground'
+                      return (
+                        <div key={req.id} className="rounded-lg border px-4 py-3 space-y-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-medium text-sm truncate">
+                              {req.leaveTypeName ?? req.leaveTypeCode ?? '—'}
+                            </span>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium capitalize ${statusColour}`}>
+                                {req.status.replace('_', ' ')}
+                              </span>
+                              {isHrOrAbove && (
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-6 w-6 text-destructive hover:text-destructive"
+                                  title="Delete leave request"
+                                  onClick={() => setPendingDelete(req)}
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            {dateLabel} · {dayLabel}
+                          </p>
+                          {req.reason && (
+                            <p className="text-xs text-muted-foreground italic line-clamp-2">{req.reason}</p>
+                          )}
+                          <div className="flex items-center gap-3">
+                            <p className="text-xs text-muted-foreground/60">
+                              Submitted {format(new Date(req.createdAt), 'd MMM yyyy')}
+                            </p>
+                            {req.approverName && (
+                              <p className="text-xs text-muted-foreground/60">
+                                Approved by {req.approverName}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </SheetContent>
       </Sheet>
 
-      <AlertDialog open={!!pendingDelete} onOpenChange={(v) => { if (!v) setPendingDelete(null) }}>
+      {editRow && (
+        <EditEntitlementDialog
+          row={editRow}
+          open={!!editRow}
+          onOpenChange={(v) => !v && setEditRow(null)}
+        />
+      )}
+
+      <AlertDialog open={!!pendingDelete} onOpenChange={(v) => !v && setPendingDelete(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete leave request?</AlertDialogTitle>
+            <AlertDialogTitle>Delete this leave request?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently delete the{' '}
-              <strong>{pendingDelete?.leaveTypeName ?? 'leave'}</strong> request for{' '}
-              <strong>{user?.name}</strong> ({pendingDelete?.startDate}
-              {pendingDelete?.endDate !== pendingDelete?.startDate ? ` → ${pendingDelete?.endDate}` : ''}).
-              Any used or pending balance will be restored. This cannot be undone.
+              {pendingDelete && `${pendingDelete.leaveTypeName ?? pendingDelete.leaveTypeCode} · ${pendingDelete.startDate}`}. This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -337,11 +526,12 @@ function EmployeeHistorySheet({
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={() => {
-                if (!user || !pendingDelete) return
-                deleteRequest.mutate(
-                  { userId: user.id, requestId: pendingDelete.id },
-                  { onSettled: () => setPendingDelete(null) }
-                )
+                if (pendingDelete && user) {
+                  deleteRequest.mutate(
+                    { userId: user.id, requestId: pendingDelete.id },
+                    { onSettled: () => setPendingDelete(null) }
+                  )
+                }
               }}
             >
               Delete
@@ -366,8 +556,49 @@ const createUserSchema = z.object({
   isOnProbation: z.boolean().optional(),
   probationMonths: z.number().nullable().optional(),
   joinedDate: z.string().optional(),
+  gender: z.enum(['male', 'female', 'other', '']).optional(),
 })
 type UserFormData = z.infer<typeof createUserSchema>
+
+function AdditionalCalendarsField({ userId, userRegionId }: { userId: number; userRegionId: number }) {
+  const { data: regions } = useRegions()
+  const { data: additionalCals } = useAdditionalCalendars(userId)
+  const updateCalendars = useUpdateAdditionalCalendars()
+
+  const selectedIds = additionalCals?.map(c => c.regionId) ?? []
+  const availableRegions = regions?.filter(r => r.id !== userRegionId) ?? []
+
+  function toggle(regionId: number) {
+    const next = selectedIds.includes(regionId)
+      ? selectedIds.filter(id => id !== regionId)
+      : [...selectedIds, regionId]
+    updateCalendars.mutate({ userId, regionIds: next })
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <Label>Additional holiday calendars <span className="text-muted-foreground text-xs">(optional — holidays only visible to this user)</span></Label>
+      <div className="flex flex-wrap gap-2">
+        {availableRegions.map(r => {
+          const isSelected = selectedIds.includes(r.id)
+          return (
+            <Badge
+              key={r.id}
+              variant={isSelected ? 'default' : 'outline'}
+              className="cursor-pointer select-none"
+              onClick={() => toggle(r.id)}
+            >
+              {r.name}
+            </Badge>
+          )
+        })}
+      </div>
+      {availableRegions.length === 0 && (
+        <p className="text-xs text-muted-foreground">No other regions available</p>
+      )}
+    </div>
+  )
+}
 
 function UserDialog({
   open,
@@ -404,8 +635,9 @@ function UserDialog({
           isOnProbation: editing.isOnProbation,
           probationMonths: null,
           joinedDate: editing.joinedDate ?? '',
+          gender: editing.gender ?? '',
         }
-      : { role: 'employee', isActive: true, isOnProbation: false, probationMonths: null, joinedDate: '' },
+      : { role: 'employee', isActive: true, isOnProbation: false, probationMonths: null, joinedDate: '', gender: '' as const },
   })
 
   useEffect(() => {
@@ -422,8 +654,9 @@ function UserDialog({
               isOnProbation: editing.isOnProbation,
               probationMonths: null,
               joinedDate: editing.joinedDate ?? '',
+              gender: editing.gender ?? '',
             }
-          : { role: 'employee', isActive: true, isOnProbation: false, probationMonths: null, joinedDate: '' }
+          : { role: 'employee', isActive: true, isOnProbation: false, probationMonths: null, joinedDate: '', gender: '' as const }
       )
     }
   }, [open, editing, reset])
@@ -470,6 +703,7 @@ function UserDialog({
       probationMonths: data.probationMonths ?? null,
       probationEndDate,
       joinedDate: data.joinedDate || null,
+      gender: data.gender && ['male', 'female', 'other'].includes(data.gender) ? data.gender as 'male' | 'female' | 'other' : null,
     }
 
     if (editing) {
@@ -573,6 +807,29 @@ function UserDialog({
             />
           </div>
 
+          <div className="space-y-1.5">
+            <Label>Gender</Label>
+            <Controller
+              name="gender"
+              control={control}
+              render={({ field }) => (
+                <Select value={field.value || '__none__'} onValueChange={(v) => field.onChange(v === '__none__' ? '' : v)}>
+                  <SelectTrigger><SelectValue placeholder="Not specified" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Not specified</SelectItem>
+                    <SelectItem value="male">Male</SelectItem>
+                    <SelectItem value="female">Female</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
+            />
+          </div>
+
+          {editing && (
+            <AdditionalCalendarsField userId={editing.id} userRegionId={Number(watch('regionId'))} />
+          )}
+
           {editing && (
             <div className="flex items-center gap-3">
               <Controller
@@ -660,7 +917,8 @@ function UsersTab() {
   const [deactivating, setDeactivating] = useState<AdminUser | null>(null)
   const [resigning, setResigning] = useState<AdminUser | null>(null)
   const [syncResult, setSyncResult] = useState<SlackSyncResult | null>(null)
-  const [historyUser, setHistoryUser] = useState<AdminUser | null>(null)
+  const [profileUser, setProfileUser] = useState<AdminUser | null>(null)
+  const [profileInitialTab, setProfileInitialTab] = useState<'entitlements' | 'history'>('entitlements')
 
   const { data: regions } = useRegions()
   const { data, isLoading } = useAdminUsers({
@@ -833,7 +1091,7 @@ function UsersTab() {
                   </tr>
                 ))
               : users.map((u) => (
-                  <tr key={u.id} className="hover:bg-muted/30 transition-colors">
+                  <tr key={u.id} className="hover:bg-muted/30 transition-colors cursor-pointer" onClick={() => setProfileUser(u)}>
                     <td className="px-4 py-3 font-medium">{u.name}</td>
                     <td className="px-4 py-3 text-muted-foreground">{u.email}</td>
                     <td className="px-4 py-3">
@@ -861,14 +1119,14 @@ function UsersTab() {
                         <span className="text-xs text-muted-foreground">Not linked</span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-right">
+                    <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-end gap-1">
                         <Button
                           size="icon"
                           variant="ghost"
                           className="h-7 w-7 text-muted-foreground"
-                          title="View leave history"
-                          onClick={() => setHistoryUser(u)}
+                          title="Edit entitlements"
+                          onClick={() => { setProfileInitialTab('entitlements'); setProfileUser(u) }}
                         >
                           <History className="h-3.5 w-3.5" />
                         </Button>
@@ -942,7 +1200,7 @@ function UsersTab() {
 
       <UserDialog open={dialogOpen} onOpenChange={setDialogOpen} editing={editing} />
 
-      <EmployeeHistorySheet user={historyUser} onClose={() => setHistoryUser(null)} />
+      <UserProfileSheet user={profileUser} onClose={() => setProfileUser(null)} initialTab={profileInitialTab} />
 
       <AlertDialog open={!!deactivating} onOpenChange={(v) => !v && setDeactivating(null)}>
         <AlertDialogContent>
@@ -1169,26 +1427,27 @@ function StaffMultiSelect({
           {filtered.length === 0 && (
             <p className="text-xs text-muted-foreground px-2 py-2">No employees found</p>
           )}
-          {filtered.map((u) => (
-            <div
-              key={u.id}
-              className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-muted/50 cursor-pointer"
-              onClick={() => toggle(String(u.id))}
-            >
-              <Checkbox
-                checked={value.includes(String(u.id))}
-                onCheckedChange={() => toggle(String(u.id))}
-                onClick={(e) => e.stopPropagation()}
-                tabIndex={-1}
-              />
-              <span className="text-xs cursor-pointer select-none flex-1">
-                {u.name}
-                {u.regionCode && (
-                  <span className="ml-1.5 text-muted-foreground">— {u.regionCode}</span>
-                )}
-              </span>
-            </div>
-          ))}
+          {filtered.map((u) => {
+            const uid = String(u.id)
+            const isChecked = value.includes(uid)
+            return (
+              <label
+                key={u.id}
+                className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-muted/50 cursor-pointer"
+              >
+                <Checkbox
+                  checked={isChecked}
+                  onCheckedChange={() => toggle(uid)}
+                />
+                <span className="text-xs cursor-pointer select-none flex-1">
+                  {u.name}
+                  {u.regionCode && (
+                    <span className="ml-1.5 text-muted-foreground">— {u.regionCode}</span>
+                  )}
+                </span>
+              </label>
+            )
+          })}
         </div>
       </div>
     </div>
@@ -1271,6 +1530,9 @@ function LeaveTypeDialog({
       genderRestriction: data.genderRestriction === '__none__' ? null : data.genderRestriction,
       minUnit: data.minUnit,
       unit: data.unit,
+      isActive: editing?.isActive ?? true,
+      deductsBalance: editing?.deductsBalance ?? true,
+      genderRestriction: editing?.genderRestriction ?? null,
     }
     if (editing) {
       await updateLT.mutateAsync({ id: editing.id, data: payload })
@@ -1427,8 +1689,8 @@ function LeaveTypeDialog({
 
           <div className="space-y-1.5">
             <Label>
-              Staff restriction{' '}
-              <span className="text-muted-foreground text-xs">(optional — blank = all staff)</span>
+              Eligible staff{' '}
+              <span className="text-muted-foreground text-xs">(optional — blank = available to everyone)</span>
             </Label>
             <Controller
               name="staffRestriction"
@@ -1500,26 +1762,77 @@ function LeaveTypesTab() {
   const { user: me } = useAuthStore()
   const isHrAdmin = me?.role === 'hr_admin' || me?.role === 'super_admin'
   const { data: regions } = useRegions()
-  const [filterRegion, setFilterRegion] = useState<string>('__none__')
   const [searchLT, setSearchLT] = useState('')
+  const [showInactive, setShowInactive] = useState(false)
+  const [filterRegions, setFilterRegions] = useState<Set<string>>(new Set())
+  const [regionFilterOpen, setRegionFilterOpen] = useState(false)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<LeaveType | null>(null)
   const [deletingLT, setDeletingLT] = useState<LeaveType | null>(null)
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set())
   const deleteLeaveType = useDeleteLeaveType()
 
-  const { data: rawLeaveTypes, isLoading } = useAdminLeaveTypes(
-    filterRegion && filterRegion !== '__none__' ? Number(filterRegion) : undefined
-  )
+  const { data: rawLeaveTypes, isLoading } = useAdminLeaveTypes()
+  const { data: allPolicies } = usePolicies()
 
-  const leaveTypes = rawLeaveTypes?.filter((lt) =>
-    !searchLT || lt.name.toLowerCase().includes(searchLT.toLowerCase()) || lt.code.toLowerCase().includes(searchLT.toLowerCase())
-  )
+  const policiesByLeaveType = allPolicies?.reduce<Record<number, LeavePolicy[]>>((acc, p) => {
+    if (!acc[p.leaveTypeId]) acc[p.leaveTypeId] = []
+    acc[p.leaveTypeId].push(p)
+    return acc
+  }, {}) ?? {}
+
+  const toggleRegionFilter = (code: string) => {
+    setFilterRegions((prev) => {
+      const next = new Set(prev)
+      if (next.has(code)) next.delete(code)
+      else next.add(code)
+      return next
+    })
+  }
+
+  const leaveTypes = rawLeaveTypes
+    ?.filter((lt) => showInactive || lt.isActive)
+    ?.filter((lt) =>
+      !searchLT || lt.name.toLowerCase().includes(searchLT.toLowerCase()) || lt.code.toLowerCase().includes(searchLT.toLowerCase())
+    )
+    ?.filter((lt) => {
+      if (filterRegions.size === 0) return true
+      const policies = policiesByLeaveType[lt.id] ?? []
+      return policies.some((p) => {
+        const code = regions?.find((r) => r.id === p.regionId)?.code ?? ''
+        return filterRegions.has(code)
+      })
+    })
+
+  const toggleExpand = (id: number) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const rName = (id: number) => regions?.find((r) => r.id === id)?.name ?? String(id)
+  const rCode = (id: number) => regions?.find((r) => r.id === id)?.code ?? ''
+
+  const [editingPolicy, setEditingPolicy] = useState<LeavePolicy | null>(null)
+
+  const approvalLabel = (flow: string) => {
+    switch (flow) {
+      case 'standard': return 'Standard'
+      case 'auto_approve': return 'Auto-Approve'
+      case 'hr_required': return 'HR Required'
+      case 'multi_level': return 'Multi-Level'
+      default: return flow
+    }
+  }
 
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-1 items-center gap-2">
-          <div className="relative flex-1 max-w-64">
+        <div className="flex flex-1 items-center gap-2 flex-wrap">
+          <div className="relative flex-1 max-w-64 min-w-40">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
               placeholder="Search leave types…"
@@ -1528,15 +1841,40 @@ function LeaveTypesTab() {
               className="pl-8"
             />
           </div>
-          <Select value={filterRegion} onValueChange={setFilterRegion}>
-            <SelectTrigger className="w-44"><SelectValue placeholder="All regions" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__none__">All regions</SelectItem>
-              {regions?.map((r) => (
-                <SelectItem key={r.id} value={String(r.id)}>{r.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <Popover open={regionFilterOpen} onOpenChange={setRegionFilterOpen}>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-1.5">
+                Regions
+                {filterRegions.size > 0 && (
+                  <Badge variant="secondary" className="text-xs px-1.5 py-0 ml-0.5">{filterRegions.size}</Badge>
+                )}
+                <ChevronDown className="h-3.5 w-3.5 opacity-50" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-56 p-2" align="start">
+              <div className="space-y-1">
+                {regions?.map((r) => (
+                  <label key={r.id} className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted/50 cursor-pointer">
+                    <Checkbox
+                      checked={filterRegions.has(r.code)}
+                      onCheckedChange={() => toggleRegionFilter(r.code)}
+                    />
+                    <span>{r.name}</span>
+                    <code className="ml-auto text-xs text-muted-foreground">{r.code}</code>
+                  </label>
+                ))}
+                {filterRegions.size > 0 && (
+                  <Button variant="ghost" size="sm" className="w-full mt-1 text-xs" onClick={() => setFilterRegions(new Set())}>
+                    Clear all
+                  </Button>
+                )}
+              </div>
+            </PopoverContent>
+          </Popover>
+          <label className="flex items-center gap-1.5 text-sm text-muted-foreground cursor-pointer select-none">
+            <Checkbox checked={showInactive} onCheckedChange={(v) => setShowInactive(!!v)} />
+            Show inactive
+          </label>
         </div>
         {isHrAdmin && (
           <Button size="sm" onClick={() => { setEditing(null); setDialogOpen(true) }}>
@@ -1545,105 +1883,182 @@ function LeaveTypesTab() {
         )}
       </div>
 
-      <div className="rounded-lg border overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-muted/50">
-            <tr>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Name</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Code</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Unit</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Region</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Approval Flow</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Max Days</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Paid</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Attachment</th>
-              {isHrAdmin && <th className="px-4 py-3" />}
-            </tr>
-          </thead>
-          <tbody className="divide-y">
-            {isLoading
-              ? [...Array(4)].map((_, i) => (
-                  <tr key={i}>
-                    {[...Array(8)].map((_, j) => (
-                      <td key={j} className="px-4 py-3"><Skeleton className="h-4 w-full" /></td>
-                    ))}
-                  </tr>
-                ))
-              : leaveTypes?.map((lt) => (
-                  <tr key={lt.id} className="hover:bg-muted/30 transition-colors">
-                    <td className="px-4 py-3 font-medium">{lt.name}</td>
-                    <td className="px-4 py-3">
-                      <code className="rounded bg-muted px-1.5 py-0.5 text-xs">{lt.code}</code>
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground text-xs capitalize">{lt.unit ?? 'days'}</td>
-                    <td className="px-4 py-3">
-                      {lt.regionRestriction ? (
-                        <div className="flex flex-wrap gap-1">
-                          {lt.regionRestriction.split(',').map((code) => (
-                            <Badge key={code} variant="outline" className="text-xs px-1.5 py-0">
-                              {code.trim()}
-                            </Badge>
-                          ))}
-                        </div>
-                      ) : (
-                        <Badge variant="secondary" className="text-xs">All Regions</Badge>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground text-xs">
-                      {lt.approvalFlow === 'standard' ? 'Standard' :
-                       lt.approvalFlow === 'auto_approve' ? 'Auto-Approve' :
-                       lt.approvalFlow === 'hr_required' ? 'HR Required' :
-                       lt.approvalFlow === 'multi_level' ? 'Multi-Level' : lt.approvalFlow}
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground text-xs">
-                      {lt.maxConsecutiveDays ? `${lt.maxConsecutiveDays}d` : '—'}
-                    </td>
-                    <td className="px-4 py-3">
-                      <Badge variant={lt.isPaid ? 'default' : 'secondary'}>
-                        {lt.isPaid ? 'Paid' : 'Unpaid'}
-                      </Badge>
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground text-xs">
-                      {lt.requiresAttachment ? 'Required' : 'No'}
-                    </td>
+      <div className="space-y-2">
+        {isLoading
+          ? [...Array(6)].map((_, i) => (
+              <div key={i} className="rounded-lg border p-4"><Skeleton className="h-5 w-full" /></div>
+            ))
+          : leaveTypes?.map((lt) => {
+              const isExpanded = expandedIds.has(lt.id)
+              const policies = policiesByLeaveType[lt.id] ?? []
+              const regionCodes = lt.regionRestriction
+                ? lt.regionRestriction.split(',').map((c) => c.trim())
+                : null
+
+              return (
+                <div key={lt.id} className={cn(
+                  'rounded-lg border transition-colors',
+                  !lt.isActive && 'opacity-60',
+                  isExpanded && 'ring-1 ring-primary/20'
+                )}>
+                  <div
+                    className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-muted/30 transition-colors"
+                    onClick={() => toggleExpand(lt.id)}
+                  >
+                    <ChevronDown className={cn(
+                      'h-4 w-4 text-muted-foreground shrink-0 transition-transform duration-200',
+                      !isExpanded && '-rotate-90'
+                    )} />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">{lt.name}</span>
+                        <code className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">{lt.code}</code>
+                        {!lt.isActive && (
+                          <Badge variant="secondary" className="text-xs">Inactive</Badge>
+                        )}
+                        {!lt.deductsBalance && (
+                          <Badge variant="outline" className="text-xs border-emerald-300 text-emerald-700 dark:text-emerald-400">Non-deducting</Badge>
+                        )}
+                        {lt.genderRestriction && (
+                          <Badge variant="outline" className="text-xs capitalize">{lt.genderRestriction} only</Badge>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-3 mt-0.5 text-xs text-muted-foreground">
+                        <span className="capitalize">{lt.unit ?? 'days'}</span>
+                        <span>{lt.isPaid ? 'Paid' : 'Unpaid'}</span>
+                        <span>{approvalLabel(lt.approvalFlow)}</span>
+                        {lt.requiresAttachment && <span className="flex items-center gap-0.5"><Paperclip className="h-3 w-3" />Required</span>}
+                        {regionCodes ? (
+                          <span>{regionCodes.join(', ')}</span>
+                        ) : (
+                          <span>All Regions</span>
+                        )}
+                        <span>{policies.length} {policies.length === 1 ? 'policy' : 'policies'}</span>
+                      </div>
+                    </div>
                     {isHrAdmin && (
-                      <td className="px-4 py-3 text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-7 w-7"
-                            onClick={() => { setEditing(lt); setDialogOpen(true) }}
-                          >
-                            <Pencil className="h-3.5 w-3.5" />
-                          </Button>
-                          {isHrAdmin && (
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="h-7 w-7 text-destructive hover:text-destructive"
-                              onClick={() => setDeletingLT(lt)}
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
-                          )}
-                        </div>
-                      </td>
+                      <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-7 w-7"
+                          onClick={() => { setEditing(lt); setDialogOpen(true) }}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-7 w-7 text-destructive hover:text-destructive"
+                          onClick={() => setDeletingLT(lt)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
                     )}
-                  </tr>
-                ))}
-            {!isLoading && (!leaveTypes || leaveTypes.length === 0) && (
-              <tr>
-                <td colSpan={9} className="px-4 py-10 text-center text-muted-foreground">
-                  No leave types found
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+                  </div>
+
+                  {isExpanded && (() => {
+                    const filteredPolicies = filterRegions.size > 0
+                      ? policies.filter((p) => filterRegions.has(rCode(p.regionId)))
+                      : policies
+                    return (
+                    <div className="border-t bg-muted/10 px-4 py-3">
+                      {filteredPolicies.length === 0 ? (
+                        <p className="text-sm text-muted-foreground italic py-2">No regional policies configured for this leave type.</p>
+                      ) : (
+                        <div className="rounded-md border overflow-hidden">
+                          <table className="w-full text-sm">
+                            <thead className="bg-muted/50">
+                              <tr>
+                                <th className="px-3 py-2 text-left font-medium text-muted-foreground text-xs">Region</th>
+                                <th className="px-3 py-2 text-left font-medium text-muted-foreground text-xs">Default Entitlement</th>
+                                <th className="px-3 py-2 text-left font-medium text-muted-foreground text-xs">Custom Tiers</th>
+                                <th className="px-3 py-2 text-left font-medium text-muted-foreground text-xs">Carry-over</th>
+                                <th className="px-3 py-2 text-left font-medium text-muted-foreground text-xs">Probation</th>
+                                <th className="px-3 py-2 text-left font-medium text-muted-foreground text-xs">Accrual</th>
+                                {isHrAdmin && <th className="px-3 py-2 w-10" />}
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y">
+                              {filteredPolicies
+                                .sort((a, b) => rName(a.regionId).localeCompare(rName(b.regionId)))
+                                .map((p) => (
+                                <tr key={p.id} className="hover:bg-muted/30 transition-colors">
+                                  <td className="px-3 py-2">
+                                    <div className="flex items-center gap-1.5">
+                                      <Badge variant="outline" className="text-xs px-1.5 py-0">{rCode(p.regionId)}</Badge>
+                                      <span className="text-xs text-muted-foreground">{rName(p.regionId)}</span>
+                                    </div>
+                                  </td>
+                                  <td className="px-3 py-2 font-medium">
+                                    {lt.deductsBalance === false
+                                      ? <span className="text-lg" title="Non-deducting (unlimited)">∞</span>
+                                      : p.entitlementUnlimited
+                                        ? <span className="text-lg" title="Unlimited">∞</span>
+                                        : `${p.entitlementDays} ${lt.unit ?? 'days'}`
+                                    }
+                                  </td>
+                                  <td className="px-3 py-2">
+                                    {p.tierCount > 0 ? (
+                                      <span className="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
+                                        {p.tierCount} tier{p.tierCount !== 1 ? 's' : ''}
+                                      </span>
+                                    ) : (
+                                      <span className="text-muted-foreground text-xs">—</span>
+                                    )}
+                                  </td>
+                                  <td className="px-3 py-2 text-xs text-muted-foreground">
+                                    {p.carryoverUnlimited ? 'Unlimited' : `${p.carryOverMax} ${lt.unit ?? 'days'}`}
+                                  </td>
+                                  <td className="px-3 py-2 text-xs text-muted-foreground">
+                                    {p.probationMonths > 0 ? `${p.probationMonths} mo` : 'None'}
+                                  </td>
+                                  <td className="px-3 py-2 text-xs text-muted-foreground">
+                                    {p.accrualRate ? `${p.accrualRate}/mo` : 'Annual'}
+                                  </td>
+                                  {isHrAdmin && (
+                                    <td className="px-3 py-2 text-right">
+                                      <Button
+                                        size="icon"
+                                        variant="ghost"
+                                        className="h-6 w-6"
+                                        onClick={() => setEditingPolicy(p)}
+                                      >
+                                        <Pencil className="h-3 w-3" />
+                                      </Button>
+                                    </td>
+                                  )}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                    )
+                  })()}
+                </div>
+              )
+            })}
+        {!isLoading && (!leaveTypes || leaveTypes.length === 0) && (
+          <div className="rounded-lg border px-4 py-10 text-center text-muted-foreground">
+            No leave types found
+          </div>
+        )}
       </div>
 
       <LeaveTypeDialog open={dialogOpen} onOpenChange={setDialogOpen} editing={editing} />
+
+      {editingPolicy && (
+        <PolicyDialog
+          open={!!editingPolicy}
+          onOpenChange={(v) => !v && setEditingPolicy(null)}
+          policy={editingPolicy}
+          leaveTypeName={rawLeaveTypes?.find((lt) => lt.id === editingPolicy.leaveTypeId)?.name ?? ''}
+          regionName={rName(editingPolicy.regionId)}
+        />
+      )}
 
       <AlertDialog open={!!deletingLT} onOpenChange={(v) => !v && setDeletingLT(null)}>
         <AlertDialogContent>
@@ -1769,6 +2184,7 @@ function PolicyDialog({
         carryoverUnlimited: data.carryoverUnlimited,
         probationMonths: Number(data.probationMonths),
         accrualRate: data.accrualRate || null,
+        leaveTypeUnit: policy.leaveTypeUnit,
       },
     })
     onOpenChange(false)
@@ -1843,7 +2259,7 @@ function PolicyDialog({
               <div>
                 <p className="text-sm font-medium">Custom Entitlement Tiers</p>
                 <p className="text-xs text-muted-foreground">
-                  Regional default: {policy.entitlementUnlimited ? 'Unlimited' : `${policy.entitlementDays} days`} — create tiers below to give specific staff more or fewer days
+                  Regional default: {policy.entitlementUnlimited ? 'Unlimited' : `${policy.entitlementDays} ${policy.leaveTypeUnit ?? 'days'}`} — create tiers below to give specific staff more or fewer {policy.leaveTypeUnit ?? 'days'}
                 </p>
               </div>
             </div>
@@ -1858,7 +2274,7 @@ function PolicyDialog({
                 {tiers.map((tier) => (
                   <div key={tier.id} className="flex items-start justify-between rounded-md border bg-muted/30 px-3 py-2">
                     <div className="space-y-0.5">
-                      <span className="text-sm font-medium">{tier.entitlementDays} days</span>
+                      <span className="text-sm font-medium">{tier.entitlementDays} {policy.leaveTypeUnit ?? 'days'}</span>
                       {tier.label && <span className="ml-2 text-xs text-muted-foreground">{tier.label}</span>}
                       {tier.users.length > 0 ? (
                         <div className="flex flex-wrap gap-1 pt-0.5">
@@ -1926,12 +2342,15 @@ function PolicyDialog({
                         onChange={setTierUserIds}
                         allUsers={allUsersForTiers}
                       />
+                      {tierUserIds.length === 0 && (
+                        <p className="text-xs text-amber-600">Select at least one staff member</p>
+                      )}
                     </div>
                     <div className="flex gap-2 pt-1">
                       <Button
                         type="button"
                         size="sm"
-                        disabled={tierSaving || !tierDays || isNaN(parseFloat(tierDays))}
+                        disabled={tierSaving || !tierDays || isNaN(parseFloat(tierDays)) || tierUserIds.length === 0}
                         onClick={saveTier}
                       >
                         {tierSaving ? 'Saving…' : 'Save'}
@@ -1964,151 +2383,6 @@ function PolicyDialog({
   )
 }
 
-function PoliciesTab() {
-  const { user: me } = useAuthStore()
-  const isHrAdmin = me?.role === 'hr_admin' || me?.role === 'super_admin'
-  const { data: regions } = useRegions()
-  const { data: leaveTypes } = useAdminLeaveTypes()
-  const [regionId, setRegionId] = useState<string>('__none__')
-  const { data: policies, isLoading } = usePolicies(regionId && regionId !== '__none__' ? Number(regionId) : undefined)
-  const [editingPolicy, setEditingPolicy] = useState<LeavePolicy | null>(null)
-  const [deletingPolicy, setDeletingPolicy] = useState<LeavePolicy | null>(null)
-  const deletePolicy = useDeletePolicy()
-
-  const ltName = (id: number) => leaveTypes?.find((lt) => lt.id === id)?.name ?? String(id)
-  const rName = (id: number) => regions?.find((r) => r.id === id)?.name ?? String(id)
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        <Select value={regionId} onValueChange={setRegionId}>
-          <SelectTrigger className="w-44"><SelectValue placeholder="All regions" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="__none__">All regions</SelectItem>
-            {regions?.map((r) => (
-              <SelectItem key={r.id} value={String(r.id)}>{r.name}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <span className="text-sm text-muted-foreground">{policies?.length ?? 0} policies</span>
-      </div>
-
-      <div className="rounded-lg border overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-muted/50">
-            <tr>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Leave Type</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Region</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Default Entitlement</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Custom Tiers</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Carry-over max</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Probation</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Accrual</th>
-              <th className="px-4 py-3" />
-            </tr>
-          </thead>
-          <tbody className="divide-y">
-            {isLoading
-              ? [...Array(5)].map((_, i) => (
-                  <tr key={i}>
-                    {[...Array(8)].map((_, j) => (
-                      <td key={j} className="px-4 py-3"><Skeleton className="h-4 w-full" /></td>
-                    ))}
-                  </tr>
-                ))
-              : policies?.map((p) => (
-                  <tr key={p.id} className="hover:bg-muted/30 transition-colors">
-                    <td className="px-4 py-3 font-medium">{ltName(p.leaveTypeId)}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{rName(p.regionId)}</td>
-                    <td className="px-4 py-3">{p.entitlementUnlimited ? 'Unlimited' : `${p.entitlementDays} days`}</td>
-                    <td className="px-4 py-3">
-                      {p.tierCount > 0 ? (
-                        <span className="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
-                          {p.tierCount} tier{p.tierCount !== 1 ? 's' : ''}
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground">{p.carryoverUnlimited ? 'Unlimited' : `${p.carryOverMax} days`}</td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {p.probationMonths > 0 ? `${p.probationMonths} mo` : 'None'}
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {p.accrualRate ? `${p.accrualRate}/mo` : 'Annual'}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-7 w-7"
-                          onClick={() => setEditingPolicy(p)}
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
-                        {isHrAdmin && (
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-7 w-7 text-destructive hover:text-destructive"
-                            onClick={() => setDeletingPolicy(p)}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-            {!isLoading && (!policies || policies.length === 0) && (
-              <tr>
-                <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
-                  No policies found
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {editingPolicy && (
-        <PolicyDialog
-          open={!!editingPolicy}
-          onOpenChange={(v) => !v && setEditingPolicy(null)}
-          policy={editingPolicy}
-          leaveTypeName={ltName(editingPolicy.leaveTypeId)}
-          regionName={rName(editingPolicy.regionId)}
-        />
-      )}
-
-      <AlertDialog open={!!deletingPolicy} onOpenChange={(v) => !v && setDeletingPolicy(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete this policy?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {deletingPolicy && `${ltName(deletingPolicy.leaveTypeId)} · ${rName(deletingPolicy.regionId)}`}. This cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={async () => {
-                if (deletingPolicy) {
-                  await deletePolicy.mutateAsync(deletingPolicy.id)
-                  setDeletingPolicy(null)
-                }
-              }}
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </div>
-  )
-}
 
 // ─── Holidays Tab ─────────────────────────────────────────────────────────────
 
@@ -2488,6 +2762,7 @@ function EditEntitlementDialog({
   const canSave = !update.isPending && !!reason.trim() && (
     isAdjustments ? !isNaN(deltaNum) : !isNaN(parseFloat(value)) && parseFloat(value) >= 0
   )
+  const unitLabel = row.leaveTypeUnit === 'hours' ? 'hours' : 'days'
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -2516,19 +2791,19 @@ function EditEntitlementDialog({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="entitled">Entitled Days</SelectItem>
+                <SelectItem value="entitled">Entitled {unitLabel === 'hours' ? 'Hours' : 'Days'}</SelectItem>
                 <SelectItem value="carried">Carried Over</SelectItem>
                 <SelectItem value="adjustments">Adjustments</SelectItem>
               </SelectContent>
             </Select>
-            <p className="text-xs text-muted-foreground">Current: {parseFloat(currentVal).toFixed(1)} days</p>
+            <p className="text-xs text-muted-foreground">Current: {parseFloat(currentVal).toFixed(1)} {unitLabel}</p>
           </div>
 
           {isAdjustments ? (
             <div className="space-y-3 rounded-md border bg-muted/20 p-3">
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Original Entitlement</span>
-                <span className="font-medium">{originalEntitlement.toFixed(1)} days</span>
+                <span className="font-medium">{originalEntitlement.toFixed(1)} {unitLabel}</span>
               </div>
               <div className="space-y-1.5">
                 <Label>Adjustment (+ or −)</Label>
@@ -2544,13 +2819,13 @@ function EditEntitlementDialog({
               <div className="flex justify-between text-sm border-t pt-2">
                 <span className="text-muted-foreground">New Total</span>
                 <span className={`font-semibold ${newTotal < 0 ? 'text-red-600' : 'text-foreground'}`}>
-                  {isNaN(deltaNum) ? '—' : `${newTotal.toFixed(1)} days`}
+                  {isNaN(deltaNum) ? '—' : `${newTotal.toFixed(1)} ${unitLabel}`}
                 </span>
               </div>
             </div>
           ) : (
             <div className="space-y-1.5">
-              <Label>New value (days)</Label>
+              <Label>New value ({unitLabel})</Label>
               <Input
                 type="number"
                 step="0.5"
@@ -2581,6 +2856,121 @@ function EditEntitlementDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+function InlineEditCell({
+  row,
+  field,
+  className,
+}: {
+  row: EntitlementRow
+  field: 'entitled' | 'carried' | 'adjustments'
+  className?: string
+}) {
+  const update = useUpdateEntitlement()
+  const [editing, setEditing] = useState(false)
+  const [value, setValue] = useState('')
+  const [reason, setReason] = useState('')
+  const [showReason, setShowReason] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const currentVal = parseFloat(row[field]).toFixed(1)
+  const unitAbbr = row.leaveTypeUnit === 'hours' ? 'h' : 'd'
+
+  const startEdit = () => {
+    setValue(parseFloat(row[field]).toString())
+    setReason('')
+    setShowReason(false)
+    setEditing(true)
+    setTimeout(() => inputRef.current?.select(), 10)
+  }
+
+  const handleCommit = () => {
+    const num = parseFloat(value)
+    if (isNaN(num)) { setEditing(false); return }
+    if (field !== 'adjustments' && num < 0) { setEditing(false); return }
+    if (Math.abs(num - parseFloat(row[field])) < 0.001) { setEditing(false); return }
+    setShowReason(true)
+  }
+
+  const handleSave = async () => {
+    if (!reason.trim()) return
+    const num = parseFloat(value)
+    await update.mutateAsync({
+      userId: row.userId,
+      leaveTypeId: row.leaveTypeId,
+      year: row.year,
+      field,
+      newValue: num,
+      reason: reason.trim(),
+    })
+    setEditing(false)
+    setShowReason(false)
+  }
+
+  const handleCancel = () => {
+    setEditing(false)
+    setShowReason(false)
+  }
+
+  if (showReason) {
+    return (
+      <td className={className}>
+        <div className="flex flex-col gap-1 min-w-[140px]">
+          <div className="text-xs text-muted-foreground">{currentVal} → {parseFloat(value).toFixed(1)}</div>
+          <Input
+            autoFocus
+            className="h-7 text-xs"
+            placeholder="Reason..."
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && reason.trim()) handleSave()
+              if (e.key === 'Escape') handleCancel()
+            }}
+          />
+          <div className="flex gap-1">
+            <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={handleCancel}>Cancel</Button>
+            <Button size="sm" className="h-6 px-2 text-xs" disabled={!reason.trim() || update.isPending} onClick={handleSave}>
+              {update.isPending ? '...' : 'Save'}
+            </Button>
+          </div>
+        </div>
+      </td>
+    )
+  }
+
+  if (editing) {
+    return (
+      <td className={className}>
+        <Input
+          ref={inputRef}
+          type="number"
+          step="0.5"
+          {...(field !== 'adjustments' ? { min: '0' } : {})}
+          className="h-7 w-20 text-right text-xs"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') handleCommit()
+            if (e.key === 'Escape') handleCancel()
+          }}
+          onBlur={handleCommit}
+        />
+      </td>
+    )
+  }
+
+  return (
+    <td className={className}>
+      <span
+        className="cursor-pointer hover:bg-muted/60 rounded px-1 py-0.5 -mx-1 transition-colors"
+        onClick={startEdit}
+        title="Click to edit"
+      >
+        {currentVal}{unitAbbr}
+      </span>
+    </td>
   )
 }
 

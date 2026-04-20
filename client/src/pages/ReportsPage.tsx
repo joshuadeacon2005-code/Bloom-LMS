@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Download, TrendingUp, Users, Calendar, BarChart3, ChevronDown, Check } from 'lucide-react'
+import { useState, useMemo } from 'react'
+import { Download, TrendingUp, Users, Calendar, BarChart3, ChevronDown, Check, Search, ChevronUp, Table2, Eye } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   BarChart,
@@ -19,6 +19,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Progress } from '@/components/ui/progress'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Input } from '@/components/ui/input'
+import { Badge } from '@/components/ui/badge'
 import {
   Select,
   SelectContent,
@@ -30,11 +32,14 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import {
   useUtilisationReport,
   useDepartmentSummary,
+  useLeaveRequestsPreview,
+  useEntitlementsPreview,
   downloadPayrollXlsx,
   downloadLeaveRequestsXlsx,
   downloadEntitlementsXlsx,
 } from '@/hooks/useReports'
 import { useRegions, useAdminLeaveTypes, useAdminUsers } from '@/hooks/useAdmin'
+import { cn } from '@/lib/utils'
 
 const MONTHS = [
   'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -164,6 +169,18 @@ export function ReportsPage() {
   const [entRegionIds, setEntRegionIds] = useState<string[]>([])
   const [entLeaveTypeIds, setEntLeaveTypeIds] = useState<string[]>([])
   const [entUserIds, setEntUserIds] = useState<string[]>([])
+  // Single-select state for preview UI (remote side)
+  const [lrStatus, setLrStatus] = useState('all')
+  const [exportRegionId, setExportRegionId] = useState<string>('__all__')
+  const [exportLeaveTypeId, setExportLeaveTypeId] = useState<string>('__all__')
+  const [exportUserId, setExportUserId] = useState<string>('__all__')
+  const [exportEntRegionId, setExportEntRegionId] = useState<string>('__all__')
+  const [exportEntLeaveTypeId, setExportEntLeaveTypeId] = useState<string>('__all__')
+  const [exportEntUserId, setExportEntUserId] = useState<string>('__all__')
+  const [lrStaffSearch, setLrStaffSearch] = useState('')
+  const [entStaffSearch, setEntStaffSearch] = useState('')
+  const [showLrPreview, setShowLrPreview] = useState(false)
+  const [showEntPreview, setShowEntPreview] = useState(false)
 
   const { data: regions } = useRegions()
   const { data: leaveTypesList } = useAdminLeaveTypes()
@@ -172,6 +189,39 @@ export function ReportsPage() {
   const regionIdParam = filterRegionId !== '__all__' ? Number(filterRegionId) : undefined
   const { data: utilData, isLoading: utilLoading } = useUtilisationReport({ year, regionId: regionIdParam })
   const { data: deptData, isLoading: deptLoading } = useDepartmentSummary({ year, regionId: regionIdParam })
+
+  const allUsers = allUsersData?.data ?? []
+
+  const lrFilteredUsers = useMemo(() => {
+    if (!lrStaffSearch.trim()) return allUsers
+    const q = lrStaffSearch.toLowerCase()
+    return allUsers.filter((u) => u.name.toLowerCase().includes(q))
+  }, [allUsers, lrStaffSearch])
+
+  const entFilteredUsers = useMemo(() => {
+    if (!entStaffSearch.trim()) return allUsers
+    const q = entStaffSearch.toLowerCase()
+    return allUsers.filter((u) => u.name.toLowerCase().includes(q))
+  }, [allUsers, entStaffSearch])
+
+  const lrPreviewParams = {
+    year,
+    regionId: exportRegionId !== '__all__' ? Number(exportRegionId) : undefined,
+    leaveTypeId: exportLeaveTypeId !== '__all__' ? Number(exportLeaveTypeId) : undefined,
+    userId: exportUserId !== '__all__' ? Number(exportUserId) : undefined,
+    status: lrStatus,
+    enabled: showLrPreview,
+  }
+  const { data: lrPreviewData, isLoading: lrPreviewLoading } = useLeaveRequestsPreview(lrPreviewParams)
+
+  const entPreviewParams = {
+    year,
+    regionId: exportEntRegionId !== '__all__' ? Number(exportEntRegionId) : undefined,
+    leaveTypeId: exportEntLeaveTypeId !== '__all__' ? Number(exportEntLeaveTypeId) : undefined,
+    userId: exportEntUserId !== '__all__' ? Number(exportEntUserId) : undefined,
+    enabled: showEntPreview,
+  }
+  const { data: entPreviewData, isLoading: entPreviewLoading } = useEntitlementsPreview(entPreviewParams)
 
   // Build monthly trend data — pivot by month
   const monthlyData = MONTHS.map((name, idx) => {
@@ -350,17 +400,24 @@ export function ReportsPage() {
                     </CardHeader>
                     <CardContent>
                       <div className="space-y-4">
-                        {utilData.byType.map((lt) => (
-                          <div key={lt.code} className="space-y-1">
-                            <div className="flex items-center justify-between text-sm">
-                              <span className="font-medium">{lt.name}</span>
-                              <span className="text-muted-foreground">
-                                {lt.used.toFixed(1)} / {lt.entitled.toFixed(1)} days ({lt.utilisationPct}%)
-                              </span>
+                        {utilData.byType.map((lt) => {
+                          const unitStr = lt.unit === 'hours' ? 'hours' : 'days'
+                          const isNonDeducting = lt.deductsBalance === false
+                          return (
+                            <div key={lt.code} className="space-y-1">
+                              <div className="flex items-center justify-between text-sm">
+                                <span className="font-medium">{lt.name}</span>
+                                <span className="text-muted-foreground">
+                                  {isNonDeducting
+                                    ? <span title="Non-deducting leave type">∞</span>
+                                    : <>{lt.used.toFixed(1)} / {lt.entitled.toFixed(1)} {unitStr} ({lt.utilisationPct}%)</>
+                                  }
+                                </span>
+                              </div>
+                              <Progress value={isNonDeducting ? 100 : lt.utilisationPct} className="h-2" />
                             </div>
-                            <Progress value={lt.utilisationPct} className="h-2" />
-                          </div>
-                        ))}
+                          )
+                        })}
                       </div>
                     </CardContent>
                   </Card>
@@ -515,125 +572,309 @@ export function ReportsPage() {
                 </CardContent>
               </Card>
 
-              {/* Leave requests export */}
+              {/* Leave requests export with inline preview */}
               <Card>
                 <CardHeader>
-                  <CardTitle>Leave Requests Export</CardTitle>
-                  <CardDescription>All leave requests across all regions</CardDescription>
+                  <CardTitle className="flex items-center gap-2">
+                    <Table2 className="h-5 w-5" />
+                    Leave Requests
+                  </CardTitle>
+                  <CardDescription>Filter, preview, and export leave requests</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                     <div className="space-y-2">
-                      <label className="text-sm font-medium">Year</label>
-                      <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
+                      <label className="text-sm font-medium">Status</label>
+                      <Select value={lrStatus} onValueChange={(v) => { setLrStatus(v); setShowLrPreview(false) }}>
                         <SelectTrigger><SelectValue /></SelectTrigger>
                         <SelectContent>
-                          {YEARS.map((y) => (
-                            <SelectItem key={y} value={String(y)}>{y}</SelectItem>
+                          <SelectItem value="all">All statuses</SelectItem>
+                          <SelectItem value="approved">Approved</SelectItem>
+                          <SelectItem value="pending">Pending</SelectItem>
+                          <SelectItem value="rejected">Rejected</SelectItem>
+                          <SelectItem value="cancelled">Cancelled</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Region</label>
+                      <Select value={exportRegionId} onValueChange={(v) => { setExportRegionId(v); setShowLrPreview(false) }}>
+                        <SelectTrigger><SelectValue placeholder="All regions" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__all__">All regions</SelectItem>
+                          {regions?.map((r) => (
+                            <SelectItem key={r.id} value={String(r.id)}>{r.name}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
                     </div>
                     <div className="space-y-2">
-                      <label className="text-sm font-medium">Status <span className="text-muted-foreground text-xs">(multi)</span></label>
-                      <MultiSelectDropdown
-                        label="statuses"
-                        options={[
-                          { value: 'approved', label: 'Approved' },
-                          { value: 'pending', label: 'Pending' },
-                          { value: 'rejected', label: 'Rejected' },
-                          { value: 'cancelled', label: 'Cancelled' },
-                        ]}
-                        selected={lrStatuses}
-                        onChange={setLrStatuses}
-                      />
+                      <label className="text-sm font-medium">Leave type</label>
+                      <Select value={exportLeaveTypeId} onValueChange={(v) => { setExportLeaveTypeId(v); setShowLrPreview(false) }}>
+                        <SelectTrigger><SelectValue placeholder="All leave types" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__all__">All leave types</SelectItem>
+                          {leaveTypesList?.map((lt) => (
+                            <SelectItem key={lt.id} value={String(lt.id)}>{lt.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium">Region <span className="text-muted-foreground text-xs">(multi)</span></label>
-                      <MultiSelectDropdown
-                        label="regions"
-                        options={(regions ?? []).map((r) => ({ value: String(r.id), label: r.name }))}
-                        selected={lrRegionIds}
-                        onChange={setLrRegionIds}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium">Leave type <span className="text-muted-foreground text-xs">(multi)</span></label>
-                      <MultiSelectDropdown
-                        label="leave types"
-                        options={(leaveTypesList ?? []).map((lt) => ({ value: String(lt.id), label: lt.name }))}
-                        selected={lrLeaveTypeIds}
-                        onChange={setLrLeaveTypeIds}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium">Staff <span className="text-muted-foreground text-xs">(multi)</span></label>
-                      <MultiSelectDropdown
-                        label="staff"
-                        options={(allUsersData?.data ?? []).map((u) => ({ value: String(u.id), label: u.name }))}
-                        selected={lrUserIds}
-                        onChange={setLrUserIds}
-                      />
+                    <div className="space-y-2 sm:col-span-2 lg:col-span-3">
+                      <label className="text-sm font-medium">Staff member</label>
+                      <div className="relative">
+                        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          placeholder="Search by name..."
+                          value={lrStaffSearch}
+                          onChange={(e) => { setLrStaffSearch(e.target.value); if (exportUserId !== '__all__') setExportUserId('__all__') }}
+                          className="pl-9"
+                        />
+                      </div>
+                      {lrStaffSearch.trim() && lrFilteredUsers.length > 0 && exportUserId === '__all__' && (
+                        <div className="rounded-md border bg-popover max-h-40 overflow-y-auto">
+                          {lrFilteredUsers.slice(0, 10).map((u) => (
+                            <button
+                              key={u.id}
+                              className="w-full px-3 py-1.5 text-left text-sm hover:bg-accent flex items-center justify-between"
+                              onClick={() => { setExportUserId(String(u.id)); setLrStaffSearch(u.name); setShowLrPreview(false) }}
+                            >
+                              <span>{u.name}</span>
+                              <span className="text-xs text-muted-foreground">{u.email}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      {exportUserId !== '__all__' && (
+                        <div className="flex items-center gap-2">
+                          <Badge variant="secondary" className="gap-1">
+                            {allUsers.find((u) => u.id === Number(exportUserId))?.name ?? 'Selected'}
+                            <button onClick={() => { setExportUserId('__all__'); setLrStaffSearch(''); setShowLrPreview(false) }} className="ml-1 hover:text-destructive">&times;</button>
+                          </Badge>
+                        </div>
+                      )}
                     </div>
                   </div>
-                  <Button onClick={handleExportLeaveRequests} disabled={exportingLR} className="w-full sm:w-auto">
-                    <Download className="mr-2 h-4 w-4" />
-                    {exportingLR ? 'Exporting…' : `Download XLSX — ${year}`}
-                  </Button>
+                  <div className="flex gap-2 flex-wrap">
+                    <Button
+                      variant="outline"
+                      onClick={() => setShowLrPreview(true)}
+                      disabled={lrPreviewLoading}
+                    >
+                      <Eye className="mr-2 h-4 w-4" />
+                      {lrPreviewLoading ? 'Loading…' : 'Preview Data'}
+                    </Button>
+                    <Button onClick={handleExportLeaveRequests} disabled={exportingLR}>
+                      <Download className="mr-2 h-4 w-4" />
+                      {exportingLR ? 'Exporting…' : 'Download XLSX'}
+                    </Button>
+                  </div>
+
+                  {showLrPreview && (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm text-muted-foreground">
+                          {lrPreviewData ? `${lrPreviewData.length} records` : 'Loading…'}
+                        </p>
+                        <Button size="sm" variant="ghost" onClick={() => setShowLrPreview(false)}>
+                          <ChevronUp className="h-4 w-4 mr-1" /> Hide
+                        </Button>
+                      </div>
+                      {lrPreviewLoading ? (
+                        <div className="space-y-2">
+                          {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-8 w-full" />)}
+                        </div>
+                      ) : lrPreviewData && lrPreviewData.length > 0 ? (
+                        <div className="rounded-md border overflow-x-auto max-h-96 overflow-y-auto">
+                          <table className="w-full text-sm">
+                            <thead className="sticky top-0 bg-background">
+                              <tr className="border-b bg-muted/40">
+                                <th className="px-3 py-2 text-left font-medium">Employee</th>
+                                <th className="px-3 py-2 text-left font-medium">Region</th>
+                                <th className="px-3 py-2 text-left font-medium">Leave Type</th>
+                                <th className="px-3 py-2 text-left font-medium">Start</th>
+                                <th className="px-3 py-2 text-left font-medium">End</th>
+                                <th className="px-3 py-2 text-right font-medium">Days</th>
+                                <th className="px-3 py-2 text-center font-medium">Status</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {lrPreviewData.map((row, i) => (
+                                <tr key={i} className="border-b last:border-0 hover:bg-muted/20">
+                                  <td className="px-3 py-1.5 whitespace-nowrap">{row.employeeName}</td>
+                                  <td className="px-3 py-1.5">{row.regionCode}</td>
+                                  <td className="px-3 py-1.5">{row.leaveTypeName}</td>
+                                  <td className="px-3 py-1.5 whitespace-nowrap">{row.startDate}</td>
+                                  <td className="px-3 py-1.5 whitespace-nowrap">{row.endDate}</td>
+                                  <td className="px-3 py-1.5 text-right">{row.totalDays}</td>
+                                  <td className="px-3 py-1.5 text-center">
+                                    <Badge
+                                      variant="outline"
+                                      className={cn(
+                                        'text-xs',
+                                        row.status === 'approved' && 'border-green-300 text-green-700',
+                                        row.status === 'pending' && 'border-amber-300 text-amber-700',
+                                        row.status === 'rejected' && 'border-red-300 text-red-700',
+                                        row.status === 'cancelled' && 'border-gray-300 text-gray-500',
+                                      )}
+                                    >
+                                      {row.status}
+                                    </Badge>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground text-center py-8">No records found for the selected filters.</p>
+                      )}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
 
-              {/* Entitlements export */}
+              {/* Entitlements export with inline preview */}
               <Card>
                 <CardHeader>
-                  <CardTitle>Entitlements Export</CardTitle>
+                  <CardTitle className="flex items-center gap-2">
+                    <Table2 className="h-5 w-5" />
+                    Entitlements
+                  </CardTitle>
                   <CardDescription>Leave balances and entitlements for all employees</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                     <div className="space-y-2">
-                      <label className="text-sm font-medium">Year</label>
-                      <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
+                      <label className="text-sm font-medium">Region</label>
+                      <Select value={exportEntRegionId} onValueChange={(v) => { setExportEntRegionId(v); setShowEntPreview(false) }}>
+                        <SelectTrigger><SelectValue placeholder="All regions" /></SelectTrigger>
                         <SelectContent>
-                          {YEARS.map((y) => (
-                            <SelectItem key={y} value={String(y)}>{y}</SelectItem>
+                          <SelectItem value="__all__">All regions</SelectItem>
+                          {regions?.map((r) => (
+                            <SelectItem key={r.id} value={String(r.id)}>{r.name}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
                     </div>
                     <div className="space-y-2">
-                      <label className="text-sm font-medium">Region <span className="text-muted-foreground text-xs">(multi)</span></label>
-                      <MultiSelectDropdown
-                        label="regions"
-                        options={(regions ?? []).map((r) => ({ value: String(r.id), label: r.name }))}
-                        selected={entRegionIds}
-                        onChange={setEntRegionIds}
-                      />
+                      <label className="text-sm font-medium">Leave type</label>
+                      <Select value={exportEntLeaveTypeId} onValueChange={(v) => { setExportEntLeaveTypeId(v); setShowEntPreview(false) }}>
+                        <SelectTrigger><SelectValue placeholder="All leave types" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__all__">All leave types</SelectItem>
+                          {leaveTypesList?.map((lt) => (
+                            <SelectItem key={lt.id} value={String(lt.id)}>{lt.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium">Leave type <span className="text-muted-foreground text-xs">(multi)</span></label>
-                      <MultiSelectDropdown
-                        label="leave types"
-                        options={(leaveTypesList ?? []).map((lt) => ({ value: String(lt.id), label: lt.name }))}
-                        selected={entLeaveTypeIds}
-                        onChange={setEntLeaveTypeIds}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium">Staff <span className="text-muted-foreground text-xs">(multi)</span></label>
-                      <MultiSelectDropdown
-                        label="staff"
-                        options={(allUsersData?.data ?? []).map((u) => ({ value: String(u.id), label: u.name }))}
-                        selected={entUserIds}
-                        onChange={setEntUserIds}
-                      />
+                    <div className="space-y-2 sm:col-span-2 lg:col-span-1">
+                      <label className="text-sm font-medium">Staff member</label>
+                      <div className="relative">
+                        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          placeholder="Search by name..."
+                          value={entStaffSearch}
+                          onChange={(e) => { setEntStaffSearch(e.target.value); if (exportEntUserId !== '__all__') setExportEntUserId('__all__') }}
+                          className="pl-9"
+                        />
+                      </div>
+                      {entStaffSearch.trim() && entFilteredUsers.length > 0 && exportEntUserId === '__all__' && (
+                        <div className="rounded-md border bg-popover max-h-40 overflow-y-auto">
+                          {entFilteredUsers.slice(0, 10).map((u) => (
+                            <button
+                              key={u.id}
+                              className="w-full px-3 py-1.5 text-left text-sm hover:bg-accent flex items-center justify-between"
+                              onClick={() => { setExportEntUserId(String(u.id)); setEntStaffSearch(u.name); setShowEntPreview(false) }}
+                            >
+                              <span>{u.name}</span>
+                              <span className="text-xs text-muted-foreground">{u.email}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      {exportEntUserId !== '__all__' && (
+                        <div className="flex items-center gap-2">
+                          <Badge variant="secondary" className="gap-1">
+                            {allUsers.find((u) => u.id === Number(exportEntUserId))?.name ?? 'Selected'}
+                            <button onClick={() => { setExportEntUserId('__all__'); setEntStaffSearch(''); setShowEntPreview(false) }} className="ml-1 hover:text-destructive">&times;</button>
+                          </Badge>
+                        </div>
+                      )}
                     </div>
                   </div>
-                  <Button onClick={handleExportEntitlements} disabled={exportingEnt} className="w-full sm:w-auto">
-                    <Download className="mr-2 h-4 w-4" />
-                    {exportingEnt ? 'Exporting…' : `Download XLSX — ${year}`}
-                  </Button>
+                  <div className="flex gap-2 flex-wrap">
+                    <Button
+                      variant="outline"
+                      onClick={() => setShowEntPreview(true)}
+                      disabled={entPreviewLoading}
+                    >
+                      <Eye className="mr-2 h-4 w-4" />
+                      {entPreviewLoading ? 'Loading…' : 'Preview Data'}
+                    </Button>
+                    <Button onClick={handleExportEntitlements} disabled={exportingEnt}>
+                      <Download className="mr-2 h-4 w-4" />
+                      {exportingEnt ? 'Exporting…' : 'Download XLSX'}
+                    </Button>
+                  </div>
+
+                  {showEntPreview && (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm text-muted-foreground">
+                          {entPreviewData ? `${entPreviewData.length} records` : 'Loading…'}
+                        </p>
+                        <Button size="sm" variant="ghost" onClick={() => setShowEntPreview(false)}>
+                          <ChevronUp className="h-4 w-4 mr-1" /> Hide
+                        </Button>
+                      </div>
+                      {entPreviewLoading ? (
+                        <div className="space-y-2">
+                          {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-8 w-full" />)}
+                        </div>
+                      ) : entPreviewData && entPreviewData.length > 0 ? (
+                        <div className="rounded-md border overflow-x-auto max-h-96 overflow-y-auto">
+                          <table className="w-full text-sm">
+                            <thead className="sticky top-0 bg-background">
+                              <tr className="border-b bg-muted/40">
+                                <th className="px-3 py-2 text-left font-medium">Employee</th>
+                                <th className="px-3 py-2 text-left font-medium">Region</th>
+                                <th className="px-3 py-2 text-left font-medium">Leave Type</th>
+                                <th className="px-3 py-2 text-right font-medium">Entitled</th>
+                                <th className="px-3 py-2 text-right font-medium">Used</th>
+                                <th className="px-3 py-2 text-right font-medium">Adj.</th>
+                                <th className="px-3 py-2 text-right font-medium">Carried</th>
+                                <th className="px-3 py-2 text-right font-medium">Pending</th>
+                                <th className="px-3 py-2 text-right font-medium">Remaining</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {entPreviewData.map((row, i) => (
+                                <tr key={i} className="border-b last:border-0 hover:bg-muted/20">
+                                  <td className="px-3 py-1.5 whitespace-nowrap">{row.employeeName}</td>
+                                  <td className="px-3 py-1.5">{row.regionCode}</td>
+                                  <td className="px-3 py-1.5">{row.leaveTypeName}</td>
+                                  <td className="px-3 py-1.5 text-right">{row.entitled}</td>
+                                  <td className="px-3 py-1.5 text-right">{row.used}</td>
+                                  <td className="px-3 py-1.5 text-right">{row.adjustments}</td>
+                                  <td className="px-3 py-1.5 text-right">{row.carried}</td>
+                                  <td className="px-3 py-1.5 text-right">{row.pending}</td>
+                                  <td className="px-3 py-1.5 text-right font-semibold">
+                                    <span className={row.remaining < 0 ? 'text-red-600' : ''}>
+                                      {row.remaining}
+                                    </span>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground text-center py-8">No records found for the selected filters.</p>
+                      )}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </TabsContent>

@@ -968,19 +968,22 @@ export async function runMigrations(): Promise<void> {
       'NPL_NZ',    // No Pay Leave (NZ) — replaced by NPL_AUNZ
       'OTC',       // OT Claim — replaced by overtime_entries workflow
     ]
-    await client.query(`DELETE FROM leave_balances WHERE leave_type_id IN (SELECT id FROM leave_types WHERE code = ANY($1))`, [phase6DeleteCodes])
-    await client.query(`DELETE FROM leave_policies WHERE leave_type_id IN (SELECT id FROM leave_types WHERE code = ANY($1))`, [phase6DeleteCodes])
-    await client.query(`
-      DELETE FROM approval_workflows WHERE leave_request_id IN (
-        SELECT lr.id FROM leave_requests lr
-        JOIN leave_types lt ON lr.leave_type_id = lt.id
-        WHERE lt.code = ANY($1)
-      )
-    `, [phase6DeleteCodes])
-    await client.query(`DELETE FROM leave_requests WHERE leave_type_id IN (SELECT id FROM leave_types WHERE code = ANY($1))`, [phase6DeleteCodes])
-    const delResult = await client.query(`DELETE FROM leave_types WHERE code = ANY($1)`, [phase6DeleteCodes])
-    if (delResult.rowCount && delResult.rowCount > 0) {
-      console.log(`[migrate] Permanently deleted ${delResult.rowCount} legacy leave type(s)`)
+    const legacyCheck = await client.query(`SELECT id FROM leave_types WHERE code = ANY($1) LIMIT 1`, [phase6DeleteCodes])
+    if (legacyCheck.rows.length > 0) {
+      await client.query(`DELETE FROM leave_balances WHERE leave_type_id IN (SELECT id FROM leave_types WHERE code = ANY($1))`, [phase6DeleteCodes])
+      await client.query(`DELETE FROM leave_policies WHERE leave_type_id IN (SELECT id FROM leave_types WHERE code = ANY($1))`, [phase6DeleteCodes])
+      await client.query(`
+        DELETE FROM approval_workflows WHERE leave_request_id IN (
+          SELECT lr.id FROM leave_requests lr
+          JOIN leave_types lt ON lr.leave_type_id = lt.id
+          WHERE lt.code = ANY($1)
+        )
+      `, [phase6DeleteCodes])
+      await client.query(`DELETE FROM leave_requests WHERE leave_type_id IN (SELECT id FROM leave_types WHERE code = ANY($1))`, [phase6DeleteCodes])
+      const delResult = await client.query(`DELETE FROM leave_types WHERE code = ANY($1)`, [phase6DeleteCodes])
+      if (delResult.rowCount && delResult.rowCount > 0) {
+        console.log(`[migrate] Permanently deleted ${delResult.rowCount} legacy leave type(s)`)
+      }
     }
 
     // Drop min_notice_days column — notice periods are not used in Bloom & Grow LMS
@@ -1239,17 +1242,18 @@ export async function runMigrations(): Promise<void> {
       WHERE code = 'TOMED'
     `)
 
-    // 9c. Upsert HK and UK leave policies for TOMED (4.5 hours/year = 4.5 units)
-    for (const rCode of ['HK', 'UK']) {
+    // 9c. Upsert HK and UK leave policies for TOMED (1.5 hours/year for HK, 4.5 for UK)
+    const tomedPolicies: [string, number][] = [['HK', 1.5], ['UK', 4.5]]
+    for (const [rCode, hours] of tomedPolicies) {
       await client.query(`
         INSERT INTO leave_policies (leave_type_id, region_id, entitlement_days, carry_over_max, probation_months)
-        SELECT lt.id, r.id, 4.5, 0, 0
+        SELECT lt.id, r.id, $2, 0, 0
         FROM leave_types lt, regions r
         WHERE lt.code = 'TOMED' AND r.code = $1
-        ON CONFLICT (leave_type_id, region_id) DO UPDATE SET entitlement_days = 4.5
-      `, [rCode])
+        ON CONFLICT (leave_type_id, region_id) DO UPDATE SET entitlement_days = $2
+      `, [rCode, hours])
     }
-    console.log('[migrate] Activated TOMED leave type with HK/UK policies (4.5 hrs/year)')
+    console.log('[migrate] Activated TOMED leave type with HK (1.5 hrs) / UK (4.5 hrs) policies')
 
     // 9d. Add WFH policy for UK region (was missing — prevents UK staff from submitting WFH)
     await client.query(`
@@ -1406,11 +1410,236 @@ export async function runMigrations(): Promise<void> {
 
     // Remove duplicate types: FPSL, FPSL_AU, FPSL_NZ, FPSL_AUNZ (0 requests, redundant)
     for (const code of ['FPSL', 'FPSL_AU', 'FPSL_NZ', 'FPSL_AUNZ']) {
+      const hasRequests = await client.query(
+        `SELECT 1 FROM leave_requests lr JOIN leave_types lt ON lr.leave_type_id = lt.id WHERE lt.code = $1 LIMIT 1`, [code]
+      )
+      if (hasRequests.rows.length > 0) continue
       await client.query(`DELETE FROM leave_balances WHERE leave_type_id IN (SELECT id FROM leave_types WHERE code = $1)`, [code])
       await client.query(`DELETE FROM leave_policies WHERE leave_type_id IN (SELECT id FROM leave_types WHERE code = $1)`, [code])
       await client.query(`DELETE FROM leave_types WHERE code = $1`, [code])
     }
     console.log('[migrate] Phase 11 (sick leave dedup) complete')
+
+    // ── Phase 12: Missing policies, gender fields, gender restrictions ──────
+    const allRegionCodes = ['HK', 'SG', 'MY', 'ID', 'CN', 'AU', 'NZ', 'CN-GZ', 'CN-SH', 'UK']
+    const universalLeaveTypeCodes = ['WFH', 'WR', 'NPL', 'BT']
+    for (const ltCode of universalLeaveTypeCodes) {
+      for (const rCode of allRegionCodes) {
+        await client.query(`
+          INSERT INTO leave_policies (leave_type_id, region_id, entitlement_days, carry_over_max, probation_months)
+          SELECT lt.id, r.id, 0, 0, 0
+          FROM leave_types lt, regions r
+          WHERE lt.code = $1 AND r.code = $2
+          ON CONFLICT (leave_type_id, region_id) DO NOTHING
+        `, [ltCode, rCode])
+      }
+    }
+    console.log('[migrate] Phase 12a: Added missing WFH/WR/NPL/BT policies for all regions')
+
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS gender varchar(10)`)
+    console.log('[migrate] Phase 12b: Added gender column to users')
+
+    await client.query(`ALTER TABLE leave_types ADD COLUMN IF NOT EXISTS gender_restriction varchar(10)`)
+    await client.query(`UPDATE leave_types SET gender_restriction = 'female' WHERE code IN ('ML', 'ML_AUNZ') AND gender_restriction IS NULL`)
+    await client.query(`UPDATE leave_types SET gender_restriction = 'male' WHERE code = 'PL' AND gender_restriction IS NULL`)
+    console.log('[migrate] Phase 12c: Added gender_restriction to leave_types (ML=female, PL=male)')
+
+    // ── Phase 12d: Set representative genders on seeded users ──────
+    const maleEmails = [
+      'yazid.ahmad@bloomandgrowgroup.com', 'richard.alejandro@bloomandgrowgroup.com',
+      'scott.ang@bloomandgrowgroup.com', 'josh@bloomandgrowgroup.com',
+      'benjamin.inglis@bloomandgrowgroup.com', 'jorge.inso@bloomandgrowgroup.com',
+      'jason.fu@bloomandgrowgroup.com', 'jerald@babycentral.com.hk',
+      'lawrence.choi@bloomandgrowgroup.com', 'jeremy.low@bloomandgrowgroup.com',
+      'james@bloomandgrowgroup.com', 'teddy.romulo@bloomandgrowgroup.com',
+      'anmol.rooprai@bloomandgrowgroup.com', 'sharwind@baby-central.com.sg',
+      'mike.tsang@bloomandgrowgroup.com', 'brian@bloomandgrowgroup.com',
+      'winson.zheng@bloomandgrow.com.cn', 'yakub.prastawa@bloomandgrowgroup.com',
+      'deden.ridwan@bloomandgrowgroup.com', 'naveen@bloomandgrowgroup.com',
+      'bud@babycentral.com.hk'
+    ]
+    const femaleEmails = [
+      'nenden.alifa@bloomandgrowgroup.com', 'maya.amelia@bloomandgrowgroup.com',
+      'syazwany.anny@bloomandgrowgroup.com', 'atiqah.ecom@bloomandgrowgroup.com',
+      'chloe@bloomandgrowgroup.com', 'jessicab@bloomandgrowgroup.com',
+      'tammy@bloomandgrowgroup.com', 'eva.chan@bloomandgrowgroup.com',
+      'louise@bloomandgrowgroup.com', 'cherry.chen@bloomandgrowgroup.com',
+      'essena.chen@bloomandgrow.com.cn', 'withney@bloomandgrow.com.cn',
+      'zoe@bloomandgrowgroup.com', 'sydney@bloomandgrowgroup.com',
+      'stephanie.choo@bloomandgrowgroup.com', 'helen.christie@bloomandgrowgroup.com',
+      'elaine@bloomandgrowgroup.com', 'kim@bloomandgrowgroup.com',
+      'riana.destiana@bloomandgrowgroup.com', 'alex@bloomandgrowgroup.com',
+      'leyden@bloomandgrowgroup.com', 'brigitta.ellen@bloomandgrowgroup.com',
+      'lily@bloomandgrow.com.cn', 'hollie@bloomandgrowgroup.com',
+      'bobo.gan@bloomandgrow.com.cn', 'june@bloomandgrowgroup.com',
+      'anggraini.hapsari@bloomandgrowgroup.com', 'cici.huang@bloomandgrow.com.cn',
+      'ellen@bloomandgrowgroup.com', 'carole@bloomandgrowgroup.com',
+      'sophie.jiao@bloomandgrow.com.cn', 'rina.juwita@bloomandgrowgroup.com',
+      'idy@bloomandgrowgroup.com', 'janice.kong@bloomandgrowgroup.com',
+      'kate.kuang@bloomandgrow.com.cn', 'amy@bloomandgrowgroup.com',
+      'winnie.lee@bloomandgrowgroup.com', 'megan.li@bloomandgrow.com.cn',
+      'sissi.li@bloomandgrow.com.cn', 'vicky.li@bloomandgrowgroup.com',
+      'mei.liew@bloomandgrowgroup.com', 'arati@babycentral.com.hk',
+      'lina@bloomandgrowgroup.com', 'wynn.liu@bloomandgrow.com.cn',
+      'gloria.lo@bloomandgrowgroup.com', 'tannling@bloomandgrowgroup.com',
+      'tannting@bloomandgrowgroup.com', 'laura@bloomandgrow.com.cn',
+      'erica.lye@bloomandgrowgroup.com', 'asyiqin.nasser@bloomandgrowgroup.com',
+      'atika.putri@bloomandgrowgroup.com', 'jamie@bloomandgrowgroup.com',
+      'ania@bloomandgrow.com.au', 'wiwik.setyawati@bloomandgrowgroup.com',
+      'meydira.shahnaz@bloomandgrowgroup.com', 'stephanie.shim@bloomandgrowgroup.com',
+      'michelle.su@bloomandgrow.com.cn', 'maisarah.sulaiman@bloomandgrowgroup.com',
+      'winki@bloomandgrowgroup.com', 'melissa@baby-central.com.sg',
+      'martha.tang@bloomandgrowgroup.com', 'siti.tarmidi@bloomandgrowgroup.com',
+      'victoria@bloomandgrowasia.com', 'rachel.too@bloomandgrowgroup.com',
+      'lutfia.usman@bloomandgrowgroup.com', 'angela.valentine@bloomandgrowgroup.com',
+      'michelle@bloomandgrowgroup.com', 'amy.xu@bloomandgrow.com.cn',
+      'helen.yan@bloomandgrow.com.cn', 'crystal@bloomandgrow.com.cn',
+      'enid.yap@bloomandgrowgroup.com', 'ashley.zhang@bloomandgrow.com.cn'
+    ]
+    for (const email of maleEmails) {
+      await client.query(`UPDATE users SET gender = 'male' WHERE LOWER(email) = LOWER($1) AND gender IS NULL`, [email])
+    }
+    for (const email of femaleEmails) {
+      await client.query(`UPDATE users SET gender = 'female' WHERE LOWER(email) = LOWER($1) AND gender IS NULL`, [email])
+    }
+    console.log('[migrate] Phase 12d: Set genders on seeded users')
+
+    // Phase 12e: Update display names for cross-region staff
+    await client.query(`UPDATE users SET name = 'Victoria Thomas (UK)' WHERE LOWER(email) = 'victoria@bloomandgrowasia.com' AND name = 'Victoria Thomas'`)
+    await client.query(`UPDATE users SET name = 'Hollie Gale (NZ)' WHERE LOWER(email) = 'hollie@bloomandgrowgroup.com' AND name = 'Hollie Gale'`)
+    console.log('[migrate] Phase 12e: Updated cross-region staff display names')
+
+    // ── Phase 13: Production data cleanup ──────────────────────────────────
+    // 13a. Reactivate Connie Li's account
+    const connieResult = await client.query(
+      `UPDATE users SET is_active = true WHERE LOWER(email) = 'connie@bloomandgrowgroup.com' AND is_active = false RETURNING id`
+    )
+    if (connieResult.rowCount && connieResult.rowCount > 0) {
+      console.log('[migrate] Phase 13a: Reactivated Connie Li account')
+    }
+
+    // 13b. Deactivate test/smoke accounts
+    const smokeResult = await client.query(`
+      UPDATE users SET is_active = false
+      WHERE (
+        email LIKE 'smoke.%@bloomandgrowgroup.com'
+        OR email LIKE 'e2e.test.%@bloomandgrowgroup.com'
+      ) AND is_active = true
+      RETURNING id, name
+    `)
+    if (smokeResult.rowCount && smokeResult.rowCount > 0) {
+      console.log(`[migrate] Phase 13b: Deactivated ${smokeResult.rowCount} test account(s)`)
+    }
+
+    // 13c. Clean up test account leave balances
+    await client.query(`
+      DELETE FROM leave_balances WHERE user_id IN (
+        SELECT id FROM users WHERE email LIKE 'smoke.%@bloomandgrowgroup.com'
+          OR email LIKE 'e2e.test.%@bloomandgrowgroup.com'
+      )
+    `)
+
+    // 13d. Clean up E2E test leave types (no requests reference them)
+    const e2eTypesCheck = await client.query(`
+      SELECT lt.id FROM leave_types lt
+      WHERE lt.code LIKE 'E2E%'
+        AND NOT EXISTS (SELECT 1 FROM leave_requests lr WHERE lr.leave_type_id = lt.id)
+    `)
+    if (e2eTypesCheck.rows.length > 0) {
+      const e2eIds = e2eTypesCheck.rows.map((r: { id: number }) => r.id)
+      await client.query(`DELETE FROM leave_balances WHERE leave_type_id = ANY($1)`, [e2eIds])
+      await client.query(`DELETE FROM leave_policies WHERE leave_type_id = ANY($1)`, [e2eIds])
+      await client.query(`DELETE FROM leave_types WHERE id = ANY($1)`, [e2eIds])
+      console.log(`[migrate] Phase 13d: Removed ${e2eIds.length} E2E test leave type(s)`)
+    }
+
+    // 13e. Merge Unpaid Leave (UL) requests into No Pay Leave (NPL)
+    const ulMerge = await client.query(`
+      UPDATE leave_requests SET leave_type_id = (
+        SELECT id FROM leave_types WHERE code = 'NPL' LIMIT 1
+      )
+      WHERE leave_type_id IN (SELECT id FROM leave_types WHERE code = 'UL')
+      RETURNING id
+    `)
+    if (ulMerge.rowCount && ulMerge.rowCount > 0) {
+      console.log(`[migrate] Phase 13e: Merged ${ulMerge.rowCount} Unpaid Leave request(s) into No Pay Leave`)
+    }
+    // Clean up UL balances and remove the type
+    await client.query(`DELETE FROM leave_balances WHERE leave_type_id IN (SELECT id FROM leave_types WHERE code = 'UL')`)
+    await client.query(`DELETE FROM leave_policies WHERE leave_type_id IN (SELECT id FROM leave_types WHERE code = 'UL')`)
+    await client.query(`DELETE FROM leave_types WHERE code = 'UL' AND NOT EXISTS (SELECT 1 FROM leave_requests lr WHERE lr.leave_type_id = leave_types.id)`)
+
+    // 13f. Set NPL and NPSL to non-deducting (unlimited)
+    await client.query(`UPDATE leave_types SET deducts_balance = false WHERE code IN ('NPL', 'NPSL') AND deducts_balance = true`)
+    console.log('[migrate] Phase 13f: Set NPL and NPSL to non-deducting')
+
+    // 13g. Remove policies for leave types that have no policies needed
+    // (HOSP_SGMY, CCL_SG, FAM_ID, LSL_AUNZ, ML_AUNZ, NPL_AUNZ should only have region-specific policies)
+    // Also clean up policies for inactive leave types
+    await client.query(`
+      DELETE FROM leave_policies WHERE leave_type_id IN (
+        SELECT id FROM leave_types WHERE is_active = false
+      )
+    `)
+    console.log('[migrate] Phase 13g: Removed policies for inactive leave types')
+
+    console.log('[migrate] Phase 13 (production cleanup) complete')
+
+    // ── Phase 14: Additional regional calendars ──────────────────────────────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS user_additional_calendars (
+        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        region_id INTEGER NOT NULL REFERENCES regions(id),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (user_id, region_id)
+      )
+    `)
+    await client.query(`CREATE INDEX IF NOT EXISTS user_additional_calendars_user_id_idx ON user_additional_calendars(user_id)`)
+
+    // Move Victoria Thomas back to HK region (was incorrectly moved to UK)
+    const hkRegion = await client.query(`SELECT id FROM regions WHERE code = 'HK' LIMIT 1`)
+    const ukRegion = await client.query(`SELECT id FROM regions WHERE code = 'UK' LIMIT 1`)
+    const nzRegion = await client.query(`SELECT id FROM regions WHERE code = 'NZ' LIMIT 1`)
+
+    if (hkRegion.rowCount && hkRegion.rowCount > 0 && ukRegion.rowCount && ukRegion.rowCount > 0) {
+      const hkId = hkRegion.rows[0].id
+      const ukId = ukRegion.rows[0].id
+
+      // Move Victoria back to HK
+      const victoriaResult = await client.query(
+        `UPDATE users SET region_id = $1 WHERE LOWER(email) = 'victoria@bloomandgrowasia.com' AND region_id = $2 RETURNING id`,
+        [hkId, ukId]
+      )
+      if (victoriaResult.rowCount && victoriaResult.rowCount > 0) {
+        console.log('[migrate] Phase 14: Moved Victoria Thomas back to HK region')
+      }
+
+      // Assign UK as additional calendar for Victoria
+      const victoriaRow = await client.query(`SELECT id FROM users WHERE LOWER(email) = 'victoria@bloomandgrowasia.com' LIMIT 1`)
+      if (victoriaRow.rowCount && victoriaRow.rowCount > 0) {
+        await client.query(
+          `INSERT INTO user_additional_calendars (user_id, region_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+          [victoriaRow.rows[0].id, ukId]
+        )
+        console.log('[migrate] Phase 14: Assigned UK additional calendar to Victoria Thomas')
+      }
+    }
+
+    // Assign NZ as additional calendar for Hollie Gale
+    if (nzRegion.rowCount && nzRegion.rowCount > 0) {
+      const nzId = nzRegion.rows[0].id
+      const hollieRow = await client.query(`SELECT id FROM users WHERE LOWER(email) = 'hollie@bloomandgrowgroup.com' LIMIT 1`)
+      if (hollieRow.rowCount && hollieRow.rowCount > 0) {
+        await client.query(
+          `INSERT INTO user_additional_calendars (user_id, region_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+          [hollieRow.rows[0].id, nzId]
+        )
+        console.log('[migrate] Phase 14: Assigned NZ additional calendar to Hollie Gale')
+      }
+    }
+
+    console.log('[migrate] Phase 14 (additional calendars) complete')
 
     console.log('[migrate] Migrations complete')
   } catch (err) {

@@ -36,6 +36,7 @@ export interface AdminUser {
   resignedDate: string | null
   slackUserId: string | null
   avatarUrl: string | null
+  gender: 'male' | 'female' | 'other' | null
   createdAt: string
 }
 
@@ -56,6 +57,9 @@ export interface LeaveType {
   genderRestriction: 'male' | 'female' | null
   minUnit: '1_day' | 'half_day' | '2_hours' | '1_hour'
   unit: 'days' | 'hours'
+  deductsBalance: boolean
+  isActive: boolean
+  genderRestriction: string | null
 }
 
 export interface LeavePolicy {
@@ -69,6 +73,7 @@ export interface LeavePolicy {
   entitlementUnlimited: boolean
   carryoverUnlimited: boolean
   tierCount: number
+  leaveTypeUnit: 'days' | 'hours'
 }
 
 export interface PublicHoliday {
@@ -197,10 +202,12 @@ export function useUpdateUser() {
         isActive: boolean
         isOnProbation: boolean
         joinedDate: string | null
+        gender: 'male' | 'female' | 'other' | null
       }>
     }) => api.patch<{ data: AdminUser }>(`/users/${id}`, data).then((r) => r.data.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin-users'] })
+      qc.invalidateQueries({ queryKey: ['auth'] })
       toast.success('User updated')
     },
     onError: (e: { response?: { data?: { error?: string } } }) => {
@@ -232,6 +239,41 @@ export function useResignUser() {
       toast.success('User marked as resigned')
     },
     onError: () => toast.error('Failed to mark user as resigned'),
+  })
+}
+
+// ─── Additional Calendars ─────────────────────────────────────────────────────
+
+export interface AdditionalCalendar {
+  id: number
+  regionId: number
+  regionName: string | null
+  regionCode: string | null
+}
+
+export function useAdditionalCalendars(userId: number | null) {
+  return useQuery({
+    queryKey: ['additional-calendars', userId],
+    queryFn: () =>
+      api
+        .get<{ data: AdditionalCalendar[] }>(`/admin/users/${userId}/additional-calendars`)
+        .then((r) => r.data.data),
+    enabled: !!userId,
+  })
+}
+
+export function useUpdateAdditionalCalendars() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ userId, regionIds }: { userId: number; regionIds: number[] }) =>
+      api
+        .put<{ data: AdditionalCalendar[] }>(`/admin/users/${userId}/additional-calendars`, { regionIds })
+        .then((r) => r.data.data),
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: ['additional-calendars', variables.userId] })
+      toast.success('Additional calendars updated')
+    },
+    onError: () => toast.error('Failed to update additional calendars'),
   })
 }
 
@@ -484,6 +526,7 @@ export interface EntitlementRow {
   leaveTypeId: number
   leaveTypeName: string
   leaveTypeCode: string
+  leaveTypeUnit: string
   year: number
   entitled: string
   used: string
@@ -508,15 +551,20 @@ export interface AuditLogEntry {
   createdAt: string
 }
 
-export function useEntitlements(regionId?: number, year?: number) {
+export function useEntitlements(regionId?: number, year?: number, userId?: number) {
   return useQuery({
-    queryKey: ['admin-entitlements', regionId, year],
+    queryKey: ['admin-entitlements', regionId, year, userId],
     queryFn: () =>
       api
         .get<{ data: EntitlementRow[] }>('/admin/entitlements', {
-          params: { ...(regionId ? { regionId } : {}), ...(year ? { year } : {}) },
+          params: {
+            ...(regionId ? { regionId } : {}),
+            ...(year ? { year } : {}),
+            ...(userId ? { userId } : {}),
+          },
         })
         .then((r) => r.data.data),
+    enabled: !!userId,
   })
 }
 
@@ -538,6 +586,7 @@ export function useUpdateEntitlement() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin-entitlements'] })
       qc.invalidateQueries({ queryKey: ['entitlement-audit'] })
+      qc.invalidateQueries({ queryKey: ['policy-tiers'] })
       toast.success('Entitlement updated')
     },
     onError: (e: { response?: { data?: { error?: string } } }) => {
@@ -582,6 +631,7 @@ export function useEntitlementAudit(employeeId?: number) {
           params: employeeId ? { employeeId } : {},
         })
         .then((r) => r.data.data),
+    enabled: !!employeeId,
   })
 }
 
@@ -664,6 +714,7 @@ export interface EmployeeLeaveRequest {
   reason: string | null
   halfDayPeriod: string | null
   attachmentUrl: string | null
+  approverName: string | null
   createdAt: string
 }
 

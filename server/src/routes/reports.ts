@@ -61,6 +61,8 @@ router.get('/utilisation', validate(utilisationQuerySchema, 'query'), async (req
       .select({
         leaveTypeName: leaveTypes.name,
         leaveTypeCode: leaveTypes.code,
+        leaveTypeUnit: leaveTypes.unit,
+        leaveTypeDeductsBalance: leaveTypes.deductsBalance,
         totalEntitled: sql<number>`sum(${leaveBalances.entitled} + ${leaveBalances.carried})`,
         totalUsed: sql<number>`sum(${leaveBalances.used})`,
         totalPending: sql<number>`sum(${leaveBalances.pending})`,
@@ -68,7 +70,7 @@ router.get('/utilisation', validate(utilisationQuerySchema, 'query'), async (req
       .from(leaveBalances)
       .innerJoin(leaveTypes, eq(leaveBalances.leaveTypeId, leaveTypes.id))
       .where(and(inArray(leaveBalances.userId, userIds), eq(leaveBalances.year, year)))
-      .groupBy(leaveTypes.id, leaveTypes.name, leaveTypes.code)
+      .groupBy(leaveTypes.id, leaveTypes.name, leaveTypes.code, leaveTypes.unit, leaveTypes.deductsBalance)
       .orderBy(leaveTypes.name)
 
     // Approved leave requests grouped by month
@@ -109,6 +111,8 @@ router.get('/utilisation', validate(utilisationQuerySchema, 'query'), async (req
         byType: balancesByType.map((r) => ({
           name: r.leaveTypeName,
           code: r.leaveTypeCode,
+          unit: r.leaveTypeUnit ?? 'days',
+          deductsBalance: r.leaveTypeDeductsBalance ?? true,
           entitled: Number(r.totalEntitled),
           used: Number(r.totalUsed),
           pending: Number(r.totalPending),
@@ -342,7 +346,7 @@ const leaveRequestExportSchema = z.object({
     (v) => v ? String(v).split(',').map((s) => s.trim()).filter(Boolean) : undefined,
     z.array(z.enum(['pending', 'approved', 'rejected', 'cancelled'])).optional()
   ),
-  format: z.enum(['csv', 'xlsx']).default('csv'),
+  format: z.enum(['csv', 'xlsx', 'json']).default('csv'),
 })
 
 router.get('/export/leave-requests', validate(leaveRequestExportSchema, 'query'), async (req, res, next) => {
@@ -378,6 +382,20 @@ router.get('/export/leave-requests', validate(leaveRequestExportSchema, 'query')
       .innerJoin(leaveTypes, eq(leaveRequests.leaveTypeId, leaveTypes.id))
       .where(and(...conditions))
       .orderBy(users.name, leaveRequests.startDate)
+
+    if (format === 'json') {
+      const jsonData = rows.map((r) => ({
+        employeeName: r.employeeName,
+        regionCode: r.regionCode,
+        leaveTypeName: r.leaveTypeName,
+        startDate: r.startDate,
+        endDate: r.endDate,
+        totalDays: Number(r.totalDays),
+        status: r.status,
+        reason: r.reason ?? '',
+      }))
+      return res.json({ success: true, data: jsonData })
+    }
 
     const baseName = `leave_requests_${year}`
 
@@ -420,14 +438,13 @@ router.get('/export/leave-requests', validate(leaveRequestExportSchema, 'query')
   }
 })
 
-// GET /api/reports/export/entitlements
 const entitlementExportSchema = z.object({
   year: z.coerce.number().int().min(2020).max(2100).default(new Date().getFullYear()),
   // Accept comma-separated IDs for multi-select
   regionIds: z.preprocess(parseIds, z.array(z.number().int().positive()).optional()),
   leaveTypeIds: z.preprocess(parseIds, z.array(z.number().int().positive()).optional()),
   userIds: z.preprocess(parseIds, z.array(z.number().int().positive()).optional()),
-  format: z.enum(['csv', 'xlsx']).default('csv'),
+  format: z.enum(['csv', 'xlsx', 'json']).default('csv'),
 })
 
 router.get('/export/entitlements', validate(entitlementExportSchema, 'query'), async (req, res, next) => {
@@ -456,6 +473,28 @@ router.get('/export/entitlements', validate(entitlementExportSchema, 'query'), a
       .innerJoin(leaveTypes, eq(leaveBalances.leaveTypeId, leaveTypes.id))
       .where(and(...conditions))
       .orderBy(users.name, leaveTypes.name)
+
+    if (format === 'json') {
+      const jsonData = rows.map((r) => {
+        const entitled = parseFloat(r.entitled)
+        const used = parseFloat(r.used)
+        const adj = parseFloat(r.adjustments)
+        const carried = parseFloat(r.carried)
+        const pending = parseFloat(r.pending)
+        return {
+          employeeName: r.employeeName,
+          regionCode: r.regionCode,
+          leaveTypeName: r.leaveTypeName,
+          entitled: parseFloat(entitled.toFixed(1)),
+          used: parseFloat(used.toFixed(1)),
+          adjustments: parseFloat(adj.toFixed(1)),
+          carried: parseFloat(carried.toFixed(1)),
+          pending: parseFloat(pending.toFixed(1)),
+          remaining: parseFloat((entitled + carried + adj - used - pending).toFixed(1)),
+        }
+      })
+      return res.json({ success: true, data: jsonData })
+    }
 
     const baseName = `entitlements_${year}`
 

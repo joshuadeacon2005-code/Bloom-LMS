@@ -34,6 +34,7 @@ const createUserSchema = z.object({
   probationMonths: z.number().int().positive().nullable().optional(),
   probationEndDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   joinedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  gender: z.enum(['male', 'female', 'other']).nullable().optional(),
 })
 
 const updateUserSchema = z.object({
@@ -49,7 +50,7 @@ const updateUserSchema = z.object({
   probationEndDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   slackUserId: z.string().max(50).nullable().optional(),
   joinedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
-  gender: z.enum(['male', 'female']).nullable().optional(),
+  gender: z.enum(['male', 'female', 'other']).nullable().optional(),
   resignedDate: z.string().datetime().nullable().optional(),
 })
 
@@ -125,10 +126,17 @@ router.patch(
         super_admin: 4,
       }
       const isHrOrAbove = (roleLevel[req.user!.role] ?? 0) >= roleLevel.hr_admin!
+      const isSelf = id === req.user!.userId
 
-      const data = isHrOrAbove
-        ? req.body
-        : { name: req.body.name as string | undefined, avatarUrl: req.body.avatarUrl as string | undefined }
+      let data: Record<string, unknown>
+      if (!isHrOrAbove) {
+        data = { name: req.body.name as string | undefined, avatarUrl: req.body.avatarUrl as string | undefined }
+      } else if (isSelf) {
+        const { role: _role, ...rest } = req.body as Record<string, unknown>
+        data = rest
+      } else {
+        data = req.body
+      }
 
       const user = await usersService.updateUser(id, data)
       const response: ApiResponse<typeof user> = { success: true, data: user }

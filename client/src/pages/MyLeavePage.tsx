@@ -339,36 +339,39 @@ export function MyLeavePage() {
                 <p className="text-sm text-muted-foreground">No leave balances found.</p>
               ) : (
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  {balances.map((b) => (
-                    <div key={b.id} className="rounded-lg border border-border p-4">
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <p className="text-sm font-semibold text-foreground">{b.leaveType?.name}</p>
-                          <p className="text-2xl font-bold mt-1">
-                            {b.leaveType?.deductsBalance === false
-                              ? <span title="Unlimited — does not deduct from balance">∞</span>
-                              : <>{b.available}<span className="text-sm font-normal text-muted-foreground ml-1">/ {b.entitled}d</span></>
-                            }
-                          </p>
+                  {balances.map((b) => {
+                    const u = b.leaveType?.unit === 'hours' ? 'h' : 'd'
+                    return (
+                      <div key={b.id} className="rounded-lg border border-border p-4">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <p className="text-sm font-semibold text-foreground">{b.leaveType?.name}</p>
+                            <p className="text-2xl font-bold mt-1">
+                              {b.leaveType?.deductsBalance === false
+                                ? <span title="Unlimited — does not deduct from balance">∞</span>
+                                : <>{b.available}<span className="text-sm font-normal text-muted-foreground ml-1">/ {b.entitled}{u}</span></>
+                              }
+                            </p>
+                          </div>
+                          {!b.leaveType?.isPaid && (
+                            <Badge variant="outline" className="text-xs">Unpaid</Badge>
+                          )}
+                          {b.leaveType?.deductsBalance === false && (
+                            <Badge variant="outline" className="text-xs">No Deduction</Badge>
+                          )}
                         </div>
-                        {!b.leaveType?.isPaid && (
-                          <Badge variant="outline" className="text-xs">Unpaid</Badge>
-                        )}
-                        {b.leaveType?.deductsBalance === false && (
-                          <Badge variant="outline" className="text-xs">No Deduction</Badge>
-                        )}
+                        <Progress
+                          value={b.leaveType?.deductsBalance === false ? 100 : b.entitled > 0 ? (b.available / b.entitled) * 100 : 0}
+                          className="mt-3 h-1.5"
+                        />
+                        <div className="mt-2 flex gap-3 text-xs text-muted-foreground">
+                          {b.used > 0 && <span>{b.used}{u} used</span>}
+                          {b.pending > 0 && <span>{b.pending}{u} pending</span>}
+                          {b.carried > 0 && <span>{b.carried}{u} carried</span>}
+                        </div>
                       </div>
-                      <Progress
-                        value={b.leaveType?.deductsBalance === false ? 100 : b.entitled > 0 ? (b.available / b.entitled) * 100 : 0}
-                        className="mt-3 h-1.5"
-                      />
-                      <div className="mt-2 flex gap-3 text-xs text-muted-foreground">
-                        {b.used > 0 && <span>{b.used}d used</span>}
-                        {b.pending > 0 && <span>{b.pending}d pending</span>}
-                        {b.carried > 0 && <span>{b.carried}d carried</span>}
-                      </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
             </CardContent>

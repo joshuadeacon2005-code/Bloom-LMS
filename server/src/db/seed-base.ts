@@ -77,7 +77,6 @@ export async function seedBaseData(): Promise<void> {
       ['Paternity Leave', 'PL', 'Paid leave for the birth or adoption of a child (secondary caregiver)', true, false, null],
       ['Compassionate Leave', 'CL', 'Leave for bereavement or serious family illness', true, false, 5],
       ['Marriage Leave', 'MRL', 'Leave for the employee\'s own wedding', true, false, 3],
-      ['Unpaid Leave', 'UL', 'Leave without pay', false, false, null],
       ['Child Care Leave', 'CCL', 'Government-mandated child care leave', true, false, 6],
       ['Study / Exam Leave', 'STL', 'Leave for approved study or examinations', true, true, 5],
       ['Compensatory Leave', 'COMP_LEAVE', 'Leave earned via approved overtime (non-AU/NZ)', true, false, null],

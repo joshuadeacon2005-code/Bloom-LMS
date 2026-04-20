@@ -5,8 +5,11 @@ const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 })
 
-// Attach access token on every request
+// Attach access token on every request; clear Content-Type for FormData
 api.interceptors.request.use((config) => {
+  if (config.data instanceof FormData) {
+    delete config.headers['Content-Type']
+  }
   const stored = localStorage.getItem('bloom-lms-auth')
   if (stored) {
     try {

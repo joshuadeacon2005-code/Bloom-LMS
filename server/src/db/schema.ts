@@ -182,7 +182,7 @@ export const leaveTypes = pgTable(
     dayCalculation: varchar('day_calculation', { length: 20 }).notNull().default('working_days'),
     // Minimum booking unit: '1_day' | 'half_day' | '2_hours' | '1_hour'
     minUnit: varchar('min_unit', { length: 10 }).notNull().default('1_day'),
-    // 'male' | 'female' | null — restricts leave type to a specific gender
+    // Gender restriction: 'female' for maternity, 'male' for paternity, null for all
     genderRestriction: varchar('gender_restriction', { length: 10 }),
   },
   (table) => [
@@ -440,6 +440,16 @@ export const entitlementAuditLog = pgTable(
   ]
 )
 
+export const userAdditionalCalendars = pgTable('user_additional_calendars', {
+  id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+  userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  regionId: integer('region_id').notNull().references(() => regions.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  unique('user_additional_calendars_user_region_unique').on(table.userId, table.regionId),
+  index('user_additional_calendars_user_id_idx').on(table.userId),
+])
+
 export const policyEntitlementTiers = pgTable('policy_entitlement_tiers', {
   id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
   leavePolicyId: integer('leave_policy_id').notNull().references(() => leavePolicies.id, { onDelete: 'cascade' }),
@@ -610,6 +620,11 @@ export const policyEntitlementTiersRelations = relations(policyEntitlementTiers,
     references: [leavePolicies.id],
   }),
   assignments: many(policyTierAssignments),
+}))
+
+export const userAdditionalCalendarsRelations = relations(userAdditionalCalendars, ({ one }) => ({
+  user: one(users, { fields: [userAdditionalCalendars.userId], references: [users.id] }),
+  region: one(regions, { fields: [userAdditionalCalendars.regionId], references: [regions.id] }),
 }))
 
 export const policyTierAssignmentsRelations = relations(policyTierAssignments, ({ one }) => ({

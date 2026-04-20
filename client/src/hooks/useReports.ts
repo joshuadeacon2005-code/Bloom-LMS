@@ -9,6 +9,8 @@ export interface UtilisationByType {
   pending: number
   remaining: number
   utilisationPct: number
+  unit: 'days' | 'hours'
+  deductsBalance: boolean
 }
 
 export interface UtilisationByMonth {
@@ -69,6 +71,81 @@ export function useDepartmentSummary(filters: Pick<ReportFilters, 'year' | 'regi
           params: filters,
         })
         .then((r) => r.data.data),
+  })
+}
+
+export interface LeaveRequestRow {
+  employeeName: string
+  regionCode: string
+  leaveTypeName: string
+  startDate: string
+  endDate: string
+  totalDays: number
+  status: string
+  reason: string
+}
+
+export interface EntitlementRow {
+  employeeName: string
+  regionCode: string
+  leaveTypeName: string
+  entitled: number
+  used: number
+  adjustments: number
+  carried: number
+  pending: number
+  remaining: number
+}
+
+export function useLeaveRequestsPreview(params: {
+  year: number
+  regionId?: number
+  leaveTypeId?: number
+  userId?: number
+  status?: string
+  enabled?: boolean
+}) {
+  return useQuery({
+    queryKey: ['reports-lr-preview', params],
+    queryFn: () =>
+      api
+        .get<{ success: boolean; data: LeaveRequestRow[] }>('/reports/export/leave-requests', {
+          params: {
+            year: params.year,
+            format: 'json',
+            ...(params.regionId ? { regionId: params.regionId } : {}),
+            ...(params.leaveTypeId ? { leaveTypeId: params.leaveTypeId } : {}),
+            ...(params.userId ? { userId: params.userId } : {}),
+            ...(params.status && params.status !== 'all' ? { status: params.status } : {}),
+          },
+        })
+        .then((r) => r.data.data),
+    enabled: params.enabled !== false,
+  })
+}
+
+export function useEntitlementsPreview(params: {
+  year: number
+  regionId?: number
+  leaveTypeId?: number
+  userId?: number
+  enabled?: boolean
+}) {
+  return useQuery({
+    queryKey: ['reports-ent-preview', params],
+    queryFn: () =>
+      api
+        .get<{ success: boolean; data: EntitlementRow[] }>('/reports/export/entitlements', {
+          params: {
+            year: params.year,
+            format: 'json',
+            ...(params.regionId ? { regionId: params.regionId } : {}),
+            ...(params.leaveTypeId ? { leaveTypeId: params.leaveTypeId } : {}),
+            ...(params.userId ? { userId: params.userId } : {}),
+          },
+        })
+        .then((r) => r.data.data),
+    enabled: params.enabled !== false,
   })
 }
 

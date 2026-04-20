@@ -8,6 +8,7 @@ import {
   publicHolidays,
   users,
   regions,
+  userAdditionalCalendars,
 } from '../db/schema'
 import {
   calculateWorkingDays,
@@ -255,9 +256,11 @@ export async function createLeaveRequest(
     }
   }
 
-  // Check gender restriction
-  if (leaveType.genderRestriction && leaveType.genderRestriction !== user.gender) {
-    throw new ValidationError('This leave type is not available for your account')
+  // Check gender restriction (e.g. maternity=female, paternity=male)
+  if (leaveType.genderRestriction) {
+    if (leaveType.genderRestriction !== user.gender) {
+      throw new ValidationError('This leave type is not available for your gender')
+    }
   }
 
   const approvalFlow = (leaveType.approvalFlow ?? 'standard') as string
@@ -830,40 +833,62 @@ export async function getTeamAbsences(filters: {
 }) {
   const { startDate, endDate, regionId, departmentId } = filters
 
-  const conditions = [
+  const baseConditions = [
     or(eq(leaveRequests.status, 'approved'), eq(leaveRequests.status, 'pending')),
     lte(leaveRequests.startDate, endDate),
     gte(leaveRequests.endDate, startDate),
   ]
 
-  if (regionId) conditions.push(eq(users.regionId, regionId))
-  if (departmentId) conditions.push(eq(users.departmentId, departmentId))
+  if (departmentId) baseConditions.push(eq(users.departmentId, departmentId))
+
+  const selectFields = {
+    id: leaveRequests.id,
+    startDate: leaveRequests.startDate,
+    endDate: leaveRequests.endDate,
+    totalDays: leaveRequests.totalDays,
+    halfDayPeriod: leaveRequests.halfDayPeriod,
+    status: leaveRequests.status,
+    user: {
+      id: users.id,
+      name: users.name,
+      avatarUrl: users.avatarUrl,
+      regionId: users.regionId,
+      departmentId: users.departmentId,
+    },
+    leaveType: {
+      id: leaveTypes.id,
+      name: leaveTypes.name,
+      code: leaveTypes.code,
+      color: leaveTypes.color,
+    },
+  }
+
+  if (!regionId) {
+    return db
+      .select(selectFields)
+      .from(leaveRequests)
+      .leftJoin(users, eq(leaveRequests.userId, users.id))
+      .leftJoin(leaveTypes, eq(leaveRequests.leaveTypeId, leaveTypes.id))
+      .where(and(...baseConditions))
+      .orderBy(leaveRequests.startDate)
+  }
+
+  const additionalUserIds = await db
+    .select({ userId: userAdditionalCalendars.userId })
+    .from(userAdditionalCalendars)
+    .where(eq(userAdditionalCalendars.regionId, regionId))
+
+  const extraIds = additionalUserIds.map(r => r.userId)
+
+  const regionCondition = extraIds.length > 0
+    ? or(eq(users.regionId, regionId), inArray(users.id, extraIds))!
+    : eq(users.regionId, regionId)
 
   return db
-    .select({
-      id: leaveRequests.id,
-      startDate: leaveRequests.startDate,
-      endDate: leaveRequests.endDate,
-      totalDays: leaveRequests.totalDays,
-      halfDayPeriod: leaveRequests.halfDayPeriod,
-      status: leaveRequests.status,
-      user: {
-        id: users.id,
-        name: users.name,
-        avatarUrl: users.avatarUrl,
-        regionId: users.regionId,
-        departmentId: users.departmentId,
-      },
-      leaveType: {
-        id: leaveTypes.id,
-        name: leaveTypes.name,
-        code: leaveTypes.code,
-        color: leaveTypes.color,
-      },
-    })
+    .select(selectFields)
     .from(leaveRequests)
     .leftJoin(users, eq(leaveRequests.userId, users.id))
     .leftJoin(leaveTypes, eq(leaveRequests.leaveTypeId, leaveTypes.id))
-    .where(and(...conditions))
+    .where(and(...baseConditions, regionCondition))
     .orderBy(leaveRequests.startDate)
 }

@@ -21,6 +21,8 @@ export interface LeaveTypeWithPolicy {
   requiresAttachment: boolean
   maxDaysPerYear: number | null
   regionId: number | null
+  unit: 'days' | 'hours'
+  deductsBalance: boolean
   minUnit: '1_day' | 'half_day' | '2_hours' | '1_hour'
   dayCalculation: 'working_days' | 'calendar_days'
   policy: {
