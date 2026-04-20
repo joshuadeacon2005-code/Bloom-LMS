@@ -10,7 +10,7 @@ function ensureConfigured() {
     !process.env.CLOUDINARY_API_KEY ||
     !process.env.CLOUDINARY_API_SECRET
   ) {
-    throw new AppError(503, 'File upload is not configured on this server')
+    throw new AppError(503, 'Attachment upload is temporarily unavailable. Please contact your administrator.')
   }
   cloudinary.config({
     cloud_name: process.env.CLOUDINARY_CLOUD_NAME,

@@ -19,6 +19,8 @@ const safeUserFields = {
   probationMonths: users.probationMonths,
   probationEndDate: users.probationEndDate,
   joinedDate: users.joinedDate,
+  gender: users.gender,
+  resignedDate: users.resignedDate,
   avatarUrl: users.avatarUrl,
   createdAt: users.createdAt,
   updatedAt: users.updatedAt,
@@ -154,6 +156,8 @@ export async function updateUser(
     joinedDate?: string | null
     slackUserId?: string | null
     avatarUrl?: string | null
+    gender?: string | null
+    resignedDate?: Date | string | null
   }
 ) {
   if (data.email) {
@@ -169,9 +173,17 @@ export async function updateUser(
     data.email = data.email.toLowerCase()
   }
 
+  const { resignedDate: rawResignedDate, ...rest } = data
+  const resignedDate: Date | null | undefined =
+    rawResignedDate instanceof Date
+      ? rawResignedDate
+      : rawResignedDate
+        ? new Date(rawResignedDate)
+        : (rawResignedDate as null | undefined)
+
   const [user] = await db
     .update(users)
-    .set({ ...data, updatedAt: new Date() })
+    .set({ ...rest, resignedDate, updatedAt: new Date() })
     .where(and(eq(users.id, id), isNull(users.deletedAt)))
     .returning(safeUserFields)
 
@@ -233,17 +245,33 @@ export async function getManagers(_regionId?: number) {
 export async function autoGenerateLeaveBalances(userId: number, regionId: number): Promise<void> {
   const year = new Date().getFullYear()
 
+  const [user] = await db
+    .select({ id: users.id, gender: users.gender })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1)
+
   // Get all leave policies for this region
   const policies = await db
     .select({
       leaveTypeId: leavePolicies.leaveTypeId,
       entitlementDays: leavePolicies.entitlementDays,
+      staffRestriction: leaveTypes.staffRestriction,
+      genderRestriction: leaveTypes.genderRestriction,
     })
     .from(leavePolicies)
     .innerJoin(leaveTypes, eq(leavePolicies.leaveTypeId, leaveTypes.id))
     .where(and(eq(leavePolicies.regionId, regionId), eq(leaveTypes.isActive, true)))
 
   for (const policy of policies) {
+    // Skip if user is not in the eligible staff list
+    if (policy.staffRestriction) {
+      const allowedIds = policy.staffRestriction.split(',').map((s) => parseInt(s.trim(), 10))
+      if (!allowedIds.includes(userId)) continue
+    }
+    // Skip if user's gender doesn't match the restriction
+    if (policy.genderRestriction && policy.genderRestriction !== user?.gender) continue
+
     await db
       .insert(leaveBalances)
       .values({

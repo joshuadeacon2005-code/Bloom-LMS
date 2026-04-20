@@ -80,6 +80,7 @@ import {
   useCreateUser,
   useUpdateUser,
   useDeactivateUser,
+  useResignUser,
   useAdminLeaveTypes,
   useCreateLeaveType,
   useUpdateLeaveType,
@@ -99,6 +100,7 @@ import {
   useUpdateEntitlement,
   useBulkUpdateEntitlements,
   useEntitlementAudit,
+  useRevertEntitlementChange,
   usePolicyTiers,
   useCreateTier,
   useUpdateTier,
@@ -656,6 +658,7 @@ function UsersTab() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<AdminUser | null>(null)
   const [deactivating, setDeactivating] = useState<AdminUser | null>(null)
+  const [resigning, setResigning] = useState<AdminUser | null>(null)
   const [syncResult, setSyncResult] = useState<SlackSyncResult | null>(null)
   const [historyUser, setHistoryUser] = useState<AdminUser | null>(null)
 
@@ -669,6 +672,7 @@ function UsersTab() {
     pageSize,
   })
   const deactivate = useDeactivateUser()
+  const resign = useResignUser()
   const slackSync = useSlackSync()
   const slackTestDm = useSlackTestDm()
   const { data: slackStatus, isLoading: slackStatusLoading } = useSlackStatus()
@@ -840,9 +844,13 @@ function UsersTab() {
                     <td className="px-4 py-3 text-muted-foreground">{regionName(u.regionId)}</td>
                     <td className="px-4 py-3 text-muted-foreground text-sm">{u.managerName ?? '—'}</td>
                     <td className="px-4 py-3">
-                      <Badge variant={u.isActive ? 'default' : 'secondary'}>
-                        {u.isActive ? 'Active' : 'Inactive'}
-                      </Badge>
+                      {u.resignedDate ? (
+                        <Badge className="bg-orange-100 text-orange-800 border-orange-200">Resigned</Badge>
+                      ) : (
+                        <Badge variant={u.isActive ? 'default' : 'secondary'}>
+                          {u.isActive ? 'Active' : 'Inactive'}
+                        </Badge>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       {u.slackUserId ? (
@@ -876,14 +884,26 @@ function UsersTab() {
                             <Send className="h-3.5 w-3.5" />
                           </Button>
                         )}
-                        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openEdit(u)}>
+                        <Button size="icon" variant="ghost" className="h-7 w-7" title="Edit user" onClick={() => openEdit(u)}>
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
-                        {isHrOrAbove && u.isActive && u.id !== me?.id && (
+                        {isHrOrAbove && u.isActive && u.id !== me?.id && !u.resignedDate && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7 text-orange-600 hover:text-orange-700"
+                            title="Mark as resigned"
+                            onClick={() => setResigning(u)}
+                          >
+                            <UserX className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                        {isHrOrAbove && u.isActive && u.id !== me?.id && u.resignedDate && (
                           <Button
                             size="icon"
                             variant="ghost"
                             className="h-7 w-7 text-destructive hover:text-destructive"
+                            title="Deactivate user"
                             onClick={() => setDeactivating(u)}
                           >
                             <UserX className="h-3.5 w-3.5" />
@@ -948,6 +968,31 @@ function UsersTab() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <AlertDialog open={!!resigning} onOpenChange={(v) => !v && setResigning(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Mark {resigning?.name} as resigned?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will record their resignation date and deactivate their account. Their leave history and data will be preserved.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-orange-600 text-white hover:bg-orange-700"
+              onClick={async () => {
+                if (resigning) {
+                  await resign.mutateAsync(resigning.id)
+                  setResigning(null)
+                }
+              }}
+            >
+              Mark as Resigned
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
@@ -967,6 +1012,7 @@ const leaveTypeSchema = z.object({
   maxConsecutiveDays: z.string().optional(),
   dayCalculation: z.enum(['working_days', 'calendar_days']).default('working_days'),
   staffRestriction: z.array(z.string()).optional(),
+  genderRestriction: z.enum(['male', 'female', '__none__']).default('__none__'),
   minUnit: z.enum(['1_day', 'half_day', '2_hours', '1_hour']).default('1_day'),
   unit: z.enum(['days', 'hours']).default('days'),
 })
@@ -1172,7 +1218,7 @@ function LeaveTypeDialog({
 
   const { register, control, handleSubmit, reset, formState: { errors } } = useForm<LeaveTypeFormData>({
     resolver: zodResolver(leaveTypeSchema),
-    defaultValues: { isPaid: true, requiresAttachment: false, approvalFlow: 'standard', dayCalculation: 'working_days', regionRestriction: [], staffRestriction: [], minUnit: '1_day', unit: 'days', regionId: '' },
+    defaultValues: { isPaid: true, requiresAttachment: false, approvalFlow: 'standard', dayCalculation: 'working_days', regionRestriction: [], staffRestriction: [], genderRestriction: '__none__', minUnit: '1_day', unit: 'days', regionId: '' },
   })
 
   useEffect(() => {
@@ -1190,11 +1236,12 @@ function LeaveTypeDialog({
         maxConsecutiveDays: editing.maxConsecutiveDays ? String(editing.maxConsecutiveDays) : '',
         dayCalculation: editing.dayCalculation ?? 'working_days',
         staffRestriction: editing.staffRestriction ? editing.staffRestriction.split(',').map((s) => s.trim()).filter(Boolean) : [],
+        genderRestriction: (editing.genderRestriction as 'male' | 'female' | '__none__' | null) ?? '__none__',
         minUnit: (editing as LeaveType & { minUnit?: LeaveTypeFormData['minUnit'] }).minUnit ?? '1_day',
         unit: editing.unit ?? 'days',
       })
     } else if (open && !editing) {
-      reset({ isPaid: true, requiresAttachment: false, approvalFlow: 'standard', dayCalculation: 'working_days', regionRestriction: [], staffRestriction: [], minUnit: '1_day', unit: 'days', regionId: '' })
+      reset({ isPaid: true, requiresAttachment: false, approvalFlow: 'standard', dayCalculation: 'working_days', regionRestriction: [], staffRestriction: [], genderRestriction: '__none__', minUnit: '1_day', unit: 'days', regionId: '' })
     }
   }, [open, editing, reset])
 
@@ -1221,6 +1268,7 @@ function LeaveTypeDialog({
       maxConsecutiveDays: data.maxConsecutiveDays ? Number(data.maxConsecutiveDays) : null,
       dayCalculation: data.dayCalculation,
       staffRestriction: staffRestrictionValue,
+      genderRestriction: data.genderRestriction === '__none__' ? null : data.genderRestriction,
       minUnit: data.minUnit,
       unit: data.unit,
     }
@@ -1391,6 +1439,24 @@ function LeaveTypeDialog({
                   onChange={field.onChange}
                   allUsers={allUsers}
                 />
+              )}
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Gender restriction</Label>
+            <Controller
+              name="genderRestriction"
+              control={control}
+              render={({ field }) => (
+                <Select value={field.value} onValueChange={field.onChange}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">All staff (no restriction)</SelectItem>
+                    <SelectItem value="female">Female only</SelectItem>
+                    <SelectItem value="male">Male only</SelectItem>
+                  </SelectContent>
+                </Select>
               )}
             />
           </div>
@@ -2630,6 +2696,7 @@ function EntitlementsTab() {
 
   const { data: rows = [], isLoading } = useEntitlements(regionId, year)
   const { data: auditLog = [] } = useEntitlementAudit()
+  const revertChange = useRevertEntitlementChange()
 
   const filtered = rows.filter(
     (r) =>
@@ -2835,6 +2902,7 @@ function EntitlementsTab() {
                     <th className="px-3 py-2 text-right font-medium">New</th>
                     <th className="px-3 py-2 text-left font-medium">Reason</th>
                     <th className="px-3 py-2 text-left font-medium">By</th>
+                    <th className="px-3 py-2"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2850,6 +2918,19 @@ function EntitlementsTab() {
                       <td className="px-3 py-2 text-right font-medium">{entry.newValue ?? '—'}</td>
                       <td className="px-3 py-2 text-muted-foreground max-w-xs truncate">{entry.reason}</td>
                       <td className="px-3 py-2 text-muted-foreground">{entry.changedByName}</td>
+                      <td className="px-3 py-2">
+                        {entry.oldValue !== null && !entry.reason.startsWith('Reverted') && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-6 text-xs"
+                            disabled={revertChange.isPending}
+                            onClick={() => revertChange.mutate(entry.id)}
+                          >
+                            Revert
+                          </Button>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

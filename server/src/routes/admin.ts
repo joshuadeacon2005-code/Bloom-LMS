@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { z } from 'zod'
-import { eq, and, isNull, desc, sql, inArray, notInArray } from 'drizzle-orm'
+import { eq, and, isNull, desc, sql, inArray } from 'drizzle-orm'
 import { isSlackCommandsEnabled, setSlackCommandsEnabled } from '../slack/settings'
 import { db } from '../db/index'
 import {
@@ -136,6 +136,7 @@ const createLeaveTypeSchema = z.object({
   staffRestriction: z.string().nullable().optional(),
   minUnit: z.enum(['1_hour', '2_hours', 'half_day', '1_day']).optional().default('1_day'),
   unit: z.enum(['days', 'hours']).optional().default('days'),
+  genderRestriction: z.enum(['male', 'female']).nullable().optional(),
 })
 
 router.get('/leave-types', async (req, res, next) => {
@@ -168,14 +169,12 @@ router.get('/leave-types', async (req, res, next) => {
 
 router.post('/leave-types', validate(createLeaveTypeSchema), async (req, res, next) => {
   try {
-    const result = await db.transaction(async (tx) => {
-      const [lt] = await tx.insert(leaveTypes).values(req.body).returning()
-      if (req.body.regionRestriction) {
-        await syncPoliciesForLeaveType(lt.id, req.body.regionRestriction)
-      }
-      return lt
-    })
-    const response: ApiResponse<typeof result> = { success: true, data: result }
+    // Insert the leave type first so it is committed before policies reference it
+    const [lt] = await db.insert(leaveTypes).values(req.body).returning()
+    if (req.body.regionRestriction) {
+      await syncPoliciesForLeaveType(lt.id, req.body.regionRestriction)
+    }
+    const response: ApiResponse<typeof lt> = { success: true, data: lt }
     res.status(201).json(response)
   } catch (err) {
     next(err)
@@ -954,6 +953,53 @@ router.get('/entitlements/audit', async (req, res, next) => {
     }))
 
     const response: ApiResponse<typeof enriched> = { success: true, data: enriched }
+    res.json(response)
+  } catch (err) {
+    next(err)
+  }
+})
+
+// POST /admin/entitlements/revert/:auditLogId
+router.post('/entitlements/revert/:auditLogId', async (req, res, next) => {
+  try {
+    const auditLogId = parseInt(req.params.auditLogId as string, 10)
+    const changedById = req.user!.userId
+
+    const [entry] = await db
+      .select()
+      .from(entitlementAuditLog)
+      .where(eq(entitlementAuditLog.id, auditLogId))
+      .limit(1)
+
+    if (!entry) {
+      res.status(404).json({ success: false, error: 'Audit log entry not found' })
+      return
+    }
+
+    if (entry.oldValue === null) {
+      res.status(400).json({ success: false, error: 'Cannot revert: no previous value recorded' })
+      return
+    }
+
+    const field = entry.fieldChanged as 'entitled' | 'carried' | 'adjustments'
+    const revertToValue = entry.oldValue
+
+    await db
+      .update(leaveBalances)
+      .set({ [field]: revertToValue })
+      .where(and(eq(leaveBalances.userId, entry.employeeId), eq(leaveBalances.leaveTypeId, entry.leaveTypeId), eq(leaveBalances.year, new Date().getFullYear())))
+
+    await db.insert(entitlementAuditLog).values({
+      employeeId: entry.employeeId,
+      leaveTypeId: entry.leaveTypeId,
+      fieldChanged: field,
+      oldValue: entry.newValue,
+      newValue: revertToValue,
+      reason: `Reverted change #${auditLogId}`,
+      changedById,
+    })
+
+    const response: ApiResponse<{ reverted: true }> = { success: true, data: { reverted: true } }
     res.json(response)
   } catch (err) {
     next(err)

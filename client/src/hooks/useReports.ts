@@ -96,43 +96,41 @@ async function downloadFile(url: string, filename: string) {
 
 export async function downloadLeaveRequestsXlsx(params: {
   year: number
-  regionId?: number
-  leaveTypeId?: number
-  userId?: number
-  status?: string
+  regionIds?: number[]
+  leaveTypeIds?: number[]
+  userIds?: number[]
+  statuses?: string[]
 }) {
   const query = new URLSearchParams()
   query.set('year', String(params.year))
   query.set('format', 'xlsx')
-  if (params.regionId) query.set('regionId', String(params.regionId))
-  if (params.leaveTypeId) query.set('leaveTypeId', String(params.leaveTypeId))
-  if (params.userId) query.set('userId', String(params.userId))
-  if (params.status) query.set('status', params.status)
+  if (params.regionIds && params.regionIds.length > 0) query.set('regionIds', params.regionIds.join(','))
+  if (params.leaveTypeIds && params.leaveTypeIds.length > 0) query.set('leaveTypeIds', params.leaveTypeIds.join(','))
+  if (params.userIds && params.userIds.length > 0) query.set('userIds', params.userIds.join(','))
+  if (params.statuses && params.statuses.length > 0) query.set('statuses', params.statuses.join(','))
 
-  const regionSuffix = params.regionId ? `_region${params.regionId}` : '_all_regions'
-  const staffSuffix = params.userId ? `_staff${params.userId}` : ''
   await downloadFile(
     `/api/reports/export/leave-requests?${query.toString()}`,
-    `leave_requests_${params.year}${regionSuffix}${staffSuffix}.xlsx`
+    `leave_requests_${params.year}.xlsx`
   )
 }
 
 export async function downloadEntitlementsXlsx(params: {
   year: number
-  regionId?: number
-  userId?: number
+  regionIds?: number[]
+  leaveTypeIds?: number[]
+  userIds?: number[]
 }) {
   const query = new URLSearchParams()
   query.set('year', String(params.year))
   query.set('format', 'xlsx')
-  if (params.regionId) query.set('regionId', String(params.regionId))
-  if (params.userId) query.set('userId', String(params.userId))
+  if (params.regionIds && params.regionIds.length > 0) query.set('regionIds', params.regionIds.join(','))
+  if (params.leaveTypeIds && params.leaveTypeIds.length > 0) query.set('leaveTypeIds', params.leaveTypeIds.join(','))
+  if (params.userIds && params.userIds.length > 0) query.set('userIds', params.userIds.join(','))
 
-  const regionSuffix = params.regionId ? `_region${params.regionId}` : '_all_regions'
-  const staffSuffix = params.userId ? `_staff${params.userId}` : ''
   await downloadFile(
     `/api/reports/export/entitlements?${query.toString()}`,
-    `entitlements_${params.year}${regionSuffix}${staffSuffix}.xlsx`
+    `entitlements_${params.year}.xlsx`
   )
 }
 

@@ -49,6 +49,8 @@ const updateUserSchema = z.object({
   probationEndDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   slackUserId: z.string().max(50).nullable().optional(),
   joinedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  gender: z.enum(['male', 'female']).nullable().optional(),
+  resignedDate: z.string().datetime().nullable().optional(),
 })
 
 // GET /api/users — HR Admin+

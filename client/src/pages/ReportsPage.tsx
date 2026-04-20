@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Download, TrendingUp, Users, Calendar, BarChart3 } from 'lucide-react'
+import { Download, TrendingUp, Users, Calendar, BarChart3, ChevronDown, Check } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   BarChart,
@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Progress } from '@/components/ui/progress'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Select,
   SelectContent,
@@ -25,6 +26,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import {
   useUtilisationReport,
   useDepartmentSummary,
@@ -80,6 +82,56 @@ function SummaryCard({
   )
 }
 
+function MultiSelectDropdown({
+  label,
+  options,
+  selected,
+  onChange,
+}: {
+  label: string
+  options: { value: string; label: string }[]
+  selected: string[]
+  onChange: (v: string[]) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const toggle = (v: string) => {
+    onChange(selected.includes(v) ? selected.filter((s) => s !== v) : [...selected, v])
+  }
+  const displayLabel =
+    selected.length === 0 ? `All ${label}` : `${selected.length} ${label} selected`
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="outline" className="w-full justify-between font-normal h-9 text-sm">
+          <span className="truncate">{displayLabel}</span>
+          <ChevronDown className="h-4 w-4 shrink-0 opacity-50 ml-2" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-64 p-2" align="start">
+        <div className="space-y-1 max-h-60 overflow-y-auto">
+          {options.map((opt) => (
+            <div
+              key={opt.value}
+              className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted cursor-pointer"
+              onClick={() => toggle(opt.value)}
+            >
+              <Checkbox checked={selected.includes(opt.value)} readOnly />
+              <span className="text-sm select-none">{opt.label}</span>
+              {selected.includes(opt.value) && <Check className="h-3 w-3 ml-auto text-primary" />}
+            </div>
+          ))}
+        </div>
+        {selected.length > 0 && (
+          <Button variant="ghost" size="sm" className="w-full mt-1 h-7 text-xs" onClick={() => onChange([])}>
+            Clear selection
+          </Button>
+        )}
+      </PopoverContent>
+    </Popover>
+  )
+}
+
 function LoadingSkeleton() {
   return (
     <div className="space-y-6">
@@ -100,16 +152,18 @@ export function ReportsPage() {
   const [exporting, setExporting] = useState(false)
   const [exportingLR, setExportingLR] = useState(false)
   const [exportingEnt, setExportingEnt] = useState(false)
-  const [lrStatus, setLrStatus] = useState('all')
   // Filter state — shared across view and exports
   const [filterRegionId, setFilterRegionId] = useState<string>('__all__')
   const [filterLeaveTypeId, setFilterLeaveTypeId] = useState<string>('__all__')
-  // Export-specific filters
-  const [exportRegionId, setExportRegionId] = useState<string>('__all__')
-  const [exportLeaveTypeId, setExportLeaveTypeId] = useState<string>('__all__')
-  const [exportUserId, setExportUserId] = useState<string>('__all__')
-  const [exportEntRegionId, setExportEntRegionId] = useState<string>('__all__')
-  const [exportEntUserId, setExportEntUserId] = useState<string>('__all__')
+  // Leave Requests export multi-select filters
+  const [lrStatuses, setLrStatuses] = useState<string[]>([])
+  const [lrRegionIds, setLrRegionIds] = useState<string[]>([])
+  const [lrLeaveTypeIds, setLrLeaveTypeIds] = useState<string[]>([])
+  const [lrUserIds, setLrUserIds] = useState<string[]>([])
+  // Entitlements export multi-select filters
+  const [entRegionIds, setEntRegionIds] = useState<string[]>([])
+  const [entLeaveTypeIds, setEntLeaveTypeIds] = useState<string[]>([])
+  const [entUserIds, setEntUserIds] = useState<string[]>([])
 
   const { data: regions } = useRegions()
   const { data: leaveTypesList } = useAdminLeaveTypes()
@@ -156,10 +210,10 @@ export function ReportsPage() {
     try {
       await downloadLeaveRequestsXlsx({
         year,
-        status: lrStatus,
-        regionId: exportRegionId !== '__all__' ? Number(exportRegionId) : undefined,
-        leaveTypeId: exportLeaveTypeId !== '__all__' ? Number(exportLeaveTypeId) : undefined,
-        userId: exportUserId !== '__all__' ? Number(exportUserId) : undefined,
+        statuses: lrStatuses.length > 0 ? lrStatuses : undefined,
+        regionIds: lrRegionIds.length > 0 ? lrRegionIds.map(Number) : undefined,
+        leaveTypeIds: lrLeaveTypeIds.length > 0 ? lrLeaveTypeIds.map(Number) : undefined,
+        userIds: lrUserIds.length > 0 ? lrUserIds.map(Number) : undefined,
       })
       toast.success('Export downloaded')
     } catch {
@@ -174,8 +228,9 @@ export function ReportsPage() {
     try {
       await downloadEntitlementsXlsx({
         year,
-        regionId: exportEntRegionId !== '__all__' ? Number(exportEntRegionId) : undefined,
-        userId: exportEntUserId !== '__all__' ? Number(exportEntUserId) : undefined,
+        regionIds: entRegionIds.length > 0 ? entRegionIds.map(Number) : undefined,
+        leaveTypeIds: entLeaveTypeIds.length > 0 ? entLeaveTypeIds.map(Number) : undefined,
+        userIds: entUserIds.length > 0 ? entUserIds.map(Number) : undefined,
       })
       toast.success('Export downloaded')
     } catch {
@@ -480,58 +535,50 @@ export function ReportsPage() {
                       </Select>
                     </div>
                     <div className="space-y-2">
-                      <label className="text-sm font-medium">Status</label>
-                      <Select value={lrStatus} onValueChange={setLrStatus}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">All statuses</SelectItem>
-                          <SelectItem value="approved">Approved</SelectItem>
-                          <SelectItem value="pending">Pending</SelectItem>
-                          <SelectItem value="rejected">Rejected</SelectItem>
-                          <SelectItem value="cancelled">Cancelled</SelectItem>
-                        </SelectContent>
-                      </Select>
+                      <label className="text-sm font-medium">Status <span className="text-muted-foreground text-xs">(multi)</span></label>
+                      <MultiSelectDropdown
+                        label="statuses"
+                        options={[
+                          { value: 'approved', label: 'Approved' },
+                          { value: 'pending', label: 'Pending' },
+                          { value: 'rejected', label: 'Rejected' },
+                          { value: 'cancelled', label: 'Cancelled' },
+                        ]}
+                        selected={lrStatuses}
+                        onChange={setLrStatuses}
+                      />
                     </div>
                     <div className="space-y-2">
-                      <label className="text-sm font-medium">Region</label>
-                      <Select value={exportRegionId} onValueChange={setExportRegionId}>
-                        <SelectTrigger><SelectValue placeholder="All regions" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="__all__">All regions</SelectItem>
-                          {regions?.map((r) => (
-                            <SelectItem key={r.id} value={String(r.id)}>{r.name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <label className="text-sm font-medium">Region <span className="text-muted-foreground text-xs">(multi)</span></label>
+                      <MultiSelectDropdown
+                        label="regions"
+                        options={(regions ?? []).map((r) => ({ value: String(r.id), label: r.name }))}
+                        selected={lrRegionIds}
+                        onChange={setLrRegionIds}
+                      />
                     </div>
                     <div className="space-y-2">
-                      <label className="text-sm font-medium">Leave type</label>
-                      <Select value={exportLeaveTypeId} onValueChange={setExportLeaveTypeId}>
-                        <SelectTrigger><SelectValue placeholder="All leave types" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="__all__">All leave types</SelectItem>
-                          {leaveTypesList?.map((lt) => (
-                            <SelectItem key={lt.id} value={String(lt.id)}>{lt.name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <label className="text-sm font-medium">Leave type <span className="text-muted-foreground text-xs">(multi)</span></label>
+                      <MultiSelectDropdown
+                        label="leave types"
+                        options={(leaveTypesList ?? []).map((lt) => ({ value: String(lt.id), label: lt.name }))}
+                        selected={lrLeaveTypeIds}
+                        onChange={setLrLeaveTypeIds}
+                      />
                     </div>
                     <div className="space-y-2">
-                      <label className="text-sm font-medium">Staff member</label>
-                      <Select value={exportUserId} onValueChange={setExportUserId}>
-                        <SelectTrigger><SelectValue placeholder="All staff" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="__all__">All staff</SelectItem>
-                          {allUsersData?.data.map((u) => (
-                            <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <label className="text-sm font-medium">Staff <span className="text-muted-foreground text-xs">(multi)</span></label>
+                      <MultiSelectDropdown
+                        label="staff"
+                        options={(allUsersData?.data ?? []).map((u) => ({ value: String(u.id), label: u.name }))}
+                        selected={lrUserIds}
+                        onChange={setLrUserIds}
+                      />
                     </div>
                   </div>
                   <Button onClick={handleExportLeaveRequests} disabled={exportingLR} className="w-full sm:w-auto">
                     <Download className="mr-2 h-4 w-4" />
-                    {exportingLR ? 'Exporting…' : `Download XLSX — ${year} (${lrStatus})`}
+                    {exportingLR ? 'Exporting…' : `Download XLSX — ${year}`}
                   </Button>
                 </CardContent>
               </Card>
@@ -556,28 +603,31 @@ export function ReportsPage() {
                       </Select>
                     </div>
                     <div className="space-y-2">
-                      <label className="text-sm font-medium">Region</label>
-                      <Select value={exportEntRegionId} onValueChange={setExportEntRegionId}>
-                        <SelectTrigger><SelectValue placeholder="All regions" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="__all__">All regions</SelectItem>
-                          {regions?.map((r) => (
-                            <SelectItem key={r.id} value={String(r.id)}>{r.name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <label className="text-sm font-medium">Region <span className="text-muted-foreground text-xs">(multi)</span></label>
+                      <MultiSelectDropdown
+                        label="regions"
+                        options={(regions ?? []).map((r) => ({ value: String(r.id), label: r.name }))}
+                        selected={entRegionIds}
+                        onChange={setEntRegionIds}
+                      />
                     </div>
                     <div className="space-y-2">
-                      <label className="text-sm font-medium">Staff member</label>
-                      <Select value={exportEntUserId} onValueChange={setExportEntUserId}>
-                        <SelectTrigger><SelectValue placeholder="All staff" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="__all__">All staff</SelectItem>
-                          {allUsersData?.data.map((u) => (
-                            <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <label className="text-sm font-medium">Leave type <span className="text-muted-foreground text-xs">(multi)</span></label>
+                      <MultiSelectDropdown
+                        label="leave types"
+                        options={(leaveTypesList ?? []).map((lt) => ({ value: String(lt.id), label: lt.name }))}
+                        selected={entLeaveTypeIds}
+                        onChange={setEntLeaveTypeIds}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Staff <span className="text-muted-foreground text-xs">(multi)</span></label>
+                      <MultiSelectDropdown
+                        label="staff"
+                        options={(allUsersData?.data ?? []).map((u) => ({ value: String(u.id), label: u.name }))}
+                        selected={entUserIds}
+                        onChange={setEntUserIds}
+                      />
                     </div>
                   </div>
                   <Button onClick={handleExportEntitlements} disabled={exportingEnt} className="w-full sm:w-auto">

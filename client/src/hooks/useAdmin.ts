@@ -32,6 +32,8 @@ export interface AdminUser {
   probationMonths: number | null
   probationEndDate: string | null
   joinedDate: string | null
+  gender: 'male' | 'female' | null
+  resignedDate: string | null
   slackUserId: string | null
   avatarUrl: string | null
   createdAt: string
@@ -51,6 +53,7 @@ export interface LeaveType {
   maxConsecutiveDays: number | null
   dayCalculation: 'working_days' | 'calendar_days'
   staffRestriction: string | null
+  genderRestriction: 'male' | 'female' | null
   minUnit: '1_day' | 'half_day' | '2_hours' | '1_hour'
   unit: 'days' | 'hours'
 }
@@ -219,6 +222,19 @@ export function useDeactivateUser() {
   })
 }
 
+export function useResignUser() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) =>
+      api.patch(`/users/${id}`, { isActive: false, resignedDate: new Date().toISOString() }).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin-users'] })
+      toast.success('User marked as resigned')
+    },
+    onError: () => toast.error('Failed to mark user as resigned'),
+  })
+}
+
 // ─── Leave Types ──────────────────────────────────────────────────────────────
 
 export function useAdminLeaveTypes(regionId?: number) {
@@ -240,6 +256,7 @@ export function useCreateLeaveType() {
       api.post<{ data: LeaveType }>('/admin/leave-types', data).then((r) => r.data.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin-leave-types'] })
+      qc.invalidateQueries({ queryKey: ['admin-policies'] })
       toast.success('Leave type created')
     },
     onError: (e: { response?: { data?: { error?: string } } }) => {
@@ -255,6 +272,7 @@ export function useUpdateLeaveType() {
       api.patch<{ data: LeaveType }>(`/admin/leave-types/${id}`, data).then((r) => r.data.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin-leave-types'] })
+      qc.invalidateQueries({ queryKey: ['admin-policies'] })
       toast.success('Leave type updated')
     },
     onError: (e: { response?: { data?: { error?: string } } }) => {
@@ -519,6 +537,7 @@ export function useUpdateEntitlement() {
         .then((r) => r.data.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin-entitlements'] })
+      qc.invalidateQueries({ queryKey: ['entitlement-audit'] })
       toast.success('Entitlement updated')
     },
     onError: (e: { response?: { data?: { error?: string } } }) => {
@@ -545,6 +564,7 @@ export function useBulkUpdateEntitlements() {
         .then((r) => r.data.data),
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['admin-entitlements'] })
+      qc.invalidateQueries({ queryKey: ['entitlement-audit'] })
       toast.success(`${data.updated} entitlement${data.updated === 1 ? '' : 's'} updated`)
     },
     onError: (e: { response?: { data?: { error?: string } } }) => {
@@ -562,6 +582,22 @@ export function useEntitlementAudit(employeeId?: number) {
           params: employeeId ? { employeeId } : {},
         })
         .then((r) => r.data.data),
+  })
+}
+
+export function useRevertEntitlementChange() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (auditLogId: number) =>
+      api.post<{ data: { reverted: true } }>(`/admin/entitlements/revert/${auditLogId}`).then((r) => r.data.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin-entitlements'] })
+      qc.invalidateQueries({ queryKey: ['entitlement-audit'] })
+      toast.success('Change reverted')
+    },
+    onError: (e: { response?: { data?: { error?: string } } }) => {
+      toast.error(e.response?.data?.error ?? 'Failed to revert change')
+    },
   })
 }
 

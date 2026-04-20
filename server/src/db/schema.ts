@@ -134,6 +134,9 @@ export const users = pgTable(
     probationMonths: integer('probation_months'),
     probationEndDate: date('probation_end_date'),
     joinedDate: date('joined_date'),
+    // 'male' | 'female' | null — used for gender-restricted leave types
+    gender: varchar('gender', { length: 10 }),
+    resignedDate: timestamp('resigned_date', { withTimezone: true }),
     avatarUrl: text('avatar_url'),
     ...timestamps,
     ...softDelete,
@@ -179,6 +182,8 @@ export const leaveTypes = pgTable(
     dayCalculation: varchar('day_calculation', { length: 20 }).notNull().default('working_days'),
     // Minimum booking unit: '1_day' | 'half_day' | '2_hours' | '1_hour'
     minUnit: varchar('min_unit', { length: 10 }).notNull().default('1_day'),
+    // 'male' | 'female' | null — restricts leave type to a specific gender
+    genderRestriction: varchar('gender_restriction', { length: 10 }),
   },
   (table) => [
     index('leave_types_region_id_idx').on(table.regionId),

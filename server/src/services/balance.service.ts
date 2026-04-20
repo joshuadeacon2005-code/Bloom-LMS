@@ -1,6 +1,6 @@
 import { eq, and, sql } from 'drizzle-orm'
 import { db } from '../db/index'
-import { leaveBalances, leavePolicies, leaveTypes, users } from '../db/schema'
+import { leaveBalances, leavePolicies, leaveTypes, users, policyEntitlementTiers, policyTierAssignments } from '../db/schema'
 import { parseDecimal } from '../utils/workingDays'
 import { AppError } from '../utils/errors'
 
@@ -173,8 +173,18 @@ export async function getOrCreateBalance(
 
   // Note: probation is no longer blocking — it's handled as a warning in the approval notification.
 
+  // Check if user has a tier assignment for this policy (tier entitlement overrides policy default)
+  const [tierAssignment] = await db
+    .select({ entitlementDays: policyEntitlementTiers.entitlementDays })
+    .from(policyTierAssignments)
+    .innerJoin(policyEntitlementTiers, eq(policyTierAssignments.tierId, policyEntitlementTiers.id))
+    .where(and(eq(policyTierAssignments.userId, userId), eq(policyEntitlementTiers.leavePolicyId, policy.id)))
+    .limit(1)
+
   // Pro-rata entitlement for the current year
-  let entitlement = parseDecimal(policy.entitlementDays)
+  let entitlement = tierAssignment
+    ? parseDecimal(tierAssignment.entitlementDays)
+    : parseDecimal(policy.entitlementDays)
   if (policy.accrualRate !== null) {
     // If the user joined mid-year, pro-rate based on remaining months in the year
     const [user] = await db
