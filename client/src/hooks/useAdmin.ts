@@ -32,7 +32,6 @@ export interface AdminUser {
   probationMonths: number | null
   probationEndDate: string | null
   joinedDate: string | null
-  gender: 'male' | 'female' | null
   resignedDate: string | null
   slackUserId: string | null
   avatarUrl: string | null
@@ -54,12 +53,11 @@ export interface LeaveType {
   maxConsecutiveDays: number | null
   dayCalculation: 'working_days' | 'calendar_days'
   staffRestriction: string | null
-  genderRestriction: 'male' | 'female' | null
   minUnit: '1_day' | 'half_day' | '2_hours' | '1_hour'
   unit: 'days' | 'hours'
   deductsBalance: boolean
   isActive: boolean
-  genderRestriction: string | null
+  genderRestriction: 'male' | 'female' | null
 }
 
 export interface LeavePolicy {

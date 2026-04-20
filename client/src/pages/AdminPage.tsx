@@ -87,7 +87,6 @@ import {
   useDeleteLeaveType,
   usePolicies,
   useUpsertPolicy,
-  useDeletePolicy,
   useHolidays,
   useCreateHoliday,
   useDeleteHoliday,
@@ -1527,12 +1526,11 @@ function LeaveTypeDialog({
       maxConsecutiveDays: data.maxConsecutiveDays ? Number(data.maxConsecutiveDays) : null,
       dayCalculation: data.dayCalculation,
       staffRestriction: staffRestrictionValue,
-      genderRestriction: data.genderRestriction === '__none__' ? null : data.genderRestriction,
+      genderRestriction: data.genderRestriction === '__none__' ? null : (data.genderRestriction as 'male' | 'female' | null),
       minUnit: data.minUnit,
       unit: data.unit,
       isActive: editing?.isActive ?? true,
       deductsBalance: editing?.deductsBalance ?? true,
-      genderRestriction: editing?.genderRestriction ?? null,
     }
     if (editing) {
       await updateLT.mutateAsync({ id: editing.id, data: payload })
@@ -3363,16 +3361,12 @@ export function AdminPage() {
       <Tabs defaultValue="users">
         <TabsList>
           <TabsTrigger value="users">Users</TabsTrigger>
-          <TabsTrigger value="leave-types">Leave Types</TabsTrigger>
-          <TabsTrigger value="policies">Policies</TabsTrigger>
+          <TabsTrigger value="leave-types">Leave Types &amp; Policies</TabsTrigger>
           <TabsTrigger value="holidays">Public Holidays</TabsTrigger>
-          <TabsTrigger value="entitlements">Entitlements</TabsTrigger>
         </TabsList>
         <TabsContent value="users" className="mt-4"><UsersTab /></TabsContent>
         <TabsContent value="leave-types" className="mt-4"><LeaveTypesTab /></TabsContent>
-        <TabsContent value="policies" className="mt-4"><PoliciesTab /></TabsContent>
         <TabsContent value="holidays" className="mt-4"><HolidaysTab /></TabsContent>
-        <TabsContent value="entitlements" className="mt-4"><EntitlementsTab /></TabsContent>
       </Tabs>
     </div>
   )
