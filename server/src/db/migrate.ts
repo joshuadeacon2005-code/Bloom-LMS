@@ -1641,6 +1641,10 @@ export async function runMigrations(): Promise<void> {
 
     console.log('[migrate] Phase 14 (additional calendars) complete')
 
+    // ── Phase 15: Expense sync_error column ───────────────────────────────────
+    await client.query(`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS sync_error text`)
+    console.log('[migrate] Phase 15 (expense sync_error) complete')
+
     console.log('[migrate] Migrations complete')
   } catch (err) {
     console.error('[migrate] Migration error:', err)
