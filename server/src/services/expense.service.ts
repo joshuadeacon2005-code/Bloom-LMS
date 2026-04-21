@@ -62,6 +62,14 @@ function isMockExternal(): boolean {
   return process.env['MOCK_EXTERNAL'] === 'true'
 }
 
+function buildNetSuiteUrl(netsuiteId: string | null | undefined): string | null {
+  if (!netsuiteId) return null
+  const accountId = process.env['NS_ACCOUNT_ID']
+  if (!accountId) return null
+  const accountSlug = accountId.replace(/_/g, '-').toLowerCase()
+  return `https://${accountSlug}.app.netsuite.com/app/accounting/transactions/exprpt.nl?id=${netsuiteId}`
+}
+
 // ---------------------------------------------------------------------------
 // CSV parsing
 // ---------------------------------------------------------------------------
@@ -219,7 +227,7 @@ export async function listExpenses(
   if (statusFilter) {
     filtered = filtered.filter((e) => e.status === statusFilter)
   }
-  return filtered
+  return filtered.map((e) => ({ ...e, netsuiteUrl: buildNetSuiteUrl(e.netsuiteId) }))
 }
 
 export async function getExpense(id: number) {
@@ -233,7 +241,7 @@ export async function getExpense(id: number) {
     },
   })
   if (!expense) throw new Error('Expense not found')
-  return expense
+  return { ...expense, netsuiteUrl: buildNetSuiteUrl(expense.netsuiteId) }
 }
 
 // ---------------------------------------------------------------------------
@@ -502,7 +510,7 @@ async function startSync(
   const attempts = expense.syncAttempts + 1
   await db
     .update(expenses)
-    .set({ status: 'SYNCING', syncAttempts: attempts })
+    .set({ status: 'SYNCING', syncAttempts: attempts, syncError: null })
     .where(eq(expenses.id, expenseId))
   await logAudit(expenseId, expense.status as ExpenseStatus, 'SYNCING', actorId, actorName, `Sync attempt ${attempts}`)
 
@@ -646,7 +654,7 @@ async function syncToNetSuite(expenseId: number, attempt: number): Promise<void>
     if (attempt >= MAX_SYNC_ATTEMPTS) {
       await db
         .update(expenses)
-        .set({ status: 'SYNC_FAILED' })
+        .set({ status: 'SYNC_FAILED', syncError: errMsg })
         .where(eq(expenses.id, expenseId))
       await logAudit(expenseId, 'SYNCING', 'SYNC_FAILED', null, 'System', `Failed after ${attempt} attempts: ${errMsg}`)
     } else {

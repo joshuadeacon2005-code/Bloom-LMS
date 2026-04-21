@@ -480,6 +480,7 @@ export const expenses = pgTable(
     slackChannelId: varchar('slack_channel_id', { length: 50 }),
     syncAttempts: integer('sync_attempts').notNull().default(0),
     netsuiteId: varchar('netsuite_id', { length: 100 }),
+    syncError: text('sync_error'),
     rejectionNote: text('rejection_note'),
     ...timestamps,
   },

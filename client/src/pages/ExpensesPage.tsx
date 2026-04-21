@@ -95,6 +95,8 @@ interface Expense {
   status: ExpenseStatus
   syncAttempts: number
   netsuiteId: string | null
+  netsuiteUrl: string | null
+  syncError: string | null
   rejectionNote: string | null
   createdAt: string
   uploadedBy: { id: number; name: string; email: string }
@@ -813,9 +815,26 @@ export default function ExpensesPage() {
                               Rejection note: {expense.rejectionNote}
                             </p>
                           )}
+                          {expense.syncError && expense.status === 'SYNC_FAILED' && (
+                            <p className="text-xs text-destructive mb-2 break-all">
+                              Sync error: {expense.syncError}
+                            </p>
+                          )}
                           {expense.netsuiteId && (
                             <p className="text-xs text-muted-foreground mb-2">
-                              NetSuite ID: <span className="font-mono">{expense.netsuiteId}</span>
+                              NetSuite ID:{' '}
+                              {expense.netsuiteUrl ? (
+                                <a
+                                  href={expense.netsuiteUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="font-mono underline underline-offset-2 text-primary"
+                                >
+                                  {expense.netsuiteId}
+                                </a>
+                              ) : (
+                                <span className="font-mono">{expense.netsuiteId}</span>
+                              )}
                             </p>
                           )}
                           {expense.attachments && expense.attachments.length > 0 && (
@@ -887,7 +906,23 @@ export default function ExpensesPage() {
                 {detail.netsuiteId && (
                   <p>
                     <span className="text-muted-foreground">NetSuite ID:</span>{' '}
-                    <span className="font-mono text-xs">{detail.netsuiteId}</span>
+                    {detail.netsuiteUrl ? (
+                      <a
+                        href={detail.netsuiteUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-mono text-xs underline underline-offset-2 text-primary"
+                      >
+                        {detail.netsuiteId}
+                      </a>
+                    ) : (
+                      <span className="font-mono text-xs">{detail.netsuiteId}</span>
+                    )}
+                  </p>
+                )}
+                {detail.syncError && detail.status === 'SYNC_FAILED' && (
+                  <p className="text-destructive break-all">
+                    <span className="text-muted-foreground">Sync error:</span> {detail.syncError}
                   </p>
                 )}
                 {detail.rejectionNote && (
