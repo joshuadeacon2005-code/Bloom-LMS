@@ -1,6 +1,5 @@
 import express, { type Request, type Response, type NextFunction } from 'express'
 import cors from 'cors'
-import path from 'path'
 import { validateEnv } from './utils/env'
 import { AppError } from './utils/errors'
 import apiRouter from './routes/index'
@@ -60,29 +59,12 @@ app.get('/api/health', (_req, res) => {
   } satisfies ApiResponse)
 })
 
-// Mount the Slack receiver BEFORE the SPA catch-all and 404 handler so that
+// Mount the Slack receiver BEFORE the 404 handler so that
 // Slack's URL verification challenge POST reaches Bolt and returns the challenge.
 const slackReceiver = getOrCreateReceiver()
 if (slackReceiver) {
   app.use(slackReceiver.router)
   console.log('[server] Slack receiver mounted at /slack/events')
-}
-
-// Serve React static files in production (must come after all /api and /slack routes)
-if (env.NODE_ENV === 'production') {
-  const clientDist = path.join(__dirname, '../../client/dist')
-  console.log('[server] Serving static files from:', clientDist)
-  app.use(express.static(clientDist))
-  // SPA fallback — must be last
-  app.get('*', (_req, res) => {
-    const indexPath = path.join(clientDist, 'index.html')
-    res.sendFile(indexPath, (err) => {
-      if (err) {
-        console.error('[server] Error serving index.html:', err)
-        res.status(500).send('Application loading error — please try again')
-      }
-    })
-  })
 }
 
 // 404 handler
