@@ -95,7 +95,7 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
   res.status(500).json({ success: false, error: message } satisfies ApiResponse)
 })
 
-app.listen(env.PORT, () => {
+app.listen(env.PORT, '0.0.0.0', () => {
   console.log(`[server] Bloom & Grow LMS running on port ${env.PORT}`)
   console.log(`[server] Environment: ${env.NODE_ENV}`)
   console.log(`[server] Client URL: ${env.CLIENT_URL}`)
