@@ -18,17 +18,6 @@ const env = validateEnv()
 
 const app = express()
 
-// Per-request timing — temporary diagnostic for production latency investigation
-app.use((req, res, next) => {
-  const start = Date.now()
-  const ts = new Date().toISOString()
-  console.log(`[req-in] ${ts} ${req.method} ${req.path}`)
-  res.on('finish', () => {
-    console.log(`[req-out] ${req.method} ${req.path} ${res.statusCode} ${Date.now() - start}ms`)
-  })
-  next()
-})
-
 // Allow all origins for Slack webhook endpoint (server-to-server)
 app.use('/slack/events', cors())
 
