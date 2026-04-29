@@ -1,0 +1,62 @@
+name: Schema drift check
+
+# Runs the migration script against an ephemeral Postgres, then verifies that
+# every column declared in src/db/schema.ts actually exists in the migrated
+# database. Catches the class of bug where someone adds a column to schema.ts
+# but forgets to add an ALTER TABLE to migrate.ts.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'server/src/db/**'
+      - 'server/scripts/check-schema-drift.ts'
+      - 'server/package.json'
+      - 'package-lock.json'
+  pull_request:
+    paths:
+      - 'server/src/db/**'
+      - 'server/scripts/check-schema-drift.ts'
+      - 'server/package.json'
+      - 'package-lock.json'
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: bloom
+          POSTGRES_PASSWORD: bloom
+          POSTGRES_DB: bloom_test
+        options: >-
+          --health-cmd "pg_isready -U bloom"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+        ports:
+          - 5432:5432
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install workspace dependencies
+        run: npm ci
+
+      - name: Run drift check
+        working-directory: server
+        env:
+          DATABASE_URL: postgres://bloom:bloom@localhost:5432/bloom_test?sslmode=disable
+          # Migration scripts reference JWT secrets at module-load time via env
+          # validation; provide dummy values so the import succeeds.
+          JWT_SECRET: ci_jwt_secret_must_be_at_least_32_chars_long
+          JWT_REFRESH_SECRET: ci_jwt_refresh_secret_must_be_at_least_32_chars
+        run: npm run check:schema

@@ -1,9 +1,26 @@
 import axios from 'axios'
+import { toast } from 'sonner'
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || '/api',
   headers: { 'Content-Type': 'application/json' },
 })
+
+// Guard so we don't show the "session expired" toast a hundred times when a
+// page mounts a dozen queries that all 401 in parallel.
+let sessionExpiredHandled = false
+
+function handleExpiredSession() {
+  if (sessionExpiredHandled) return
+  sessionExpiredHandled = true
+  localStorage.removeItem('bloom-lms-auth')
+  toast.error('Your session has expired — please log in again', {
+    duration: 4000,
+  })
+  setTimeout(() => {
+    window.location.href = '/login'
+  }, 1500)
+}
 
 // Attach access token on every request; clear Content-Type for FormData
 api.interceptors.request.use((config) => {
@@ -54,8 +71,7 @@ api.interceptors.response.use(
         original.headers.Authorization = `Bearer ${data.data.accessToken}`
         return api(original)
       } catch {
-        localStorage.removeItem('bloom-lms-auth')
-        window.location.href = '/login'
+        handleExpiredSession()
       }
     }
     return Promise.reject(error)
