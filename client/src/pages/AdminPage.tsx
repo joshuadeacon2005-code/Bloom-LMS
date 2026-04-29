@@ -917,7 +917,7 @@ function UsersTab() {
   const [profileInitialTab, setProfileInitialTab] = useState<'entitlements' | 'history'>('entitlements')
 
   const { data: regions } = useRegions()
-  const { data, isLoading } = useAdminUsers({
+  const { data, isLoading, isError, error: usersError } = useAdminUsers({
     search: search || undefined,
     role: roleFilter === '__none__' ? undefined : roleFilter,
     isActive: activeFilter === '__none__' ? undefined : activeFilter === 'true',
@@ -1167,7 +1167,19 @@ function UsersTab() {
                     </td>
                   </tr>
                 ))}
-            {!isLoading && users.length === 0 && (
+            {!isLoading && isError && (
+              <tr>
+                <td colSpan={8} className="px-4 py-10 text-center">
+                  <p className="font-medium text-destructive">Couldn&rsquo;t load users</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {(usersError as { response?: { data?: { error?: string } }; message?: string })?.response?.data?.error
+                      ?? (usersError as { message?: string })?.message
+                      ?? 'Unknown error'}
+                  </p>
+                </td>
+              </tr>
+            )}
+            {!isLoading && !isError && users.length === 0 && (
               <tr>
                 <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
                   No users found

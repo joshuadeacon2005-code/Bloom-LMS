@@ -1657,6 +1657,15 @@ export async function runMigrations(): Promise<void> {
 
     // Phase 15 retired — sync_error is now part of expense_reports (Phase 10 rebuild).
 
+    // ── Phase 16: drift fixes — users.resigned_date + users.avatar_url ────────
+    // These columns are declared in schema.ts but were never added to this
+    // migration script, so prod was missing them. The /users endpoint was
+    // 500-ing because getUsers SELECTs both. Postgres errored on the first one
+    // (resigned_date), but avatar_url would have failed next.
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS resigned_date timestamptz`)
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url text`)
+    console.log('[migrate] Phase 16 (users.resigned_date + users.avatar_url) complete')
+
     console.log('[migrate] Migrations complete')
   } catch (err) {
     console.error('[migrate] Migration error:', err)

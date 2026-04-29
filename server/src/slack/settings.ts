@@ -1,4 +1,4 @@
-let slackCommandsEnabled = false
+let slackCommandsEnabled = true
 
 export function isSlackCommandsEnabled(): boolean {
   return slackCommandsEnabled
