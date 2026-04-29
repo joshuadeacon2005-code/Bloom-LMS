@@ -107,16 +107,7 @@ export function ReportsPage() {
   const [exportingEnt, setExportingEnt] = useState(false)
   // Filter state — shared across view and exports
   const [filterRegionId, setFilterRegionId] = useState<string>('__all__')
-  // Leave Requests export multi-select filters (placeholders for future UI)
-  const lrStatuses: string[] = []
-  const lrRegionIds: string[] = []
-  const lrLeaveTypeIds: string[] = []
-  const lrUserIds: string[] = []
-  // Entitlements export multi-select filters (placeholders for future UI)
-  const entRegionIds: string[] = []
-  const entLeaveTypeIds: string[] = []
-  const entUserIds: string[] = []
-  // Single-select state for preview UI (remote side)
+  // Single-select state — used by both inline preview and XLSX exports
   const [lrStatus, setLrStatus] = useState('all')
   const [exportRegionId, setExportRegionId] = useState<string>('__all__')
   const [exportLeaveTypeId, setExportLeaveTypeId] = useState<string>('__all__')
@@ -207,10 +198,10 @@ export function ReportsPage() {
     try {
       await downloadLeaveRequestsXlsx({
         year,
-        statuses: lrStatuses.length > 0 ? lrStatuses : undefined,
-        regionIds: lrRegionIds.length > 0 ? lrRegionIds.map(Number) : undefined,
-        leaveTypeIds: lrLeaveTypeIds.length > 0 ? lrLeaveTypeIds.map(Number) : undefined,
-        userIds: lrUserIds.length > 0 ? lrUserIds.map(Number) : undefined,
+        statuses: lrStatus !== 'all' ? [lrStatus] : undefined,
+        regionIds: exportRegionId !== '__all__' ? [Number(exportRegionId)] : undefined,
+        leaveTypeIds: exportLeaveTypeId !== '__all__' ? [Number(exportLeaveTypeId)] : undefined,
+        userIds: exportUserId !== '__all__' ? [Number(exportUserId)] : undefined,
       })
       toast.success('Export downloaded')
     } catch {
@@ -225,9 +216,9 @@ export function ReportsPage() {
     try {
       await downloadEntitlementsXlsx({
         year,
-        regionIds: entRegionIds.length > 0 ? entRegionIds.map(Number) : undefined,
-        leaveTypeIds: entLeaveTypeIds.length > 0 ? entLeaveTypeIds.map(Number) : undefined,
-        userIds: entUserIds.length > 0 ? entUserIds.map(Number) : undefined,
+        regionIds: exportEntRegionId !== '__all__' ? [Number(exportEntRegionId)] : undefined,
+        leaveTypeIds: exportEntLeaveTypeId !== '__all__' ? [Number(exportEntLeaveTypeId)] : undefined,
+        userIds: exportEntUserId !== '__all__' ? [Number(exportEntUserId)] : undefined,
       })
       toast.success('Export downloaded')
     } catch {

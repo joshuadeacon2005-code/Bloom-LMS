@@ -113,10 +113,10 @@ export function useLeaveRequestsPreview(params: {
           params: {
             year: params.year,
             format: 'json',
-            ...(params.regionId ? { regionId: params.regionId } : {}),
-            ...(params.leaveTypeId ? { leaveTypeId: params.leaveTypeId } : {}),
-            ...(params.userId ? { userId: params.userId } : {}),
-            ...(params.status && params.status !== 'all' ? { status: params.status } : {}),
+            ...(params.regionId ? { regionIds: String(params.regionId) } : {}),
+            ...(params.leaveTypeId ? { leaveTypeIds: String(params.leaveTypeId) } : {}),
+            ...(params.userId ? { userIds: String(params.userId) } : {}),
+            ...(params.status && params.status !== 'all' ? { statuses: params.status } : {}),
           },
         })
         .then((r) => r.data.data),
@@ -139,9 +139,9 @@ export function useEntitlementsPreview(params: {
           params: {
             year: params.year,
             format: 'json',
-            ...(params.regionId ? { regionId: params.regionId } : {}),
-            ...(params.leaveTypeId ? { leaveTypeId: params.leaveTypeId } : {}),
-            ...(params.userId ? { userId: params.userId } : {}),
+            ...(params.regionId ? { regionIds: String(params.regionId) } : {}),
+            ...(params.leaveTypeId ? { leaveTypeIds: String(params.leaveTypeId) } : {}),
+            ...(params.userId ? { userIds: String(params.userId) } : {}),
           },
         })
         .then((r) => r.data.data),
