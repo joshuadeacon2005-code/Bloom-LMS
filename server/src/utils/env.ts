@@ -24,6 +24,15 @@ const envSchema = z.object({
   // Expense tool
   MOCK_EXTERNAL: z.string().optional(), // Set to 'true' to skip Slack + NetSuite calls
   SLACK_EXPENSE_CHANNEL: z.string().optional(), // e.g. '#expense-approvals'
+  EXPENSE_HR_SLACK_CHANNEL: z.string().optional(), // HR notifications on sync success/failure
+  EXPENSE_SYNC_DISABLED: z.string().optional(), // 'true' to skip NetSuite POST entirely (kill switch)
+  EXPENSE_DRY_RUN: z.string().optional(), // 'true' to build payload + log it but skip the POST
+  // NetSuite TBA credentials
+  NS_ACCOUNT_ID: z.string().optional(),
+  NS_CONSUMER_KEY: z.string().optional(),
+  NS_CONSUMER_SECRET: z.string().optional(),
+  NS_TOKEN_ID: z.string().optional(),
+  NS_TOKEN_SECRET: z.string().optional(),
 })
 
 export type Env = z.infer<typeof envSchema>

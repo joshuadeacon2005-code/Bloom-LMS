@@ -1272,10 +1272,26 @@ export async function runMigrations(): Promise<void> {
     `)
     console.log('[migrate] Phase 9 complete')
 
-    // ── Phase 10: Expense tables ──────────────────────────────────────────────
+    // ── Phase 10: Expense tables (rebuilt — two-tier model) ───────────────────
+    // The original expenses/expense_items model conflated "expense report" and
+    // "expense line", causing every NetSuite sync to be malformed. Drop and
+    // recreate with: expense_lines (drafts that users add as they incur) and
+    // expense_reports (collections submitted for approval and synced to NS).
+    await client.query(`DROP TABLE IF EXISTS expense_attachments CASCADE`)
+    await client.query(`DROP TABLE IF EXISTS expense_audit_log CASCADE`)
+    await client.query(`DROP TABLE IF EXISTS expense_items CASCADE`)
+    await client.query(`DROP TABLE IF EXISTS expenses CASCADE`)
+    await client.query(`DROP TYPE IF EXISTS expense_status CASCADE`)
+
     await client.query(`
       DO $$ BEGIN
-        CREATE TYPE expense_status AS ENUM (
+        CREATE TYPE expense_line_status AS ENUM ('draft','in_report');
+      EXCEPTION WHEN duplicate_object THEN null;
+      END $$
+    `)
+    await client.query(`
+      DO $$ BEGIN
+        CREATE TYPE expense_report_status AS ENUM (
           'PENDING_REVIEW','AWAITING_APPROVAL','APPROVED','REJECTED','SYNCING','SYNCED','SYNC_FAILED'
         );
       EXCEPTION WHEN duplicate_object THEN null;
@@ -1283,62 +1299,60 @@ export async function runMigrations(): Promise<void> {
     `)
 
     await client.query(`
-      CREATE TABLE IF NOT EXISTS expenses (
+      CREATE TABLE IF NOT EXISTS expense_reports (
         id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-        uploaded_by_user_id integer NOT NULL REFERENCES users(id),
-        filename varchar(255),
-        status expense_status NOT NULL DEFAULT 'PENDING_REVIEW',
+        user_id integer NOT NULL REFERENCES users(id),
+        title varchar(255) NOT NULL,
+        status expense_report_status NOT NULL DEFAULT 'PENDING_REVIEW',
+        rejection_note text,
+        netsuite_id varchar(100),
+        netsuite_url text,
+        sync_attempts integer NOT NULL DEFAULT 0,
+        sync_error text,
         slack_message_ts varchar(50),
         slack_channel_id varchar(50),
-        sync_attempts integer NOT NULL DEFAULT 0,
-        netsuite_id varchar(100),
-        rejection_note text,
         created_at timestamptz DEFAULT now() NOT NULL,
         updated_at timestamptz DEFAULT now() NOT NULL
       )
     `)
+    await client.query(`CREATE INDEX IF NOT EXISTS expense_reports_user_id_idx ON expense_reports(user_id)`)
+    await client.query(`CREATE INDEX IF NOT EXISTS expense_reports_status_idx ON expense_reports(status)`)
 
     await client.query(`
-      CREATE TABLE IF NOT EXISTS expense_items (
+      CREATE TABLE IF NOT EXISTS expense_lines (
         id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-        expense_id integer NOT NULL REFERENCES expenses(id) ON DELETE CASCADE,
-        employee_email varchar(255) NOT NULL,
+        user_id integer NOT NULL REFERENCES users(id),
+        report_id integer REFERENCES expense_reports(id) ON DELETE SET NULL,
+        status expense_line_status NOT NULL DEFAULT 'draft',
         category varchar(100),
         amount numeric(12,2) NOT NULL,
-        currency varchar(10) NOT NULL DEFAULT 'HKD',
+        currency varchar(3) NOT NULL DEFAULT 'HKD',
         expense_date date NOT NULL,
         description text,
-        raw_data jsonb,
-        created_at timestamptz DEFAULT now() NOT NULL
+        receipt_url text,
+        receipt_original_name varchar(255),
+        created_at timestamptz DEFAULT now() NOT NULL,
+        updated_at timestamptz DEFAULT now() NOT NULL
       )
     `)
-    await client.query(`CREATE INDEX IF NOT EXISTS expense_items_expense_id_idx ON expense_items(expense_id)`)
+    await client.query(`CREATE INDEX IF NOT EXISTS expense_lines_user_id_idx ON expense_lines(user_id)`)
+    await client.query(`CREATE INDEX IF NOT EXISTS expense_lines_report_id_idx ON expense_lines(report_id)`)
+    await client.query(`CREATE INDEX IF NOT EXISTS expense_lines_status_idx ON expense_lines(status)`)
 
     await client.query(`
-      CREATE TABLE IF NOT EXISTS expense_audit_log (
+      CREATE TABLE IF NOT EXISTS expense_report_audit_log (
         id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-        expense_id integer NOT NULL REFERENCES expenses(id) ON DELETE CASCADE,
-        from_status expense_status,
-        to_status expense_status NOT NULL,
+        report_id integer NOT NULL REFERENCES expense_reports(id) ON DELETE CASCADE,
+        from_status expense_report_status,
+        to_status expense_report_status NOT NULL,
         actor_id integer REFERENCES users(id),
         actor_name varchar(255),
         note text,
         created_at timestamptz DEFAULT now() NOT NULL
       )
     `)
-    await client.query(`CREATE INDEX IF NOT EXISTS expense_audit_log_expense_id_idx ON expense_audit_log(expense_id)`)
-
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS expense_attachments (
-        id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-        expense_id integer NOT NULL REFERENCES expenses(id) ON DELETE CASCADE,
-        url text NOT NULL,
-        original_name varchar(255) NOT NULL,
-        created_at timestamptz DEFAULT now() NOT NULL
-      )
-    `)
-    await client.query(`CREATE INDEX IF NOT EXISTS expense_attachments_expense_id_idx ON expense_attachments(expense_id)`)
-    console.log('[migrate] Phase 10 (expense tables) complete')
+    await client.query(`CREATE INDEX IF NOT EXISTS expense_report_audit_log_report_id_idx ON expense_report_audit_log(report_id)`)
+    console.log('[migrate] Phase 10 (expense tables — two-tier rebuild) complete')
 
     // ── Phase 11: Sick leave dedup — SL for AU/NZ/HK/SG/MY/ID/UK, SL_CN for GZ/SH/CN ──
     // Rename SL to "Full Paid Sick Leave"
@@ -1641,9 +1655,7 @@ export async function runMigrations(): Promise<void> {
 
     console.log('[migrate] Phase 14 (additional calendars) complete')
 
-    // ── Phase 15: Expense sync_error column ───────────────────────────────────
-    await client.query(`ALTER TABLE expenses ADD COLUMN IF NOT EXISTS sync_error text`)
-    console.log('[migrate] Phase 15 (expense sync_error) complete')
+    // Phase 15 retired — sync_error is now part of expense_reports (Phase 10 rebuild).
 
     console.log('[migrate] Migrations complete')
   } catch (err) {

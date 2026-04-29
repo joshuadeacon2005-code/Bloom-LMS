@@ -1,18 +1,21 @@
 import { db } from '../db/index'
-import { expenses, expenseItems, expenseAuditLog, expenseAttachments, users } from '../db/schema'
-import { eq, desc, inArray } from 'drizzle-orm'
-import { getSupervisorSlackId, getUserById } from '../slack/db-service'
+import {
+  expenseLines,
+  expenseReports,
+  expenseReportAuditLog,
+  users,
+  regions,
+} from '../db/schema'
+import { eq, and, desc, inArray } from 'drizzle-orm'
 import { WebClient } from '@slack/web-api'
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore — xlsx ships its own types but tsconfig path resolution misses them in workspace
-import * as XLSX from 'xlsx'
-import crypto from 'crypto'
+import { getSupervisorSlackId, getUserById } from '../slack/db-service'
+import * as netsuite from './netsuite.client'
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export type ExpenseStatus =
+export type ExpenseReportStatus =
   | 'PENDING_REVIEW'
   | 'AWAITING_APPROVAL'
   | 'APPROVED'
@@ -21,18 +24,15 @@ export type ExpenseStatus =
   | 'SYNCED'
   | 'SYNC_FAILED'
 
-export interface CsvRow {
-  employee_email?: string
-  employeeEmail?: string
-  email?: string
-  category?: string
-  amount?: string | number
-  currency?: string
-  date?: string
-  expense_date?: string
-  description?: string
-  [key: string]: unknown
+export interface CreateLineInput {
+  category: string
+  amount: number
+  currency: string
+  expenseDate: string  // YYYY-MM-DD
+  description?: string | null
 }
+
+export interface UpdateLineInput extends Partial<CreateLineInput> {}
 
 const MAX_SYNC_ATTEMPTS = 3
 
@@ -40,16 +40,20 @@ const MAX_SYNC_ATTEMPTS = 3
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function logAudit(
-  expenseId: number,
-  fromStatus: ExpenseStatus | null,
-  toStatus: ExpenseStatus,
+function isMockExternal(): boolean {
+  return process.env['MOCK_EXTERNAL'] === 'true'
+}
+
+async function logReportAudit(
+  reportId: number,
+  fromStatus: ExpenseReportStatus | null,
+  toStatus: ExpenseReportStatus,
   actorId: number | null,
   actorName: string | null,
   note?: string
 ) {
-  await db.insert(expenseAuditLog).values({
-    expenseId,
+  await db.insert(expenseReportAuditLog).values({
+    reportId,
     fromStatus: fromStatus ?? undefined,
     toStatus,
     actorId: actorId ?? undefined,
@@ -58,133 +62,115 @@ async function logAudit(
   })
 }
 
-function isMockExternal(): boolean {
-  return process.env['MOCK_EXTERNAL'] === 'true'
-}
-
-function buildNetSuiteUrl(netsuiteId: string | null | undefined): string | null {
-  if (!netsuiteId) return null
-  const accountId = process.env['NS_ACCOUNT_ID']
-  if (!accountId) return null
-  const accountSlug = accountId.replace(/_/g, '-').toLowerCase()
-  return `https://${accountSlug}.app.netsuite.com/app/accounting/transactions/exprpt.nl?id=${netsuiteId}`
-}
-
 // ---------------------------------------------------------------------------
-// CSV parsing
+// LINES — users add these as they incur expenses
 // ---------------------------------------------------------------------------
 
-export function parseCsv(buffer: Buffer): CsvRow[] {
-  const workbook = XLSX.read(buffer, { type: 'buffer', raw: false })
-  const sheet = workbook.Sheets[workbook.SheetNames[0]!]
-  if (!sheet) throw new Error('No sheet found in uploaded file')
-  return XLSX.utils.sheet_to_json<CsvRow>(sheet, { defval: '' })
+export async function createLine(
+  userId: number,
+  input: CreateLineInput
+): Promise<typeof expenseLines.$inferSelect> {
+  if (!input.amount || input.amount <= 0) throw new Error('Amount must be greater than zero')
+  if (!input.category) throw new Error('Category is required')
+  if (!input.expenseDate) throw new Error('Expense date is required')
+
+  const [line] = await db.insert(expenseLines).values({
+    userId,
+    status: 'draft',
+    category: input.category,
+    amount: String(input.amount),
+    currency: (input.currency || 'HKD').toUpperCase(),
+    expenseDate: input.expenseDate,
+    description: input.description ?? undefined,
+  }).returning()
+  if (!line) throw new Error('Failed to create line')
+  return line
 }
 
-function extractItem(row: CsvRow, expenseId: number) {
-  const email =
-    (row.employee_email as string) || (row.employeeEmail as string) || (row.email as string) || ''
-  const amount = parseFloat(String(row.amount ?? '0')) || 0
-  const currency = (row.currency as string) || 'HKD'
-  const expenseDate =
-    (row.expense_date as string) || (row.date as string) || undefined
-  const category = (row.category as string) || undefined
-  const description = (row.description as string) || undefined
-
-  // Store all original keys as raw data for reference
-  const rawData: Record<string, string> = {}
-  for (const [k, v] of Object.entries(row)) {
-    rawData[k] = String(v ?? '')
+export async function updateLine(
+  userId: number,
+  lineId: number,
+  input: UpdateLineInput
+): Promise<typeof expenseLines.$inferSelect> {
+  const line = await db.query.expenseLines.findFirst({
+    where: eq(expenseLines.id, lineId),
+    with: { report: true },
+  })
+  if (!line) throw new Error('Line not found')
+  if (line.userId !== userId) throw new Error('Forbidden')
+  if (line.status === 'in_report' && line.report) {
+    const blocked: ExpenseReportStatus[] = ['AWAITING_APPROVAL', 'APPROVED', 'SYNCING', 'SYNCED']
+    if (blocked.includes(line.report.status as ExpenseReportStatus)) {
+      throw new Error(`Cannot edit a line attached to a ${line.report.status} report`)
+    }
   }
 
-  return {
-    expenseId,
-    employeeEmail: email,
-    amount: String(amount),
-    currency,
-    expenseDate: expenseDate || undefined,
-    category,
-    description,
-    rawData,
+  const updates: Partial<typeof expenseLines.$inferInsert> = {}
+  if (input.category !== undefined) updates.category = input.category
+  if (input.amount !== undefined) updates.amount = String(input.amount)
+  if (input.currency !== undefined) updates.currency = input.currency.toUpperCase()
+  if (input.expenseDate !== undefined) updates.expenseDate = input.expenseDate
+  if (input.description !== undefined) updates.description = input.description ?? undefined
+
+  const [updated] = await db
+    .update(expenseLines)
+    .set(updates)
+    .where(eq(expenseLines.id, lineId))
+    .returning()
+  if (!updated) throw new Error('Failed to update line')
+  return updated
+}
+
+export async function deleteLine(userId: number, lineId: number): Promise<void> {
+  const line = await db.query.expenseLines.findFirst({ where: eq(expenseLines.id, lineId) })
+  if (!line) throw new Error('Line not found')
+  if (line.userId !== userId) throw new Error('Forbidden')
+  if (line.status !== 'draft') {
+    throw new Error('Only draft lines can be deleted. Reject the report first if you need to remove an attached line.')
   }
+  await db.delete(expenseLines).where(eq(expenseLines.id, lineId))
 }
 
-// ---------------------------------------------------------------------------
-// Upload
-// ---------------------------------------------------------------------------
-
-export async function uploadExpenses(
+export async function attachReceipt(
   userId: number,
-  filename: string,
-  buffer: Buffer
-): Promise<typeof expenses.$inferSelect> {
-  const rows = parseCsv(buffer)
-  if (rows.length === 0) throw new Error('CSV file is empty or has no data rows')
-
-  const [expense] = await db
-    .insert(expenses)
-    .values({ uploadedByUserId: userId, filename, status: 'PENDING_REVIEW' })
+  lineId: number,
+  url: string,
+  originalName: string
+): Promise<typeof expenseLines.$inferSelect> {
+  const line = await db.query.expenseLines.findFirst({
+    where: eq(expenseLines.id, lineId),
+    with: { report: true },
+  })
+  if (!line) throw new Error('Line not found')
+  if (line.userId !== userId) throw new Error('Forbidden')
+  if (line.report && ['AWAITING_APPROVAL', 'APPROVED', 'SYNCING', 'SYNCED'].includes(line.report.status)) {
+    throw new Error(`Cannot attach receipt to a line in a ${line.report.status} report`)
+  }
+  const [updated] = await db
+    .update(expenseLines)
+    .set({ receiptUrl: url, receiptOriginalName: originalName })
+    .where(eq(expenseLines.id, lineId))
     .returning()
+  if (!updated) throw new Error('Failed to save receipt')
+  return updated
+}
 
-  if (!expense) throw new Error('Failed to create expense record')
-
-  const items = rows.map((row) => extractItem(row, expense.id))
-  await db.insert(expenseItems).values(items)
-
-  await logAudit(expense.id, null, 'PENDING_REVIEW', userId, null, `Uploaded ${rows.length} rows`)
-
-  return expense
+export async function listMyLines(userId: number, statusFilter?: 'draft' | 'in_report') {
+  const where = statusFilter
+    ? and(eq(expenseLines.userId, userId), eq(expenseLines.status, statusFilter))
+    : eq(expenseLines.userId, userId)
+  return db.query.expenseLines.findMany({
+    where,
+    orderBy: [desc(expenseLines.expenseDate), desc(expenseLines.createdAt)],
+    with: { report: true },
+  })
 }
 
 // ---------------------------------------------------------------------------
-// Manual entry
+// REPORTS — bundle selected lines, approve, sync to NS
 // ---------------------------------------------------------------------------
 
-export interface ManualExpenseItem {
-  employeeEmail: string
-  category?: string
-  amount: number
-  currency?: string
-  expenseDate?: string
-  description?: string
-}
-
-export async function createManualExpense(
-  userId: number,
-  items: ManualExpenseItem[]
-): Promise<typeof expenses.$inferSelect> {
-  if (items.length === 0) throw new Error('At least one expense item is required')
-
-  const [expense] = await db
-    .insert(expenses)
-    .values({ uploadedByUserId: userId, filename: 'Manual entry', status: 'PENDING_REVIEW' })
-    .returning()
-
-  if (!expense) throw new Error('Failed to create expense record')
-
-  const dbItems = items.map((item) => ({
-    expenseId: expense.id,
-    employeeEmail: item.employeeEmail,
-    amount: String(item.amount),
-    currency: item.currency || 'HKD',
-    expenseDate: item.expenseDate || undefined,
-    category: item.category || undefined,
-    description: item.description || undefined,
-    rawData: item as unknown as Record<string, string>,
-  }))
-
-  await db.insert(expenseItems).values(dbItems)
-
-  await logAudit(expense.id, null, 'PENDING_REVIEW', userId, null, `Manual entry — ${items.length} item(s)`)
-
-  return expense
-}
-
-// ---------------------------------------------------------------------------
-// Manager check
-// ---------------------------------------------------------------------------
-
-export async function isManagerOf(managerId: number, employeeId?: number): Promise<boolean> {
+export async function isManagerOf(managerId: number, employeeId?: number | null): Promise<boolean> {
   if (!employeeId) return false
   const [employee] = await db
     .select({ managerId: users.managerId })
@@ -194,305 +180,304 @@ export async function isManagerOf(managerId: number, employeeId?: number): Promi
   return employee?.managerId === managerId
 }
 
-// ---------------------------------------------------------------------------
-// List & Get
-// ---------------------------------------------------------------------------
+function defaultReportTitle(dates: string[]): string {
+  if (dates.length === 0) return `Expense Report — ${new Date().toISOString().slice(0, 10)}`
+  const sorted = [...dates].sort()
+  const first = sorted[0]!
+  const last = sorted[sorted.length - 1]!
+  return first === last
+    ? `Expense Report — ${first}`
+    : `Expense Report — ${first} to ${last}`
+}
 
-export async function listExpenses(
+export async function createReport(
   userId: number,
-  role: string,
-  statusFilter?: string
-) {
+  lineIds: number[],
+  title?: string
+): Promise<typeof expenseReports.$inferSelect> {
+  if (lineIds.length === 0) throw new Error('Select at least one expense line')
+
+  // Validate lines: must all belong to the user, all draft, all not yet in a report.
+  const lines = await db.query.expenseLines.findMany({
+    where: inArray(expenseLines.id, lineIds),
+  })
+  if (lines.length !== lineIds.length) throw new Error('One or more selected lines not found')
+  for (const line of lines) {
+    if (line.userId !== userId) throw new Error('You can only include your own expense lines in a report')
+    if (line.status !== 'draft' || line.reportId) {
+      throw new Error(`Line #${line.id} is already attached to a report`)
+    }
+  }
+
+  const dates = lines.map((l) => l.expenseDate).filter(Boolean) as string[]
+  const finalTitle = title?.trim() || defaultReportTitle(dates)
+
+  const [report] = await db.insert(expenseReports).values({
+    userId,
+    title: finalTitle,
+    status: 'PENDING_REVIEW',
+  }).returning()
+  if (!report) throw new Error('Failed to create report')
+
+  await db
+    .update(expenseLines)
+    .set({ reportId: report.id, status: 'in_report' })
+    .where(inArray(expenseLines.id, lineIds))
+
+  await logReportAudit(report.id, null, 'PENDING_REVIEW', userId, null, `Created from ${lineIds.length} line(s)`)
+  return report
+}
+
+function buildNetSuiteUrl(netsuiteId: string | null | undefined, storedUrl: string | null | undefined): string | null {
+  if (storedUrl) return storedUrl
+  if (!netsuiteId) return null
+  const accountId = process.env['NS_ACCOUNT_ID']
+  if (!accountId) return null
+  const slug = accountId.replace(/_/g, '-').toLowerCase()
+  return `https://${slug}.app.netsuite.com/app/accounting/transactions/exprpt.nl?id=${netsuiteId}`
+}
+
+export async function getReport(id: number) {
+  const report = await db.query.expenseReports.findFirst({
+    where: eq(expenseReports.id, id),
+    with: {
+      user: { columns: { id: true, name: true, email: true, regionId: true } },
+      lines: true,
+      auditLog: { orderBy: [desc(expenseReportAuditLog.createdAt)] },
+    },
+  })
+  if (!report) throw new Error('Report not found')
+  return { ...report, netsuiteUrl: buildNetSuiteUrl(report.netsuiteId, report.netsuiteUrl) }
+}
+
+export async function listReports(userId: number, role: string, statusFilter?: string) {
   const isHrOrAbove = ['hr_admin', 'super_admin'].includes(role)
-
-  const rows = await db.query.expenses.findMany({
+  const all = await db.query.expenseReports.findMany({
     with: {
-      uploadedBy: { columns: { id: true, name: true, email: true } },
-      items: true,
-      attachments: true,
+      user: { columns: { id: true, name: true, email: true } },
+      lines: true,
     },
-    orderBy: [desc(expenses.createdAt)],
+    orderBy: [desc(expenseReports.createdAt)],
   })
-
-  let filtered = rows
+  let filtered = all
   if (!isHrOrAbove) {
-    const directReportIds = await db
-      .select({ id: users.id })
-      .from(users)
-      .where(eq(users.managerId, userId))
-    const reportIds = new Set(directReportIds.map((r) => r.id))
-    reportIds.add(userId)
-    filtered = rows.filter((e) => reportIds.has(e.uploadedByUserId))
+    const reports = await db.select({ id: users.id }).from(users).where(eq(users.managerId, userId))
+    const visible = new Set(reports.map((r) => r.id))
+    visible.add(userId)
+    filtered = all.filter((r) => visible.has(r.userId))
   }
-  if (statusFilter) {
-    filtered = filtered.filter((e) => e.status === statusFilter)
-  }
-  return filtered.map((e) => ({ ...e, netsuiteUrl: buildNetSuiteUrl(e.netsuiteId) }))
-}
-
-export async function getExpense(id: number) {
-  const expense = await db.query.expenses.findFirst({
-    where: eq(expenses.id, id),
-    with: {
-      uploadedBy: { columns: { id: true, name: true, email: true } },
-      items: true,
-      auditLog: { orderBy: [desc(expenseAuditLog.createdAt)] },
-      attachments: true,
-    },
-  })
-  if (!expense) throw new Error('Expense not found')
-  return { ...expense, netsuiteUrl: buildNetSuiteUrl(expense.netsuiteId) }
+  if (statusFilter) filtered = filtered.filter((r) => r.status === statusFilter)
+  return filtered.map((r) => ({ ...r, netsuiteUrl: buildNetSuiteUrl(r.netsuiteId, r.netsuiteUrl) }))
 }
 
 // ---------------------------------------------------------------------------
-// Slack DM helper
+// Approval flow
 // ---------------------------------------------------------------------------
 
-async function dmManagerAboutExpenses(
-  submitterId: number,
-  expenseIds: number[],
-  appUrl: string
+async function notifyHr(
+  reportId: number,
+  outcome: 'synced' | 'failed',
+  detail: string
 ): Promise<void> {
   if (isMockExternal()) {
-    console.log(`[expense] MOCK — would DM manager about expenses: ${expenseIds.join(', ')}`)
+    console.log(`[expense] MOCK — would HR-notify report #${reportId} (${outcome}): ${detail}`)
+    return
+  }
+  const channel = process.env['EXPENSE_HR_SLACK_CHANNEL']
+  if (!channel) return // notification is opt-in
+  const botToken = process.env['SLACK_BOT_TOKEN']
+  if (!botToken) {
+    console.warn('[expense] SLACK_BOT_TOKEN not set — skipping HR notification')
     return
   }
 
+  const report = await db.query.expenseReports.findFirst({
+    where: eq(expenseReports.id, reportId),
+    with: { user: { columns: { name: true, email: true } }, lines: true },
+  })
+  if (!report) return
+
+  const total = report.lines.reduce((s, l) => s + parseFloat(l.amount || '0'), 0)
+  const currency = report.lines[0]?.currency ?? 'HKD'
+  const submitter = report.user?.name ?? report.user?.email ?? `User #${report.userId}`
+
+  // Slack's KnownBlock union is strict; cast through any to keep this readable.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const blocks: any[] =
+    outcome === 'synced'
+      ? [
+          { type: 'header', text: { type: 'plain_text', text: 'Expense Report synced to NetSuite' } },
+          {
+            type: 'section',
+            fields: [
+              { type: 'mrkdwn', text: `*From:*\n${submitter}` },
+              { type: 'mrkdwn', text: `*Title:*\n${report.title}` },
+              { type: 'mrkdwn', text: `*Lines:*\n${report.lines.length}` },
+              { type: 'mrkdwn', text: `*Total:*\n${currency} ${total.toFixed(2)}` },
+            ],
+          },
+          { type: 'section', text: { type: 'mrkdwn', text: `<${detail}|View in NetSuite →>` } },
+        ]
+      : [
+          { type: 'header', text: { type: 'plain_text', text: 'Expense Report sync FAILED' } },
+          {
+            type: 'section',
+            fields: [
+              { type: 'mrkdwn', text: `*From:*\n${submitter}` },
+              { type: 'mrkdwn', text: `*Title:*\n${report.title}` },
+              { type: 'mrkdwn', text: `*Total:*\n${currency} ${total.toFixed(2)}` },
+            ],
+          },
+          { type: 'section', text: { type: 'mrkdwn', text: `*Error:*\n\`${detail.substring(0, 500)}\`` } },
+        ]
+
+  const client = new WebClient(botToken)
+  await client.chat.postMessage({
+    channel,
+    text: outcome === 'synced'
+      ? `Expense report from ${submitter} synced to NetSuite`
+      : `Expense report from ${submitter} failed to sync`,
+    blocks,
+  }).catch((err: Error) => console.error('[expense] HR notify failed:', err.message))
+}
+
+async function dmManagerAboutReport(
+  reportId: number,
+  submitterId: number,
+  appUrl: string
+): Promise<void> {
+  if (isMockExternal()) {
+    console.log(`[expense] MOCK — would DM manager about report #${reportId}`)
+    return
+  }
   const botToken = process.env['SLACK_BOT_TOKEN']
   if (!botToken) {
     console.warn('[expense] SLACK_BOT_TOKEN not set — skipping manager DM')
     return
   }
-
   const managerSlackId = await getSupervisorSlackId(submitterId)
   if (!managerSlackId) {
-    console.warn(`[expense] No manager Slack ID found for user ${submitterId} — skipping DM`)
+    console.warn(`[expense] No manager Slack ID for user ${submitterId} — skipping DM`)
     return
   }
 
   const submitter = await getUserById(submitterId)
   const employeeName = submitter?.name ?? `User #${submitterId}`
-  const count = expenseIds.length
-
-  // Fetch expense details for total amount
-  const expenseRows = await db.query.expenses.findMany({
-    where: inArray(expenses.id, expenseIds),
-    with: { items: true },
+  const report = await db.query.expenseReports.findFirst({
+    where: eq(expenseReports.id, reportId),
+    with: { lines: true },
   })
-  const totalAmount = expenseRows.reduce((sum, e) =>
-    sum + e.items.reduce((s, i) => s + parseFloat(i.amount || '0'), 0), 0
-  )
-  const currency = expenseRows[0]?.items[0]?.currency ?? 'HKD'
+  if (!report) return
 
+  const total = report.lines.reduce((s, l) => s + parseFloat(l.amount || '0'), 0)
+  const currency = report.lines[0]?.currency ?? 'HKD'
   const reviewUrl = `${appUrl}/expenses`
-  const submitText = count === 1
-    ? `${employeeName} has submitted 1 expense for your approval`
-    : `${employeeName} has submitted ${count} expenses for your approval`
 
   const client = new WebClient(botToken)
-  const dmBlocks: any[] = [
-    { type: 'header', text: { type: 'plain_text', text: '💰 Expense Approval Required' } },
-    { type: 'divider' },
-    {
-      type: 'section',
-      fields: [
-        { type: 'mrkdwn', text: `*Submitted by:*\n${employeeName}` },
-        { type: 'mrkdwn', text: `*Expenses:*\n${count}` },
-        { type: 'mrkdwn', text: `*Total Amount:*\n${currency} ${totalAmount.toFixed(2)}` },
-      ],
-    },
-    {
-      type: 'section',
-      text: { type: 'mrkdwn', text: `<${reviewUrl}|View and approve in the Bloom LMS →>` },
-    },
-  ]
-  if (expenseIds.length === 1) {
-    dmBlocks.push({
-      type: 'actions',
-      elements: [
-        {
-          type: 'button',
-          text: { type: 'plain_text', text: '✅ Approve' },
-          style: 'primary',
-          action_id: 'expense_approve',
-          value: String(expenseIds[0]),
-        },
-        {
-          type: 'button',
-          text: { type: 'plain_text', text: '❌ Reject' },
-          style: 'danger',
-          action_id: 'expense_reject',
-          value: String(expenseIds[0]),
-        },
-      ],
-    })
-  }
   await client.chat.postMessage({
     channel: managerSlackId,
-    text: submitText,
-    blocks: dmBlocks,
-  }).catch((err: Error) => console.error('[expense] Manager DM failed:', err.message))
+    text: `${employeeName} has submitted an expense report for your approval`,
+    blocks: [
+      { type: 'header', text: { type: 'plain_text', text: 'Expense Report — approval needed' } },
+      { type: 'divider' },
+      {
+        type: 'section',
+        fields: [
+          { type: 'mrkdwn', text: `*From:*\n${employeeName}` },
+          { type: 'mrkdwn', text: `*Title:*\n${report.title}` },
+          { type: 'mrkdwn', text: `*Lines:*\n${report.lines.length}` },
+          { type: 'mrkdwn', text: `*Total:*\n${currency} ${total.toFixed(2)}` },
+        ],
+      },
+      { type: 'section', text: { type: 'mrkdwn', text: `<${reviewUrl}|Review and approve in the LMS →>` } },
+      {
+        type: 'actions',
+        elements: [
+          { type: 'button', text: { type: 'plain_text', text: 'Approve' }, style: 'primary', action_id: 'expense_report_approve', value: String(reportId) },
+          { type: 'button', text: { type: 'plain_text', text: 'Reject' }, style: 'danger', action_id: 'expense_report_reject', value: String(reportId) },
+        ],
+      },
+    ],
+  }).catch((err: Error) => console.error('[expense] DM failed:', err.message))
 }
 
-// ---------------------------------------------------------------------------
-// Send for Approval (single)
-// ---------------------------------------------------------------------------
-
-export async function sendForApproval(
-  expenseId: number,
-  userId: number
-): Promise<void> {
-  const expense = await db.query.expenses.findFirst({
-    where: eq(expenses.id, expenseId),
-    with: { items: true, uploadedBy: { columns: { id: true, name: true } } },
-  })
-  if (!expense) throw new Error('Expense not found')
-  if (expense.status !== 'PENDING_REVIEW') {
-    throw new Error(`Cannot send for approval — current status: ${expense.status}`)
+export async function sendForApproval(reportId: number, userId: number): Promise<void> {
+  const report = await db.query.expenseReports.findFirst({ where: eq(expenseReports.id, reportId) })
+  if (!report) throw new Error('Report not found')
+  if (report.userId !== userId) throw new Error('Forbidden')
+  if (report.status !== 'PENDING_REVIEW') {
+    throw new Error(`Cannot send for approval — current status: ${report.status}`)
   }
 
-  await db
-    .update(expenses)
-    .set({ status: 'AWAITING_APPROVAL' })
-    .where(eq(expenses.id, expenseId))
-
-  await logAudit(expenseId, 'PENDING_REVIEW', 'AWAITING_APPROVAL', userId, null, 'Sent for approval')
+  await db.update(expenseReports).set({ status: 'AWAITING_APPROVAL' }).where(eq(expenseReports.id, reportId))
+  await logReportAudit(reportId, 'PENDING_REVIEW', 'AWAITING_APPROVAL', userId, null, 'Sent for approval')
 
   const appUrl = process.env['CLIENT_URL'] ?? 'http://localhost:5173'
-  await dmManagerAboutExpenses(userId, [expenseId], appUrl)
+  await dmManagerAboutReport(reportId, userId, appUrl)
 }
 
-// ---------------------------------------------------------------------------
-// Send Bulk for Approval (all PENDING_REVIEW for this user)
-// ---------------------------------------------------------------------------
-
-export async function sendBulkForApproval(userId: number): Promise<number[]> {
-  const pending = await db.query.expenses.findMany({
-    where: eq(expenses.uploadedByUserId, userId),
-  })
-  const toSubmit = pending.filter((e) => e.status === 'PENDING_REVIEW')
-  if (toSubmit.length === 0) throw new Error('No pending expenses to submit')
-
-  const ids = toSubmit.map((e) => e.id)
-
-  await db
-    .update(expenses)
-    .set({ status: 'AWAITING_APPROVAL' })
-    .where(inArray(expenses.id, ids))
-
-  for (const id of ids) {
-    await logAudit(id, 'PENDING_REVIEW', 'AWAITING_APPROVAL', userId, null, 'Bulk sent for approval')
-  }
-
-  const appUrl = process.env['CLIENT_URL'] ?? 'http://localhost:5173'
-  await dmManagerAboutExpenses(userId, ids, appUrl)
-
-  return ids
-}
-
-export async function saveSlackMessage(
-  expenseId: number,
-  messageTs: string,
-  channelId: string
-) {
-  await db
-    .update(expenses)
-    .set({ slackMessageTs: messageTs, slackChannelId: channelId })
-    .where(eq(expenses.id, expenseId))
-}
-
-// ---------------------------------------------------------------------------
-// Attachments
-// ---------------------------------------------------------------------------
-
-export async function addAttachment(
-  expenseId: number,
-  url: string,
-  originalName: string
-): Promise<typeof expenseAttachments.$inferSelect> {
-  const expense = await db.query.expenses.findFirst({ where: eq(expenses.id, expenseId) })
-  if (!expense) throw new Error('Expense not found')
-
-  const [attachment] = await db
-    .insert(expenseAttachments)
-    .values({ expenseId, url, originalName })
-    .returning()
-  if (!attachment) throw new Error('Failed to save attachment')
-  return attachment
-}
-
-// ---------------------------------------------------------------------------
-// Approve / Reject (called from Slack handler)
-// ---------------------------------------------------------------------------
-
-export async function approveExpense(
-  expenseId: number,
+export async function approveReport(
+  reportId: number,
   actorId: number | null,
   actorName: string
 ): Promise<void> {
-  const expense = await db.query.expenses.findFirst({ where: eq(expenses.id, expenseId) })
-  if (!expense) throw new Error('Expense not found')
-  if (expense.status !== 'AWAITING_APPROVAL') {
-    throw new Error(`Cannot approve — current status: ${expense.status}`)
+  const report = await db.query.expenseReports.findFirst({ where: eq(expenseReports.id, reportId) })
+  if (!report) throw new Error('Report not found')
+  if (report.status !== 'AWAITING_APPROVAL') {
+    throw new Error(`Cannot approve — current status: ${report.status}`)
   }
-
-  await db.update(expenses).set({ status: 'APPROVED' }).where(eq(expenses.id, expenseId))
-  await logAudit(expenseId, 'AWAITING_APPROVAL', 'APPROVED', actorId, actorName, 'Approved via Slack')
-
-  // Immediately kick off sync
-  await startSync(expenseId, actorId, actorName)
+  await db.update(expenseReports).set({ status: 'APPROVED' }).where(eq(expenseReports.id, reportId))
+  await logReportAudit(reportId, 'AWAITING_APPROVAL', 'APPROVED', actorId, actorName, 'Approved')
+  await startSync(reportId, actorId, actorName)
 }
 
-export async function rejectExpense(
-  expenseId: number,
+export async function rejectReport(
+  reportId: number,
   actorId: number | null,
   actorName: string,
   note?: string
 ): Promise<void> {
-  const expense = await db.query.expenses.findFirst({ where: eq(expenses.id, expenseId) })
-  if (!expense) throw new Error('Expense not found')
-  if (expense.status !== 'AWAITING_APPROVAL') {
-    throw new Error(`Cannot reject — current status: ${expense.status}`)
+  const report = await db.query.expenseReports.findFirst({ where: eq(expenseReports.id, reportId) })
+  if (!report) throw new Error('Report not found')
+  if (report.status !== 'AWAITING_APPROVAL') {
+    throw new Error(`Cannot reject — current status: ${report.status}`)
   }
-
-  await db
-    .update(expenses)
+  await db.update(expenseReports)
     .set({ status: 'REJECTED', rejectionNote: note ?? null })
-    .where(eq(expenses.id, expenseId))
-  await logAudit(expenseId, 'AWAITING_APPROVAL', 'REJECTED', actorId, actorName, note ?? 'Rejected via Slack')
+    .where(eq(expenseReports.id, reportId))
+  await logReportAudit(reportId, 'AWAITING_APPROVAL', 'REJECTED', actorId, actorName, note ?? 'Rejected')
 }
 
-// ---------------------------------------------------------------------------
-// Resubmit after rejection
-// ---------------------------------------------------------------------------
-
-export async function resubmitExpense(expenseId: number, userId: number): Promise<void> {
-  const expense = await db.query.expenses.findFirst({ where: eq(expenses.id, expenseId) })
-  if (!expense) throw new Error('Expense not found')
-  if (expense.status !== 'REJECTED') {
-    throw new Error(`Cannot resubmit — current status: ${expense.status}`)
+export async function resubmitReport(reportId: number, userId: number): Promise<void> {
+  const report = await db.query.expenseReports.findFirst({ where: eq(expenseReports.id, reportId) })
+  if (!report) throw new Error('Report not found')
+  if (report.userId !== userId) throw new Error('Forbidden')
+  if (report.status !== 'REJECTED') {
+    throw new Error(`Cannot resubmit — current status: ${report.status}`)
   }
-  if (expense.uploadedByUserId !== userId) throw new Error('Forbidden')
-
-  await db
-    .update(expenses)
+  await db.update(expenseReports)
     .set({ status: 'PENDING_REVIEW', rejectionNote: null })
-    .where(eq(expenses.id, expenseId))
-  await logAudit(expenseId, 'REJECTED', 'PENDING_REVIEW', userId, null, 'Resubmitted by user')
+    .where(eq(expenseReports.id, reportId))
+  await logReportAudit(reportId, 'REJECTED', 'PENDING_REVIEW', userId, null, 'Resubmitted')
 }
 
-// ---------------------------------------------------------------------------
-// Retry sync
-// ---------------------------------------------------------------------------
-
-export async function retrySync(expenseId: number, userId: number): Promise<void> {
-  const expense = await db.query.expenses.findFirst({ where: eq(expenses.id, expenseId) })
-  if (!expense) throw new Error('Expense not found')
-  if (expense.status !== 'SYNC_FAILED') {
-    throw new Error(`Cannot retry — current status: ${expense.status}`)
+export async function retrySync(reportId: number, userId: number): Promise<void> {
+  const report = await db.query.expenseReports.findFirst({ where: eq(expenseReports.id, reportId) })
+  if (!report) throw new Error('Report not found')
+  if (report.status !== 'SYNC_FAILED') {
+    throw new Error(`Cannot retry — current status: ${report.status}`)
   }
+  await startSync(reportId, userId, null)
+}
 
-  await startSync(expenseId, userId, null)
+export async function saveSlackMessage(
+  reportId: number,
+  messageTs: string,
+  channelId: string
+): Promise<void> {
+  await db.update(expenseReports)
+    .set({ slackMessageTs: messageTs, slackChannelId: channelId })
+    .where(eq(expenseReports.id, reportId))
 }
 
 // ---------------------------------------------------------------------------
@@ -500,209 +485,151 @@ export async function retrySync(expenseId: number, userId: number): Promise<void
 // ---------------------------------------------------------------------------
 
 async function startSync(
-  expenseId: number,
+  reportId: number,
   actorId: number | null,
   actorName: string | null
 ): Promise<void> {
-  const expense = await db.query.expenses.findFirst({ where: eq(expenses.id, expenseId) })
-  if (!expense) return
+  const report = await db.query.expenseReports.findFirst({ where: eq(expenseReports.id, reportId) })
+  if (!report) return
 
-  const attempts = expense.syncAttempts + 1
-  await db
-    .update(expenses)
-    .set({ status: 'SYNCING', syncAttempts: attempts, syncError: null })
-    .where(eq(expenses.id, expenseId))
-  await logAudit(expenseId, expense.status as ExpenseStatus, 'SYNCING', actorId, actorName, `Sync attempt ${attempts}`)
+  if (process.env['EXPENSE_SYNC_DISABLED'] === 'true') {
+    console.log(`[expense] Sync disabled by EXPENSE_SYNC_DISABLED — report #${reportId} stays APPROVED`)
+    await logReportAudit(reportId, report.status as ExpenseReportStatus, report.status as ExpenseReportStatus, actorId, actorName, 'NetSuite sync skipped — EXPENSE_SYNC_DISABLED is set')
+    return
+  }
 
-  // Run async — don't await so the caller returns quickly
-  syncToNetSuite(expenseId, attempts).catch((err: Error) =>
-    console.error(`[expense] Sync error for #${expenseId}:`, err.message)
+  const attempt = report.syncAttempts + 1
+  await db.update(expenseReports)
+    .set({ status: 'SYNCING', syncAttempts: attempt, syncError: null })
+    .where(eq(expenseReports.id, reportId))
+  await logReportAudit(reportId, report.status as ExpenseReportStatus, 'SYNCING', actorId, actorName, `Sync attempt ${attempt}`)
+
+  // Run async — caller returns immediately
+  syncToNetSuite(reportId, attempt).catch((err: Error) =>
+    console.error(`[expense] Sync error for report #${reportId}:`, err.message)
   )
 }
 
-async function syncToNetSuite(expenseId: number, attempt: number): Promise<void> {
-  const expense = await db.query.expenses.findFirst({
-    where: eq(expenses.id, expenseId),
-    with: { items: true, uploadedBy: { columns: { email: true, name: true } } },
+async function syncToNetSuite(reportId: number, attempt: number): Promise<void> {
+  const report = await db.query.expenseReports.findFirst({
+    where: eq(expenseReports.id, reportId),
+    with: {
+      user: { columns: { email: true, name: true, regionId: true } },
+      lines: true,
+    },
   })
-  if (!expense) return
+  if (!report) return
 
   try {
-    let netsuiteId: string | null = null
+    let netsuiteId: string
+    let netsuiteUrl = ''
 
     if (isMockExternal()) {
-      console.log(`[expense] MOCK NetSuite sync for expense #${expenseId} (attempt ${attempt})`)
-      netsuiteId = `NS-MOCK-${expenseId}-${Date.now()}`
+      netsuiteId = `NS-MOCK-${reportId}-${Date.now()}`
+      console.log(`[expense] MOCK NetSuite sync for report #${reportId} (attempt ${attempt}) → ${netsuiteId}`)
     } else {
-      const nsAccountId = process.env['NS_ACCOUNT_ID']
-      const nsTokenId = process.env['NS_TOKEN_ID']
-      const nsTokenSecret = process.env['NS_TOKEN_SECRET']
-      const nsConsumerKey = process.env['NS_CONSUMER_KEY']
-      const nsConsumerSecret = process.env['NS_CONSUMER_SECRET']
+      if (!report.user?.email) throw new Error('Submitter has no email — cannot match NetSuite employee')
+      if (!report.user.regionId) throw new Error('Submitter has no region — cannot determine NetSuite subsidiary')
 
-      console.log(`[expense] ── NetSuite Sync Start ──────────────────────────`)
-      console.log(`[expense]   Expense ID:    #${expenseId}`)
-      console.log(`[expense]   Attempt:       ${attempt} / ${MAX_SYNC_ATTEMPTS}`)
-      console.log(`[expense]   Uploaded by:   ${expense.uploadedBy?.name ?? 'unknown'} (${expense.uploadedBy?.email ?? 'unknown'})`)
-      console.log(`[expense]   Filename:      ${expense.filename}`)
-      console.log(`[expense]   Items:         ${expense.items?.length ?? 0}`)
-      console.log(`[expense]   Account ID:    ${nsAccountId ?? 'NOT SET'}`)
-      console.log(`[expense]   Consumer Key:  ${nsConsumerKey ? nsConsumerKey.substring(0, 8) + '...' + nsConsumerKey.slice(-4) : 'NOT SET'}`)
-      console.log(`[expense]   Token ID:      ${nsTokenId ? nsTokenId.substring(0, 8) + '...' + nsTokenId.slice(-4) : 'NOT SET'}`)
+      const [region] = await db.select({ name: regions.name })
+        .from(regions)
+        .where(eq(regions.id, report.user.regionId))
+        .limit(1)
+      if (!region?.name) throw new Error(`Region #${report.user.regionId} not found`)
 
-      if (!nsAccountId || !nsTokenId || !nsTokenSecret || !nsConsumerKey || !nsConsumerSecret) {
-        const missing = [
-          !nsAccountId && 'NS_ACCOUNT_ID',
-          !nsConsumerKey && 'NS_CONSUMER_KEY',
-          !nsConsumerSecret && 'NS_CONSUMER_SECRET',
-          !nsTokenId && 'NS_TOKEN_ID',
-          !nsTokenSecret && 'NS_TOKEN_SECRET',
-        ].filter(Boolean).join(', ')
-        throw new Error(`NetSuite credentials missing: ${missing}`)
+      const dates = report.lines.map((l) => l.expenseDate).filter(Boolean) as string[]
+      const reportDate = dates.length ? dates.sort().slice(-1)[0]! : new Date().toISOString().slice(0, 10)
+
+      const nsInput = {
+        employeeEmail: report.user.email,
+        subsidiaryName: region.name,
+        reportDate,
+        memo: report.title,
+        externalId: `lms-report-${reportId}`,
+        lines: report.lines.map((l) => ({
+          expenseDate: l.expenseDate ?? reportDate,
+          amount: parseFloat(l.amount),
+          currencyCode: l.currency || 'HKD',
+          category: l.category || '',
+          description: l.description ?? undefined,
+        })),
       }
 
-      const accountSlug = nsAccountId.replace(/_/g, '-').toLowerCase()
-      const realm = nsAccountId.replace(/-/g, '_').toUpperCase()
-      const baseUrl = `https://${accountSlug}.suitetalk.api.netsuite.com/services/rest/record/v1/expenseReport`
-
-      console.log(`[expense]   Realm:         ${realm}`)
-      console.log(`[expense]   URL:           ${baseUrl}`)
-
-      const payload = {
-        tranDate: expense.createdAt ? new Date(expense.createdAt).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
-        memo: `Bloom LMS Expense #${expenseId} — ${expense.filename}`,
-        expenseReportCurrency: { refName: expense.items?.[0]?.currency ?? 'HKD' },
-        expense: {
-          items: (expense.items ?? []).map((item: any) => ({
-            expenseDate: item.expenseDate ?? new Date().toISOString().slice(0, 10),
-            amount: parseFloat(item.amount),
-            currency: { refName: item.currency ?? 'HKD' },
-            category: item.category ? { refName: item.category } : undefined,
-            memo: item.description ?? '',
-          })),
-        },
+      // Dry-run: build + log the payload (which exercises every lookup), then
+      // revert status to APPROVED so the report can be re-tested without
+      // having to manually reset the row.
+      if (process.env['EXPENSE_DRY_RUN'] === 'true') {
+        const { payload } = await netsuite.buildExpenseReportPayload(nsInput)
+        console.log(`[expense] DRY RUN — report #${reportId} payload that would be POSTed:`)
+        console.log(JSON.stringify(payload, null, 2))
+        await db.update(expenseReports)
+          .set({ status: 'APPROVED', syncAttempts: 0, syncError: null })
+          .where(eq(expenseReports.id, reportId))
+        await logReportAudit(reportId, 'SYNCING', 'APPROVED', null, 'System', 'DRY RUN — payload built and logged, no POST. Status reverted to APPROVED.')
+        return
       }
 
-      console.log(`[expense]   Payload:       ${JSON.stringify(payload).substring(0, 500)}`)
-
-      const oauthHeader = buildNetSuiteOAuth1Header(
-        'POST', baseUrl, nsConsumerKey, nsConsumerSecret, nsTokenId, nsTokenSecret, nsAccountId
-      )
-
-      console.log(`[expense]   OAuth header:  ${oauthHeader.substring(0, 120)}...`)
-      console.log(`[expense]   Sending POST request...`)
-
-      let response: Response
-      const fetchStart = Date.now()
-      try {
-        response = await fetch(baseUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': oauthHeader,
-            'prefer': 'respond-async',
-          },
-          body: JSON.stringify(payload),
-        })
-      } catch (fetchErr: any) {
-        const elapsed = Date.now() - fetchStart
-        const cause = fetchErr?.cause ? ` | cause: ${fetchErr.cause?.message ?? JSON.stringify(fetchErr.cause)}` : ''
-        console.error(`[expense]   Network error after ${elapsed}ms: ${fetchErr.message}${cause}`)
-        throw new Error(`Network error reaching NetSuite: ${fetchErr.message}${cause}`)
-      }
-
-      const elapsed = Date.now() - fetchStart
-      console.log(`[expense]   Response:      ${response.status} ${response.statusText} (${elapsed}ms)`)
-
-      const responseHeaders: Record<string, string> = {}
-      response.headers.forEach((v, k) => { responseHeaders[k] = v })
-      console.log(`[expense]   Resp headers:  ${JSON.stringify(responseHeaders).substring(0, 500)}`)
-
-      if (!response.ok) {
-        const errorBody = await response.text()
-        console.error(`[expense]   Error body:    ${errorBody.substring(0, 1000)}`)
-        throw new Error(`NetSuite API returned ${response.status}: ${errorBody}`)
-      }
-
-      const location = response.headers.get('location')
-      if (location) {
-        console.log(`[expense]   Location:      ${location}`)
-        const idMatch = location.match(/\/(\d+)$/)
-        netsuiteId = idMatch ? idMatch[1] : location
-      } else {
-        const body = await response.json().catch(() => null) as Record<string, any> | null
-        console.log(`[expense]   Response body: ${JSON.stringify(body).substring(0, 500)}`)
-        netsuiteId = body?.id ? String(body.id) : `NS-${expenseId}-${Date.now()}`
-      }
-
-      console.log(`[expense]   NetSuite ID:   ${netsuiteId}`)
-      console.log(`[expense] ── NetSuite Sync Success ─────────────────────────`)
+      const result = await netsuite.createExpenseReport(nsInput)
+      netsuiteId = result.netsuiteId
+      netsuiteUrl = result.url
     }
 
-    await db
-      .update(expenses)
-      .set({ status: 'SYNCED', netsuiteId })
-      .where(eq(expenses.id, expenseId))
-    await logAudit(expenseId, 'SYNCING', 'SYNCED', null, 'System', `NetSuite ID: ${netsuiteId}`)
+    await db.update(expenseReports)
+      .set({ status: 'SYNCED', netsuiteId, netsuiteUrl: netsuiteUrl || null })
+      .where(eq(expenseReports.id, reportId))
+    await logReportAudit(reportId, 'SYNCING', 'SYNCED', null, 'System', `NetSuite ID: ${netsuiteId}`)
+    // Notification must not bubble — a failed Slack post would mark a live
+    // NetSuite record as SYNC_FAILED and trigger a duplicate retry POST.
+    await notifyHr(reportId, 'synced', netsuiteUrl || `NetSuite ID: ${netsuiteId}`)
+      .catch((e: Error) => console.error('[expense] HR notify failed:', e.message))
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err)
-    console.error(`[expense] Sync error for expense #${expenseId} (attempt ${attempt}): ${errMsg}`)
-
-    const current = await db.query.expenses.findFirst({ where: eq(expenses.id, expenseId) })
-    if (!current) return
-
+    console.error(`[expense] Sync failed for report #${reportId} (attempt ${attempt}): ${errMsg}`)
     if (attempt >= MAX_SYNC_ATTEMPTS) {
-      await db
-        .update(expenses)
+      await db.update(expenseReports)
         .set({ status: 'SYNC_FAILED', syncError: errMsg })
-        .where(eq(expenses.id, expenseId))
-      await logAudit(expenseId, 'SYNCING', 'SYNC_FAILED', null, 'System', `Failed after ${attempt} attempts: ${errMsg}`)
+        .where(eq(expenseReports.id, reportId))
+      await logReportAudit(reportId, 'SYNCING', 'SYNC_FAILED', null, 'System', `Failed after ${attempt} attempts: ${errMsg}`)
+      await notifyHr(reportId, 'failed', errMsg)
+        .catch((e: Error) => console.error('[expense] HR notify failed:', e.message))
     } else {
-      setTimeout(() => startSync(expenseId, null, null), 5000 * attempt)
+      // Schedule retry — note: lost on server restart, that's ok for v1
+      setTimeout(() => {
+        void (async () => {
+          await db.update(expenseReports)
+            .set({ status: 'SYNCING', syncAttempts: attempt + 1, syncError: null })
+            .where(eq(expenseReports.id, reportId))
+          syncToNetSuite(reportId, attempt + 1).catch((e: Error) =>
+            console.error(`[expense] Retry sync error for #${reportId}:`, e.message))
+        })()
+      }, 5000 * attempt)
     }
   }
 }
 
-function buildNetSuiteOAuth1Header(
-  method: string,
-  url: string,
-  consumerKey: string,
-  consumerSecret: string,
-  tokenId: string,
-  tokenSecret: string,
-  accountId: string
-): string {
-  const nonce = crypto.randomBytes(16).toString('hex')
-  const timestamp = Math.floor(Date.now() / 1000).toString()
+// ---------------------------------------------------------------------------
+// NetSuite passthrough for form dropdowns
+// ---------------------------------------------------------------------------
 
-  const params: Record<string, string> = {
-    oauth_consumer_key: consumerKey,
-    oauth_token: tokenId,
-    oauth_nonce: nonce,
-    oauth_timestamp: timestamp,
-    oauth_signature_method: 'HMAC-SHA256',
-    oauth_version: '1.0',
+export async function listNetSuiteCategories(): Promise<{ id: string; name?: string }[]> {
+  if (isMockExternal()) {
+    return [
+      { id: '1', name: 'Travel - Flights' },
+      { id: '2', name: 'Travel - Accommodation' },
+      { id: '3', name: 'Meals & Entertainment' },
+      { id: '4', name: 'Office Supplies' },
+    ]
   }
-
-  const sortedKeys = Object.keys(params).sort()
-  const paramString = sortedKeys.map(k => `${encodeRFC3986(k)}=${encodeRFC3986(params[k]!)}`).join('&')
-  const baseString = `${method.toUpperCase()}&${encodeRFC3986(url)}&${encodeRFC3986(paramString)}`
-  const signingKey = `${encodeRFC3986(consumerSecret)}&${encodeRFC3986(tokenSecret)}`
-
-  const signature = crypto
-    .createHmac('sha256', signingKey)
-    .update(baseString)
-    .digest('base64')
-
-  params['oauth_signature'] = signature
-  params['realm'] = accountId.replace(/-/g, '_').toUpperCase()
-
-  const headerParts = ['realm', 'oauth_consumer_key', 'oauth_token', 'oauth_nonce', 'oauth_timestamp', 'oauth_signature_method', 'oauth_version', 'oauth_signature']
-  const headerString = headerParts.map(k => `${k}="${encodeRFC3986(params[k]!)}"`).join(', ')
-
-  return `OAuth ${headerString}`
+  return netsuite.listExpenseCategories()
 }
 
-function encodeRFC3986(str: string): string {
-  return encodeURIComponent(str).replace(/[!'()*]/g, c => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)
+export async function listNetSuiteCurrencies(): Promise<{ id: string; name?: string; symbol?: string }[]> {
+  if (isMockExternal()) {
+    return [
+      { id: '1', name: 'Hong Kong Dollar', symbol: 'HKD' },
+      { id: '2', name: 'Singapore Dollar', symbol: 'SGD' },
+      { id: '3', name: 'US Dollar', symbol: 'USD' },
+    ]
+  }
+  return netsuite.listCurrencies()
 }
