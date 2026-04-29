@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -2130,13 +2130,27 @@ function PolicyDialog({
   const deleteTier = useDeleteTier()
   const { data: adminUsersData } = useAdminUsers({ pageSize: 500, isActive: true })
   const { data: tierRegions } = useRegions()
-  const allUsersForTiers = (adminUsersData?.data ?? []).map((u) => ({
-    id: u.id,
-    name: u.name,
-    regionCode: tierRegions?.find((r) => r.id === u.regionId)?.code,
-  }))
 
   const [tierFormOpen, setTierFormOpen] = useState<'add' | number | null>(null)
+
+  // The pickable list for the active tier form: only users from this policy's
+  // region, and excluding anyone already assigned to a *different* tier on
+  // this same policy (a user can only have one entitlement on one policy).
+  const allUsersForTiers = useMemo(() => {
+    const inOtherTiers = new Set<number>()
+    for (const tier of tiers) {
+      if (typeof tierFormOpen === 'number' && tier.id === tierFormOpen) continue
+      for (const u of tier.users) inOtherTiers.add(u.id)
+    }
+    return (adminUsersData?.data ?? [])
+      .filter((u) => u.regionId === policy.regionId)
+      .filter((u) => !inOtherTiers.has(u.id))
+      .map((u) => ({
+        id: u.id,
+        name: u.name,
+        regionCode: tierRegions?.find((r) => r.id === u.regionId)?.code,
+      }))
+  }, [adminUsersData, tiers, tierFormOpen, policy.regionId, tierRegions])
   const [tierDays, setTierDays] = useState('')
   const [tierLabel, setTierLabel] = useState('')
   const [tierUserIds, setTierUserIds] = useState<string[]>([])
